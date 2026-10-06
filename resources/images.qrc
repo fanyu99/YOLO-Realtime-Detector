@@ -1,0 +1,9 @@
+<RCC>
+    <!-- 相对路径以本文件所在目录（resources/）为基准 -->
+    <qresource prefix="/">
+        <file alias="image1">images/1 (369).jpg</file>
+    </qresource>
+    <qresource prefix="/models">
+        <file alias="african-wildlifeModel">models/african-wildlife_best.onnx</file>
+    </qresource>
+</RCC>
