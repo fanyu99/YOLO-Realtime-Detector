@@ -5,16 +5,16 @@
 
 struct DetectionTask;
 
-// 把一个 Task 的渲染结果落盘。目录约定：
+// 把一个 Task 的渲染结果保存到文件夹中。目录约定：
 //
 //   <用户选的根目录>/detection_results/
 //       图片任务 -> <原文件名>.jpg
 //       视频/摄像头任务 -> <原文件名>.mp4（VideoWriter 顺序写）
 //
-// 只保存"画了框的画面"，不写 labels —— 用途是视觉查看，不是训练/评估。
-//
-// 只在 worker 线程内使用，不跨线程，所以不需要锁。
-// 保存失败不抛异常、也不中断检测：错误记在 lastError() 里，由调用方上报一次。
+// 只保存"画了框的画面"
+// 
+// 错误记录在lastError()中
+
 class DetectionResultSaver {
 public:
 	static QString resultsDirFor(const QString& rootDir);

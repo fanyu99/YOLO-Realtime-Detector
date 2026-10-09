@@ -58,10 +58,13 @@ Dialog {
 			DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
 		}
 		Button {
+			id: acceptButton
+			focus: true
 			text: "确定"
 			DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
 		}
 	}
+	AcceptShortcut { popup: dialog; button: acceptButton }
 
 	// 点击"确定"：把设备编号交给后端
 	onAccepted: if (app) app.onDetectCameraClicked(cameraSpin.value)

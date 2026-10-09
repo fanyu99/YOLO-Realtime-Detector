@@ -3,6 +3,7 @@
 #include <QString>
 #include <QVector>
 #include "Box.h"
+// 显示图片和视频工具
 class ImageShower {
 public :
 	static void showImage(const QString& imagePath); // 显示图片(路径)

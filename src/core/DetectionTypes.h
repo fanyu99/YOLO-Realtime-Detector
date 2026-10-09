@@ -11,6 +11,7 @@
 #include <QtQmlIntegration/QtQmlIntegration>
 #include <filesystem>
 #include "Box.h"
+#include "FrameSource.h"
 
 
 // letterbox 预处理信息
@@ -134,14 +135,11 @@ public:
 	Code errorCodeValue() const { return errorCode; }
 };
 
-// 兼容原有命名
 using DetectorErrorCategory = DetectorError::Category;
 using DetectorErrorCode = DetectorError::Code;
 
 // 检测器警告
-// 与 DetectorError 的区别：错误意味着"失败、没做成"，警告意味着"做成了，但参数被改动过"。
-// 典型场景：配置的输入尺寸与 ONNX 模型实际输入不一致时，Detector 会自动按模型尺寸对齐，
-// 这是一次成功的自我修正，但必须让用户显式知晓，否则界面显示的尺寸会与实际使用的尺寸分叉。
+// 用于显式地提醒用户
 struct DetectorWarning {
 	Q_GADGET
 	QML_ELEMENT
@@ -160,7 +158,7 @@ public:
 	Q_PROPERTY(int toWidth READ toWidth)
 	Q_PROPERTY(int toHeight READ toHeight)
 
-	QString message;						// 人类可读文案
+	QString message;						
 	Code code = Code::InputSizeAligned;
 	int from_width = 0, from_height = 0;	// 改动前(配置值)
 	int to_width = 0, to_height = 0;		// 改动后(模型值)
@@ -189,11 +187,11 @@ struct DetectionResult {
 	Q_PROPERTY(qint64 duration READ durationValue)
 	Q_PROPERTY(QString source READ sourceValue)
 public:
-	QVector<Box> boxes;
-	DetectorError error;
+	QVector<Box> boxes;		  // 置信框
+	DetectorError error;		 // 错误
 	long long duration = 0;	// 推理耗时(ms)
 	quint64 taskId = 0;		// 任务ID(由 Worker 回填，0 表示未归属)
-	QString source;			// 输入来源(图片/视频路径；摄像头为空)，由 Worker 回填，供回看时显示
+	QString source;			// 输入来源(图片/视频路径；摄像头为空)，由 Worker 回填,用于显示
 
 	DetectionResult() = default;
 	DetectionResult(const QVector<Box>& boxes_, const DetectorError& error_, long long duration_)
@@ -212,36 +210,26 @@ public:
 	QString sourceValue() const { return source; }
 };
 
-// ============================================================================
+
 //  作业(Job) / 任务(Task) 两级模型
 //
-//  DetectionJob  —— 调度与展示的单元,交由Manager进行管理：一个 Job 对应 UI 上的一个进度条
-//  DetectionTask —— 真正被 worker 抢走执行的单元,交由Worker进行执行：一个 Job 可含多个 Task
-//  TaskShared    —— 一个 Job 内所有 Task 共享的可变状态（可跨线程读写）,Manager可以获取相关Job的状态并上报给App
-//
+//  DetectionJob  —— 调度与展示的单元,交由Manager进行管理
+//  DetectionTask ——  交由Worker进行执行：一个 Job 可含多个 Task
+//  TaskShared    —— 一个 Job 内所有 Task 共享的可变状态（可跨线程读写）,Manager可以获取相关Job的状态(例如Job的完成进度)并上报给App
+// 
 //  单图 / 单视频 / 摄像头：Job 只含 1 个 Task
-//  批量图片：Job 含 N 个 SingleImage Task，由 Manager 分发给多个 worker
-//
+// 
+//  批量：Job 含 N 个 Task（图片/视频可混排），由 Manager 分发给 worker 执行
+// 
 //  所有权规定：
 //    - TaskShared 只通过 shared_ptr 使用。Manager / Job / 每个 Task 各持一份
-//      拷贝，指向同一个对象；拷贝本身线程安全（引用计数是原子的）。
-//    - DetectionTask 用 unique_ptr 独占：worker 消费完即销毁。
-// ============================================================================
+//      指针拷贝，指向同一个对象;
+//    - DetectionTask 用 unique_ptr 独占：worker 执行完销毁。
 
-// 任务类型（任务级 / 执行层）：worker 用它决定走 runImage 还是 runStream
-enum class DetectionTaskType {
-	SingleImage,	// 单张图像（批量作业 = 由多个该类型 Task 组成一个 Job）
-	VideoStream,	// 视频文件或摄像头流（由 cameraId 是否 >= 0 区分）
-};
 
-// 作业种类（作业级 / 展示层）：UI 用它决定怎么呈现结果、完成时发哪个信号。
-//
-// 为什么不复用 DetectionTaskType：
-//   1. 它区分不了 Camera 和 SingleVideo —— 两者的 task.type 都是 VideoStream，
-//      但对 UI 意义完全不同（摄像头没有"终态结果"，只能靠取消结束）。
-//   2. 它表达不了 Batch —— 批量作业里每个 Task 的类型可以不同（图片视频混排），
-//      没有唯一的 TaskType 可反推。
-// 所以这两个枚举是互补关系，不是重复。
+// 执行路径（取一帧还是逐帧推进）不再用独立枚举表达：
+// 由 DetectionTask::source->type() 决定，见 FrameSource。
+// 作业种类仍需要单独枚举 —— 它比帧源种类多一个 Batch。
 enum class DetectionJobType {
 	SingleImage,	// 一张图   -> 完成后给一张结果图
 	SingleVideo,	// 一个视频 -> 完成后给一串帧结果
@@ -259,31 +247,25 @@ enum class DetectionTaskStatus {
 };
 
 // 一个 Job 内所有 Task 共享的状态。
-// 会变的字段一律 std::atomic；构造后不再变的字段保持普通类型。
 // 含原子成员，既不可拷贝也不可移动 —— 只能通过 shared_ptr 使用。
-//
-// 进度分两层，但统一成一个公式：
 //   progress = (已完成 task 数 + 当前 task 内部的单元比例) / task 总数
-//     - 批量作业：处理完 2 个、第 3 个到一半 → (2 + 0.5) / 4 = 62.5%
-//     - 单个视频：跑到第 450 / 1000 帧      → (0 + 0.45) / 1 = 45%
-//   公式是单调的：当前 task 完成时 completedTasks++ 且单元比例归零，总和仍然上升。
 struct TaskShared {
 	TaskShared(quint64 jobId_, DetectionJobType jobType_, const QString& saveDir_ = QString())
 		: jobId(jobId_), jobType(jobType_), saveDir(saveDir_) {}
 
 	const quint64 jobId;								// 只读
 	const DetectionJobType jobType;						// 只读：作业种类，供 Manager 在收尾时回传给 UI
-	// 只读：结果落盘目录（**已含 detection_results 子目录**，由 App 侧用
-	// DetectionResultSaver::resultsDirFor() 组合好传进来，约定只在一处定义）。空 = 本次不保存
+	// 只读：结果保存目录（**已含 detection_results 子目录**，由 App 侧用
+	// DetectionResultSaver::resultsDirFor() 组合好传进来，约定只在一处定义）。空 = 不保存
 	const QString saveDir;
 
-	// ---- Job 级：由 Manager 维护 ----
+	// ---- Job ：由 Manager 维护 ----
 	std::atomic<int>  totalTasks{ 0 };					// 本 Job 的 Task 总数（投递前设定）
 	std::atomic<int>  completedTasks{ 0 };				// 已结束(完成或失败)的 Task 数
 	std::atomic<int>  failedTasks{ 0 };					// 其中失败的 Task 数
 	std::atomic<int>  savedFiles{ 0 };					// 已成功写出的结果文件数（worker 累加，供 UI 汇总）
 
-	// ---- Task 级：由正在执行的那个 worker 维护（单 worker 下同一时刻只有一个）----
+	// ---- Task ：由正在执行的那个 worker 维护（单 worker 下同一时刻只有一个）----
 	std::atomic<int>  currentUnitDone{ 0 };				// 当前 Task 内部已完成的工作单元
 	std::atomic<int>  currentUnitTotal{ 0 };			// 0 表示总量未知（摄像头流）
 
@@ -305,7 +287,7 @@ struct TaskShared {
 		currentUnitTotal.store(0, std::memory_order_relaxed);
 	}
 
-	// 进度 0-1
+	// 进度 
 	float progress() const {
 		const int tasks = totalTasks.load(std::memory_order_relaxed);
 		if (tasks <= 0) return 0.0f;
@@ -320,7 +302,7 @@ struct TaskShared {
 		return p < 0.0f ? 0.0f : (p > 1.0f ? 1.0f : p);
 	}
 
-	// 只有"整个 Job 就一个 Task、且它总量未知"（摄像头流）才算不确定进度
+	// 摄像头流不计算进度
 	bool indeterminate() const {
 		return totalTasks.load(std::memory_order_relaxed) == 1
 			&& currentUnitTotal.load(std::memory_order_relaxed) == 0;
@@ -328,13 +310,10 @@ struct TaskShared {
 };
 using TaskSharedPtr = std::shared_ptr<TaskShared>;
 
-// 整体处理帧率计数器：用相邻 tick() 的时间间隔估算帧率，再以指数移动平均(EMA)平滑。
-// 该值反映工作单元的处理节奏，不等同于模型单独的推理帧率。
-// 首次 tick() 返回初始显示值；之后每完成一个工作单元采样一次。
-// 只由执行该 Task 的那个 worker 线程读写，不需要原子量。
+// 整体处理帧率计数器
 struct FpsCounter {
-	float alpha = 0.15f;		// 平滑系数：越小越稳、越迟钝（0.1 ~ 0.3 比较合适）
-	float initialFps = 30.0f;	// 初始帧率：避免启动时从 0 一路往上爬
+	float alpha = 0.15f;		// 平滑系数
+	float initialFps = 30.0f;	// 初始帧率
 	float fps = initialFps;		// 当前平滑帧率
 
 	void reset() {
@@ -344,7 +323,7 @@ struct FpsCounter {
 
 	// 一个工作单元完成时调用一次，返回平滑后的帧率
 	float tick() {
-		if (!m_clock.isValid()) {						// 第一次：只起表，先返回初始值
+		if (!m_clock.isValid()) {						// 第一次：先返回初始值
 			m_clock.start();
 			return fps;
 		}
@@ -353,7 +332,7 @@ struct FpsCounter {
 			return fps;
 
 		const float instant = 1000.0f / static_cast<float>(ms);		// 瞬时帧率
-		fps = alpha * instant + (1.0f - alpha) * fps;				// EMA 平滑
+		fps = alpha * instant + (1.0f - alpha) * fps;			
 		return fps;
 	}
 
@@ -364,10 +343,8 @@ private:
 // 一个可执行的任务单元
 struct DetectionTask {
 	quint64 taskId = 0;
-	quint64 jobId = 0;								// 冗余一份，便于日志与信号路由
-	DetectionTaskType type = DetectionTaskType::SingleImage;
-	QString source;									// 图片 / 视频路径；摄像头时为空
-	int cameraId = -1;								// >= 0 表示摄像头设备号
+	quint64 jobId = 0;								// 便于日志与信号路由
+	FrameSourcePtr source;							// 帧源：图片/视频/摄像头，或后续新增的源类型	 ,原本为文件路径或摄像头ID,现在进行抽象封装
 	bool accumulateResults = true;					// 摄像头流应设 false，避免结果无限增长
 	bool renderFrames = true;						// 是否在 worker 线程内画框并转 QImage（离线批量作业可关掉省算力）
 	TaskSharedPtr shared;							// 与 Job / Manager 共享的同一份状态
@@ -386,22 +363,22 @@ struct DetectionJob {
 	std::vector<std::unique_ptr<DetectionTask>> tasks;
 };
 
-// 单任务作业的种类：从 task 派生，**不独立判断** ——
-// 这样"什么算视频"只有 isVideoPath() 一处定义，不会出现 job.type 与 task.type 漂移。
-// 注意方向是单向的(Task -> Job)；反过来在 Batch 下不成立(每个 task 类型可不同)。
+// 单任务作业的种类：从帧源种类派生（单向）
 inline DetectionJobType jobTypeOf(const DetectionTask& task) {
-	if (task.cameraId >= 0)
-		return DetectionJobType::Camera;
-	return task.type == DetectionTaskType::VideoStream ? DetectionJobType::SingleVideo
-													   : DetectionJobType::SingleImage;
+	if (!task.source)
+		return DetectionJobType::SingleImage;
+	switch (task.source->type()) {
+	case FrameSourceType::Camera:		return DetectionJobType::Camera;
+	case FrameSourceType::VideoFile:	return DetectionJobType::SingleVideo;
+	case FrameSourceType::SingleImage:	return DetectionJobType::SingleImage;
+	}
+	return DetectionJobType::SingleImage;
 }
 
 // 构造一个「单 Task」作业：单图 / 单视频 / 摄像头
 // saveDir 为空表示本次不保存结果。
 inline DetectionJob makeSingleTaskJob(quint64 jobId, quint64 taskId,
-									  DetectionTaskType type,
-									  const QString& source = QString(),
-									  int cameraId = -1,
+									  FrameSourcePtr source,
 									  const QString& saveDir = QString())
 {
 	DetectionJob job;
@@ -410,12 +387,11 @@ inline DetectionJob makeSingleTaskJob(quint64 jobId, quint64 taskId,
 	auto task = std::make_unique<DetectionTask>();
 	task->taskId = taskId;
 	task->jobId = jobId;
-	task->type = type;
-	task->source = source;
-	task->cameraId = cameraId;
-	task->accumulateResults = (cameraId < 0);	// 摄像头流不累积，靠 taskResult 逐帧推送
+	task->source = std::move(source);
+	// 摄像头流不累积，靠 taskResult 逐帧推送
+	task->accumulateResults = (task->source && task->source->type() != FrameSourceType::Camera);
 
-	job.type = jobTypeOf(*task);				// 先定 task.type，再派生 job.type
+	job.type = jobTypeOf(*task);				// 先定 task.source，再派生 job.type
 	job.shared = std::make_shared<TaskShared>(jobId, job.type, saveDir);
 	task->shared = job.shared;
 
@@ -423,59 +399,22 @@ inline DetectionJob makeSingleTaskJob(quint64 jobId, quint64 taskId,
 	return job;
 }
 
-// ---------------------------------------------------------------------------
-//  输入类型判断（只看后缀，不访问磁盘）
-//  放在这里是为了让"什么算视频"只有一个定义 —— App 和 makeBatchJob 共用它。
-// ---------------------------------------------------------------------------
-inline bool isVideoPath(const QString& path) {
-	static const QStringList kVideoExts = {
-		QStringLiteral(".mp4"), QStringLiteral(".avi"), QStringLiteral(".mov"),
-		QStringLiteral(".mkv"), QStringLiteral(".wmv")
-	};
-	const QString lower = path.toLower();
-	for (const QString& ext : kVideoExts)
-		if (lower.endsWith(ext))
-			return true;
-	return false;
-}
 
-inline bool isImagePath(const QString& path) {
-	static const QStringList kImageExts = {
-		QStringLiteral(".jpg"), QStringLiteral(".jpeg"), QStringLiteral(".png"),
-		QStringLiteral(".bmp"), QStringLiteral(".webp")
-	};
-	const QString lower = path.toLower();
-	for (const QString& ext : kImageExts)
-		if (lower.endsWith(ext))
-			return true;
-	return false;
-}
 
-// 构造一个「批量」作业：图片 / 视频按扩展名逐个判断，可以混排。
-// 不设置 taskId（留 0）—— id 分配统一由 Manager::submit() 负责，避免两处各自编号。
-//
-// 两个刻意的选择：
-//   accumulateResults = false —— 批量作业结果不进内存。图片批量尚可，视频批量会
-//     把 results 撑爆（几千帧 × 每帧一个 DetectionResult）。结果改走 frameReady
-//     逐单元推送，需要留档则由保存功能落盘。
-//   renderFrames = true —— 批量就是要逐个看画面。
+// 构造一个「批量」作业：每个帧源一个 Task，来源可混排
+// （认不出的路径由 FileFrameSource 建成 SingleImage，执行时报"图片加载失败"）
 // saveDir 为空表示本次不保存结果。
-inline DetectionJob makeBatchJob(quint64 jobId, const QStringList& paths,
+inline DetectionJob makeBatchJob(quint64 jobId, QVector<FrameSourcePtr> sources,
 								 const QString& saveDir = QString()) {
 	DetectionJob job;
 	job.jobId = jobId;
 	job.type = DetectionJobType::Batch;			// 批量无法从单个 task 派生，显式指定
 	job.shared = std::make_shared<TaskShared>(jobId, job.type, saveDir);
 
-	for (const QString& path : paths) {
+	for (FrameSourcePtr& source : sources) {
 		auto task = std::make_unique<DetectionTask>();
 		task->jobId = jobId;
-		task->source = path;
-		// 既不是图片也不是视频的路径仍然建成 SingleImage 任务，
-		// 由 worker 在执行时报"图片加载失败" —— 一个坏文件不该让整批失败
-		task->type = isVideoPath(path) ? DetectionTaskType::VideoStream
-									   : DetectionTaskType::SingleImage;
-		task->cameraId = -1;
+		task->source = std::move(source);
 		task->accumulateResults = false;
 		task->renderFrames = true;
 		task->shared = job.shared;

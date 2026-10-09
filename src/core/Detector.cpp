@@ -3,7 +3,7 @@
 #include <QElapsedTimer>
 #include <vector>
 namespace {
-	// QVector 与 std::vector 互转：用于 ORT / OpenCV 仅接受 std::vector 的接口
+	// QVector 与 std::vector 互转
 	template <typename T>
 	std::vector<T> toStd(const QVector<T>& v) {
 		return std::vector<T>(v.cbegin(), v.cend());
@@ -31,7 +31,7 @@ Detector::Detector(const DetectorConfig& config_)
 			QStringLiteral("[Detector]: 模型路径无效: ") + QString::fromStdU16String(config_.model_path.u16string()),
 			DetectorErrorCategory::Model,
 			DetectorErrorCode::InvalidModelPath);
-		return;	// 路径无效就不必再尝试建会话
+		return;	// 路径无效就不再尝试建会话
 	}
 
 	try {
@@ -44,15 +44,12 @@ Detector::Detector(const DetectorConfig& config_)
 		input_name = QString::fromUtf8(session.GetInputNameAllocated(0, allocator).get());
 		output_name = QString::fromUtf8(session.GetOutputNameAllocated(0, allocator).get());
 
-		// 读取模型真实输入 shape。配置里的 input_width/height 只是"用户期望"，
-		// 真正说了算的是模型本身：两者不符时 Run() 会抛 Ort::Exception，
-		// 若无人接住就会沿线程一路上抛直到 abort()。
-		// 这里在会话刚建好时就把真实 shape 记下来，并按它校正配置。
+		// 读取模型真实输入 shape并校正配置中的输入尺寸
 		m_model_input_shape = session.GetInputTypeInfo(0)
 			.GetTensorTypeAndShapeInfo().GetShape();
-		alignInputSizeToModel();
+		alignInputSizeToModel();		 // 校正
 
-		m_valid = true;
+		m_valid = true;		// 建立成功
 	}
 	catch (const std::exception& e) {
 		m_lastError = DetectorError(
@@ -86,8 +83,7 @@ bool Detector::setConfig(const DetectorConfig& config_) {
 	}
 	config = config_;
 	if (m_valid) {
-		// 会话已建立：输入尺寸必须服从模型，不能由配置说了算，
-		// 否则又会埋下"配置改了尺寸但模型没变"的雷
+		// 会话已建立,进行输入尺寸校正
 		alignInputSizeToModel();
 	}
 	else {
@@ -197,8 +193,6 @@ bool Detector::preprocess(const cv::Mat& src, cv::Mat& chw, int dst_w, int dst_h
 	return true;
 }
 // 解析结果
-// num_anchors 由调用方从输出张量的 shape 反推得到，不能写死 8400：
-// 8400 只在 640x640 输入下成立(320->2100，1280->33600)，写死会越界读内存。
 QVector<Box> Detector::parse_yolo_ouput(float* data, int num_classes, int num_anchors)const {
 	QVector<Box> boxes;
 	if (!data || num_classes <= 0 || num_anchors <= 0)
@@ -304,8 +298,6 @@ DetectionResult Detector::detect(const cv::Mat& imag) {
 	cv::Mat chw;
 	if (!preprocess(blob, chw, config.input_width, config.input_height))
 		return DetectionResult{ {}, m_lastError, 0 };
-	// 输入尺寸自检：原来的 CV_Assert 会抛 cv::Exception，若无人接住同样会终止进程，
-	// 这里统一换成显式检查 + 错误结果返回
 	if (config.input_width <= 0 || config.input_height <= 0) {
 		DetectorError error(QStringLiteral("[Detector]: 输入尺寸非法: ")
 			+ QString::number(config.input_width) + QStringLiteral("×") + QString::number(config.input_height),
@@ -324,10 +316,7 @@ DetectionResult Detector::detect(const cv::Mat& imag) {
 	return runInference(chw, info);
 }
 
-// 真正的推理段：所有可能抛异常的调用(ORT / OpenCV)都在这一层 try/catch 之内。
-// 这是"异常边界"——没有它，Ort::Exception(如输入尺寸不符)会沿
-// detect -> runImage/runStream -> execute -> work -> 线程入口 一路上抛，
-// 触发 std::terminate -> abort()。
+// 推理入口
 DetectionResult Detector::runInference(cv::Mat& chw, const LetterboxInfo& info) {
 	try {
 		// 1. 构造输入tensor
@@ -355,7 +344,6 @@ DetectionResult Detector::runInference(cv::Mat& chw, const LetterboxInfo& info) 
 		session.Run(Ort::RunOptions{ nullptr }, io_binding);
 		const qint64 duration = timer.elapsed(); // 获取延时(ms)
 
-		// ORT 的返回类型就是 std::vector，且 Ort::Value 只能移动，这里保留 std::vector
 		std::vector<Ort::Value> output_tensors = io_binding.GetOutputValues();
 		if (output_tensors.empty()) {
 			DetectorError error(QStringLiteral("[Detector]: 未返回输出张量"), DetectorErrorCategory::Other, DetectorErrorCode::UnknownError);
@@ -368,7 +356,6 @@ DetectionResult Detector::runInference(cv::Mat& chw, const LetterboxInfo& info) 
 		auto output_shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
 
 		// 输出布局约定为 [1, 4+num_classes, num_anchors]。
-		// num_anchors 必须反推，不能写死 8400 —— 它随输入尺寸变化。
 		if (output_shape.size() < 3) {
 			DetectorError error(QStringLiteral("[Detector]: 输出张量维度异常，期望 3 维，实际 ")
 				+ QString::number(output_shape.size()), DetectorErrorCategory::Detection, DetectorErrorCode::DetectionFailed);
@@ -388,11 +375,9 @@ DetectionResult Detector::runInference(cv::Mat& chw, const LetterboxInfo& info) 
 		QVector<Box>boxes = parse_yolo_ouput(output_data, num_classes, num_anchors);
 		QVector<Box>mapped_boxes = map_boxes_to_original_image(boxes, info);
 		qInfo() << "[Detector]: 检测到" << mapped_boxes.size() << "个目标，推理耗时:" << duration << "ms";
-		// 单通道：结果只通过返回值回传，不再发射信号(任务归属由 Worker 回填 taskId)
 		return DetectionResult{ mapped_boxes,DetectorError{QStringLiteral(""),DetectorErrorCategory::None,DetectorErrorCode::None} ,duration};
 	}
 	catch (const Ort::Exception& e) {
-		// ORT 的异常信息里带 "Got: 320 Expected: 640" 这类关键线索，原样透传
 		m_lastError = DetectorError(QStringLiteral("[Detector]: ONNX 推理失败: ") + QString::fromUtf8(e.what()),
 			DetectorErrorCategory::Detection, DetectorErrorCode::DetectionFailed);
 		return DetectionResult{ {}, m_lastError, 0 };
@@ -414,11 +399,7 @@ DetectionResult Detector::runInference(cv::Mat& chw, const LetterboxInfo& info) 
 	}
 }
 
-// 预热：用一张假图跑若干次 Run，把 ORT / CUDA EP 的一次性初始化开销
-// (CUDA context、cuDNN handle、cuBLAS handle、kernel 加载、内存 arena 首次分配)
-// 提前烧掉。这些开销只在第一次 Run 出现，之后稳定在几 ms —— 所以预热后
-// 用户的第一帧检测就能直接落在稳态耗时上。
-// 失败只记日志并返回 false：预热不是检测的前置条件。
+// 预热：用一张假图跑若干次 Run
 bool Detector::warmup(int iterations) {
 	if (!m_valid || !session || iterations <= 0)
 		return false;
@@ -438,7 +419,6 @@ bool Detector::warmup(int iterations) {
 				input_shape.data(), static_cast<size_t>(input_shape.size()));
 
 			// 与 runInference 保持同一条 IoBinding 路径，
-			// 否则只热了输入绑定，输出绑定那部分开销仍会落在第一帧上
 			Ort::MemoryInfo cpu_out_mem =
 				Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
 			Ort::IoBinding io_binding{ session };
@@ -462,9 +442,9 @@ bool Detector::warmup(int iterations) {
 		return false;
 	}
 }
+
 // 创建会话选项
 // cuda_ok 作为出参：只有真正 Append 成功才置 true，调用方据此判断实际运行设备
-
 QVector<DetectionResult> Detector::detect_video(cv::VideoCapture& cap, std::atomic<bool>* stop) {
 	if (!cap.isOpened()) {
 		DetectorError error(QStringLiteral("[Detector]: 视频流未打开!"), DetectorErrorCategory::Detection, DetectorErrorCode::DetectionFailed);
@@ -482,16 +462,6 @@ QVector<DetectionResult> Detector::detect_video(cv::VideoCapture& cap, std::atom
 			results.push_back(result);
 	}
 	return results;
-}
-
-QVector<DetectionResult> Detector::detect_video(const QString& video_path, std::atomic<bool>* stop) {
-	cv::VideoCapture cap(video_path.toStdString());
-	if (!cap.isOpened()) {
-		DetectorError error(QStringLiteral("[Detector]: 打开视频失败!"), DetectorErrorCategory::Other, DetectorErrorCode::UnknownError);
-		m_lastError = error;
-		return {};
-	}
-	return detect_video(cap, stop);
 }
 
 Ort::SessionOptions Detector::CreateSessionOptions(int threads, bool use_cuda, int device_id, bool& cuda_ok) {
@@ -528,6 +498,17 @@ Ort::SessionOptions Detector::CreateSessionOptions(int threads, bool use_cuda, i
 	}
 
 	return session_options;
+}
+
+// 推理视频
+QVector<DetectionResult> Detector::detect_video(const QString& video_path, std::atomic<bool>* stop) {
+	cv::VideoCapture cap(video_path.toStdString());
+	if (!cap.isOpened()) {
+		DetectorError error(QStringLiteral("[Detector]: 打开视频失败!"), DetectorErrorCategory::Other, DetectorErrorCode::UnknownError);
+		m_lastError = error;
+		return {};
+	}
+	return detect_video(cap, stop);
 }
 
 Detector::~Detector() {

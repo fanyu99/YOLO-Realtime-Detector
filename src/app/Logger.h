@@ -7,24 +7,17 @@
 class QQmlEngine;
 class QJSEngine;
 
-// ============================================================================
-//  日志器(Qt 风格)
-//  由原来的 std 版 logger(D:\C++\project\logger)改写而来，对应关系：
-//    std::string             -> QString
-//    LogManager 命名 logger  -> QLoggingCategory(类别名作为来源标签)
-//    std::cout / std::ofstream -> QTextStream + QFile
-//    logDebug/logInfo 自由函数 -> qDebug/qInfo/qWarning/qCritical 宏(经消息处理器统一收集)
-//    无 UI 通道              -> messageLogged 信号(QML 日志面板按级别着色显示)
-//
+
+// 日志: 支持QML
+// 原std日志仓库: 	https://github.com/fanyu99/my_socket/tree/master/logger
 //  使用方式：
 //    1) QML:  Logger.info("...") / Logger.error("...")
 //    2) C++:  Logger::instance()->info("...")，或直接 qInfo() << "..."
-// ============================================================================
 class Logger : public QObject
 {
 	Q_OBJECT
 	QML_ELEMENT
-	QML_SINGLETON
+	QML_SINGLETON		 // 单例日志
 public:
 	// 日志级别(数值越大越严重；Success 用于绿色高亮的关键成功节点)
 	enum class Level {
@@ -39,9 +32,7 @@ public:
 
 	~Logger() override;
 
-	// QML 单例入口：保证 QML 与 C++ 侧拿到的是同一个实例
 	static Logger* create(QQmlEngine* qmlEngine, QJSEngine* jsEngine);
-	// 全局唯一实例(消息处理器内部使用；也可在 main 中提前调用以尽早接管日志)
 	static Logger* instance();
 
 	// 级别阈值：低于该级别的日志会被丢弃

@@ -7,77 +7,6 @@
 #include "Box.h"
 #include "ImageShower.h"
 #include "Logger.h"
- const QVector<QString> AfricanWildlife_class_names = {
-	QStringLiteral("buffalo"),
-	QStringLiteral("elephant"),
-	QStringLiteral("rhino")	,
-	QStringLiteral("zebra")
-};
- const QVector<QString>People_class_names = {
-	QStringLiteral("Person"),
- };
-auto AfricanWildlife_model_path = L"D:\\python\\YOLO\\runs\\train\\african_wildlife_yolo26n_train_e50s640\\weights\\best.onnx";
-auto People_model_path = L"D:\\python\\YOLO\\runs\\train\\people_yolo26n_train_e100s1280\\weights\\best.onnx";
- const QString image_path = R"(D:\python\datasets\african-wildlife\images\train\2 (50).jpg)";
-
- // 检测图片
- void detect_image(const QString& image_path, const DetectorConfig& config) {
-	 ImageShower imageShower;
-	 Detector detector(config);
-	 DetectionResult result = detector.detect(image_path);
-	 cv::Mat image = cv::imread(image_path.toStdString());
-	 if (image.empty()) {
-		 qWarning() << "图片加载失败!";
-		 return;
-	 }
-	 imageShower.showDetections(image, result.boxes, result.duration, config.class_names);
-	 cv::waitKey(0);
- }
- // 检测视频
- void detect_video(const QString& video_path, const DetectorConfig& config) {
-	 ImageShower imageShower;
-	 Detector detector(config);
-	 cv::VideoCapture cap(video_path.toStdString());
-	 if (!cap.isOpened()) {
-		 qWarning() << "打开视频失败:" << video_path;
-		 return;
-	 }
-	 cv::Mat frame;
-	 while (true) {
-		 cap >> frame;
-		 if (frame.empty()) break;
-		 DetectionResult result = detector.detect(frame);
-		 imageShower.showDetections(frame, result.boxes, result.duration, config.class_names);
-		 if (cv::waitKey(1) == 27)
-		 {
-			 cv::destroyAllWindows();
-			 break;
-		 }
-	 }
- }
-
- // 检测摄像头
- void detect_camera(size_t camera_id,const DetectorConfig& config) {
-	 ImageShower imageShower;
-	 Detector detector(config);
-	 cv::VideoCapture cap(camera_id);
-	 if (!cap.isOpened()) {
-		 qWarning() << "打开摄像头失败:" << camera_id;
-		 return;
-	 }
-	 cv::Mat frame;
-	 while (true) {
-		 cap >> frame;
-		 if(frame.empty()) break;  
-		 DetectionResult result = detector.detect(frame);
-		 imageShower.showDetections(frame, result.boxes,result.duration,config.class_names);
-		 if (cv::waitKey(1) == 27)
-		 {
-			 cv::destroyAllWindows();
-			 break;
-		 }
-	 }
- }
 
 // 深色配色：深灰背景 + 高对比度白色文字
 QPalette makeDarkPalette() {
@@ -167,29 +96,6 @@ int main(int argc, char* argv[])
 	QObject::connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, qApp, applyTheme);
 
 	try {
-		DetectorConfig AfricanWildlife_config;
-		AfricanWildlife_config.class_names =AfricanWildlife_class_names;
-		AfricanWildlife_config.conf_threshold = 0.2f;
-		AfricanWildlife_config.iou_threshold = 0.7f;
-		AfricanWildlife_config.model_path = std::filesystem::path(AfricanWildlife_model_path);
-		AfricanWildlife_config.num_threads = 0;
-		AfricanWildlife_config.input_height = 640;
-		AfricanWildlife_config.input_width = 640;
-
-		DetectorConfig People_config;
-		People_config.class_names = People_class_names;
-		People_config.conf_threshold = 0.2f;
-		People_config.iou_threshold = 0.7f;
-		People_config.model_path = std::filesystem::path(People_model_path);
-		People_config.num_threads = 0;
-		People_config.input_height = 1280;
-		People_config.input_width = 1280;
-
-		// 启动时的示例检测会阻塞在 cv::waitKey(0) 上，导致 QML 窗口迟迟不显示；
-		// 等推理接入 UI 后再启用，这里先注释掉。
-		//detect_image(image_path,AfricanWildlife_config);
-
-
 		QQmlApplicationEngine engine;
 		engine.load(QUrl(QStringLiteral("qrc:/qt/qml/yolo/main.qml")));
 		if (engine.rootObjects().isEmpty())

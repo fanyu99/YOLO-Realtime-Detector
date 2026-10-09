@@ -9,7 +9,6 @@ import QtMultimedia
 //  顶部：标题 / 主题指示（主题跟随系统，自动浅色 / 深色）
 //  左侧：常驻配置栏，展示 DetectionApp.config
 //  右侧：工具栏 + 检测结果显示区 + 日志区
-//  说明：本次只做"能显示图片和视频"，推理等后端完善后再接入。
 // ============================================================================
 Window {
 	id: window
@@ -23,7 +22,7 @@ Window {
 
 	// 主题(跟随系统) 与 后端门面
 	Theme { id: theme }
-	DetectionApp { id: app }
+	DetectionApp { id: app } // 后端App,负责将QML与C++桥接，提供配置、日志、检测等功能
 
 	// ---- 界面状态 ----
 	property string selectedFileName: ""		// 已选文件名(仅显示)
@@ -338,6 +337,13 @@ Window {
 							onClicked: cameraDialog.open()
 						}
 
+						// 海康工业相机检测(先弹对话框选设备；走 MVS SDK，与上面的 USB 编号不是一回事)
+						Button {
+							text: "海康相机检测"
+							enabled: !app.busy
+							onClicked: hikCameraDialog.open()
+						}
+
 						// 批量检测(多选图片/视频，一个作业顺序跑完再汇总)
 						Button {
 							text: "批量检测"
@@ -589,9 +595,10 @@ Window {
 		}
 	}
 
-	// 两个模态对话框
+	// 三个模态对话框
 	ConfigDialog { id: configDialog; theme: theme; app: app }
 	CameraDialog { id: cameraDialog; theme: theme; app: app }
+	HikCameraDialog { id: hikCameraDialog; theme: theme; app: app }
 
 	// 状态栏订阅日志流：与日志列表同源，
 	// 选择文件 / 配置更新 / 错误 / 检测完成等都会自动刷新状态栏

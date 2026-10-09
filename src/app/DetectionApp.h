@@ -18,9 +18,6 @@ class DetectionImageProvider;
 
 // 应用层门面：把 QML 的交互翻译成对 DetectionManager 的调用，
 // 并把作业进度 / 结果 / 错误 / 日志回传给 QML。
-//
-// 分层约定：App 只认 jobId 这个不透明句柄，不接触 DetectionTask / TaskShared。
-// 检测怎么跑（线程、队列、取消）全在 Manager / Worker 那一层。
 class DetectionApp : public QObject, public QQmlParserStatus
 {
 	Q_OBJECT
@@ -85,13 +82,13 @@ public:
 	Q_INVOKABLE void setConfig(const QUrl& model_path, const QStringList& class_names, float conf_confidence, float iou_threshold, int num_threads, int device_id, int input_width, int input_height, bool use_cuda = true);
 	Q_INVOKABLE void onDetectClicked();							// qml 检测按钮点击
 	Q_INVOKABLE void onDetectCameraClicked(int camera_id);		// qml 摄像头检测按钮点击(带设备 id)
+	Q_INVOKABLE void onDetectHikCameraClicked(const QString& serial, const QString& triggerMode);	// qml 海康相机检测(带序列号)
+	Q_INVOKABLE QVariantList hikDevices() const;				// 枚举在线海康相机(供选择对话框填列表)
 	Q_INVOKABLE quint64 submitBatch(const QList<QUrl>& urls);	// qml 批量检测：一个 Job 含多个 Task
 	Q_INVOKABLE void cancelCurrentJob();						// qml 停止按钮
 	Q_INVOKABLE void dismissBanner();							// qml 关闭横幅
 	Q_INVOKABLE QString frameSource() const;					// "image://detection/latest?rev=N"
 	Q_INVOKABLE void setSaveOptions(bool enabled, const QUrl& dir);	// 设置"保存推理结果"开关与目录
-	// 结果回看：只推进 UI 侧的索引，**完全不碰 worker** —— 推理照常全速跑，
-	// UI 看得慢只是缓冲里少留几帧，不会拖慢检测。
 	Q_INVOKABLE void nextResult();
 	Q_INVOKABLE void prevResult();
 	Q_INVOKABLE void followLatest();							// 退出回看，跟随实时画面
@@ -114,6 +111,10 @@ signals:
 private:
 	void reportError(const AppError& error);								// 统一上报错误：发信号 + 写日志
 	AppError mapDetectionErrortoAppError(const DetectorError& error) const;	// 检测器错误 -> 应用层错误
+	// 帧源工厂
+	FrameSourcePtr makeFileSource(const QString& path) const;
+	FrameSourcePtr makeCameraSource(int cameraId) const;
+	FrameSourcePtr makeHikCameraSource(const QString& serial,const QString& triggerMode = "Off") const;
 	QString configSummary() const;											// 生成配置摘要文本(用于日志)
 	// 实际生效的保存目录：开关关掉时为空（worker 见到空目录就不保存）
 	// 实际生效的结果目录：开关关掉时为空（worker 见到空目录就不保存）。
@@ -152,9 +153,6 @@ private:
 	std::filesystem::path m_filePath;						// 文件路径(图片/视频)
 	DetectorConfig m_config;								// 检测器配置
 	quint64 m_currentJobId = 0;								// 当前作业(0 表示空闲)
-	// 注意：这里刻意不保存"当前作业是什么种类"。种类随 jobFinished 一起回来，
-	// 所以不存在需要跨事件同步维护的字段（早期版本用 JobType+IsBatch 两个字段，
-	// 实测有 12 个维护点且漏清过一处）。
 	float m_progress = 0.0f;
 	bool m_busy = false;
 	bool m_progressIndeterminate = false;

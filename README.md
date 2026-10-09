@@ -8,8 +8,8 @@
 
 A cross-platform desktop application for **real-time YOLO object detection**, built with
 **Qt 6 (Quick/QML)**, **ONNX Runtime** and **OpenCV**. It runs inference on images, video
-files and live camera streams, draws bounding boxes on the frames, and optionally writes
-annotated results to disk.
+files, USB camera streams and Hikvision (MVS) industrial cameras, draws bounding boxes on the
+frames, and optionally writes annotated results to disk.
 
 The user interface is written in QML and currently ships with **Chinese labels**
 (the app window is titled *检测头*). The code base, comments and this README are bilingual:
@@ -50,7 +50,16 @@ English here, [简体中文说明请见 README.zh-CN.md](README.zh-CN.md).
 
 **Inputs & jobs**
 
-- Single image, single video, live camera, and **batch** (mixed images + videos in one job).
+- Single image, single video, USB camera, Hikvision (MVS) industrial camera, and **batch**
+  (mixed images + videos in one job).
+- **Pluggable frame sources** (strategy pattern). Every input is a `FrameSource` exposing
+  `open()` / `getFrame()` / `close()`; the worker drives any task through those three calls
+  and picks the run path (`runImage` vs `runStream`) from `type()`, while the job factory
+  derives the job type from the same value. New source types plug in at the app-side factory —
+  no new `submitXxx()` entry point, no change to the scheduler or the UI.
+- Hikvision support covers GigE and USB3 industrial cameras, discovered by serial number, with
+  a selectable trigger mode: continuous (default), software trigger, or hardware trigger on
+  Line0 / Line1 / Line2.
 - Two-level job/task model: one *Job* per UI progress bar, split into N *Tasks* executed by a
   dedicated worker thread.
 - Unified progress formula covering both batch and per-frame progress.
@@ -79,7 +88,8 @@ UI or on `QObject`**, and the QML layer never touches threads or detector intern
 ```
                       ┌──────────────────────────────────────────┐
    QML (qml/)         │  main.qml · Theme · LogView ·            │
-                      │  ConfigDialog · CameraDialog             │
+                      │  ConfigDialog · CameraDialog ·           │
+                      │  HikCameraDialog                         │
                       └───────────────┬──────────────────────────┘
                                       │  properties / Q_INVOKABLE
                       ┌───────────────▼──────────────────────────┐
@@ -89,16 +99,20 @@ UI or on `QObject`**, and the QML layer never touches threads or detector intern
                       │  DetectionRenderer (frame → QImage)      │
                       │  DetectionResultSaver (annotated files)  │
                       │  DetectionImageProvider (QML image://)   │
+                      │  FrameSource factory (QML → FrameSource) │
                       │  Logger            (qDebug bridge)       │
                       └───────────────┬──────────────────────────┘
                                       │  DetectorConfig / DetectionResult
                       ┌───────────────▼──────────────────────────┐
    Core layer         │  Detector   (ONNX session, pre/post)     │
    (src/core/)        │  DetectionTypes · Box · AppError         │
+                      │  FrameSource (strategy) →                │
+                      │    FileFrameSource · HikCameraFrameSource│
                       └───────────────┬──────────────────────────┘
                                       │
                       ┌───────────────▼──────────────────────────┐
-                      │  ONNX Runtime (CUDA / CPU)  ·  OpenCV    │
+                      │  ONNX Runtime (CUDA / CPU) · OpenCV ·    │
+                      │  Hikvision MVS SDK (Hik camera only)     │
                       └──────────────────────────────────────────┘
 ```
 
@@ -113,6 +127,11 @@ Key design decisions (documented in more depth in [`docs/ARCHITECTURE.md`](docs/
   bounded ring buffer; there are no cross-thread wait/release flags.
 - **`DetectionApp` only knows an opaque `jobId`.** Threading, queueing and cancellation stay
   inside `DetectionManager` / `DetectionWorker`.
+- **Inference is frame-source agnostic.** A `DetectionTask` holds a `FrameSourcePtr` — never a
+  path or a device id — and the worker drives it with `open()` / `getFrame()` / `close()`.
+  Files, USB cameras and Hikvision SDK cameras therefore share one execution path, and the
+  vendor SDK stays sealed inside `HikCameraFrameSource` (PIMPL: `MvCameraControl.h` is not
+  pulled into the header).
 
 ---
 
@@ -135,6 +154,9 @@ Key design decisions (documented in more depth in [`docs/ARCHITECTURE.md`](docs/
 │   ├── core/                   # Inference engine — no UI, no QObject
 │   │   ├── Detector.{h,cpp}        # ONNX session, letterbox, YOLO decode, NMS, video loops
 │   │   ├── DetectionTypes.h        # DetectorConfig, errors/warnings, Job/Task/Box models
+│   │   ├── FrameSource.h           # Frame-source interface (strategy) + path/type helpers
+│   │   ├── FileFrameSource.{h,cpp}      # Image / video file / USB camera source
+│   │   ├── HikCameraFrameSource.{h,cpp} # Hikvision MVS source: enumeration, trigger modes
 │   │   ├── Box.h                   # Bounding-box value type (Q_GADGET, QML-exposed)
 │   │   └── AppError.h              # Application-level error value type
 │   ├── app/                    # Qt application layer
@@ -153,7 +175,8 @@ Key design decisions (documented in more depth in [`docs/ARCHITECTURE.md`](docs/
 │   ├── Theme.qml               # Colour palette / theme singleton
 │   ├── LogView.qml             # Log list with per-level colouring
 │   ├── ConfigDialog.qml        # Model & detection parameter dialog
-│   └── CameraDialog.qml        # Camera device picker
+│   ├── CameraDialog.qml        # Camera device picker
+│   └── HikCameraDialog.qml     # Hikvision device picker + trigger mode
 │
 ├── resources/                  # Assets compiled into the binary via Qt Resource System
 │   ├── images.qrc              # Resource manifest
@@ -185,9 +208,15 @@ includes Windows-specific runtime DLL deployment.
 | ONNX Runtime | 1.30.0 | GPU/CUDA 13 package; CPU package works too |
 | Generator | Ninja (or NMake/JOM) | |
 | CUDA Toolkit + cuDNN | 13.x / 9.x | *Optional* — only for GPU inference |
+| Hikvision MVS SDK | — | **Required to build** — provides `MvCameraControl.h` / `MvCameraControl.lib`. Its root is read from `%MVCAM_COMMON_RUNENV%`, falling back to `D:/MVS/Development`. |
 
 The GPU path is optional: if CUDA/cuDNN DLLs are missing the detector logs a warning and
 falls back to the CPU execution provider automatically.
+
+The Hikvision path is **not** optional at build time: `HikCameraFrameSource` links
+`MvCameraControl.lib`, so the matching MVS **runtime** must be loadable at start-up (the exe
+import table references `MvCameraControl.dll` and its GenICam / transport layers) even if you
+never open a Hik camera. `DEPLOY_MVS_RUNTIME` — see below — takes care of that.
 
 ---
 
@@ -212,6 +241,11 @@ falls back to the CPU execution provider automatically.
 
    > On Linux/macOS replace `^` with `\`. `CMAKE_PREFIX_PATH` is where Qt's `lib/cmake` lives;
    > `OpenCV_DIR` is the folder containing `OpenCVConfig.cmake`.
+   >
+   > The Hikvision MVS SDK is located through the `MVCAM_COMMON_RUNENV` environment variable
+   > (set by the MVS installer). Without it, CMake falls back to `D:/MVS/Development`; if your
+   > SDK lives elsewhere, either export that variable or edit `MVS_SDK_ROOT` at the top of
+   > `CMakeLists.txt`. Configuration fails outright if `MvCameraControl` cannot be found.
 
 3. Build:
 
@@ -231,6 +265,7 @@ falls back to the CPU execution provider automatically.
 | Option | Default | Description |
 |---|---|---|
 | `DEPLOY_CUDA_RUNTIME` | `ON` | Copy CUDA/cuDNN runtime DLLs next to the executable. Turn off (`-DDEPLOY_CUDA_RUNTIME=OFF`) if you already provide them through `PATH`. |
+| `DEPLOY_MVS_RUNTIME` | `ON` | Copy the Hikvision MVS runtime (`MvCameraControl.dll` plus the GenICam / transport DLLs, ~110 MB) next to the executable. Auto-detected from the SDK root and the usual `MVS/Runtime/Win64_x64` locations; set `-DMVS_RUNTIME_DIR=<dir>` for a non-standard install, or `-DDEPLOY_MVS_RUNTIME=OFF` to rely on `PATH`. |
 
 ---
 
@@ -251,8 +286,19 @@ Launch `YOLO.exe`, then:
    |---|---|
    | **选择文件 ▾** | Choose a single image or video |
    | **摄像头检测** | Pick a camera device id and start a live stream |
+   | **海康相机检测** | Enumerate Hikvision industrial cameras, pick one by serial number, choose a trigger mode, and start the live stream |
    | **批量检测** | Multi-select images and/or videos to run as one job |
    | **停止检测** | Cancel the running job (enabled only while busy) |
+
+   > **海康相机检测** is a separate path from **摄像头检测**: the first talks to GigE / USB3
+   > industrial cameras through the Hikvision MVS SDK, the second through OpenCV's device
+   > index. Both end up as the same kind of job, so progress, review, cancellation and result
+   > saving behave identically.
+   >
+   > Trigger mode: *off* — continuous acquisition, the default — *software*, or *line0* /
+   > *line1* / *line2* for a hardware trigger. An unrecognised value logs a warning and falls
+   > back to *off*. Modes the device does not support surface as an error in the log when the
+   > stream starts.
 
 3. **Watch the result** — annotated frames appear in the result view. Use **上一个** /
    **下一个** to step through buffered results and **回到实时** to resume following the live
@@ -332,6 +378,9 @@ continues**.
 | Detections look shifted or scaled | Input size does not match the model. Check the warning banner — the app auto-aligns and reports the change. |
 | CUDA not used | CUDA/cuDNN DLLs not found. Set `CUDA_PATH`/`CUDNN_PATH` (or `PATH`) so `DEPLOY_CUDA_RUNTIME` can find them; otherwise the CPU EP is used. |
 | First inference is slow | Expected once — the app warms up the session at start-up, but the very first frame after a model change still pays session creation cost. |
+| Configure fails to find `MvCameraControl` | The MVS SDK was not found. Install the Hikvision MVS SDK (it sets `MVCAM_COMMON_RUNENV`), or edit `MVS_SDK_ROOT` at the top of `CMakeLists.txt`. `MVS_CAMERA_CONTROL_LIB` is a required `find_library`, so this is a hard configure error. |
+| App does not start at all after adding Hik camera support | The MVS runtime is missing — the exe imports `MvCameraControl.dll`, so a missing runtime is a start-up failure, not just an unavailable feature. `DEPLOY_MVS_RUNTIME` should have copied it next to the exe; if auto-detection found nothing, pass `-DMVS_RUNTIME_DIR=<dir>` or add the correct-architecture MVS runtime folder to `PATH`. Beware that MVS also installs a **32-bit** runtime and puts it on `PATH` too: a wrong-architecture DLL found first fails the load instead of falling through to the right one. |
+| **海康相机检测** lists no devices | Camera not powered, not on the same subnet (GigE) or not connected (USB3), MVS runtime missing, or the camera is already opened by another process — e.g. the MVS client — since only one process can grab at a time. Try **刷新** after fixing, then check the log for the SDK error code. |
 
 ---
 

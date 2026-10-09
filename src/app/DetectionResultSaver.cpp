@@ -54,12 +54,14 @@ bool DetectionResultSaver::begin(const DetectionTask& task, int width, int heigh
 	}
 
 	const QDir dir(m_dir);
-	QString stem = QFileInfo(task.source).completeBaseName();
+	QString stem = task.source
+		? QFileInfo(task.source->displayName()).completeBaseName()
+		: QString();
 	if (stem.isEmpty())						// 摄像头任务没有源文件名
 		stem = QStringLiteral("task_") + QString::number(task.taskId);
 	stem = uniqueBaseName(dir, stem);
 
-	m_isVideo = (task.type == DetectionTaskType::VideoStream);
+	m_isVideo = (task.source && task.source->type() != FrameSourceType::SingleImage);
 
 	if (m_isVideo) {
 		const double useFps = fps > 1.0 ? fps : kFallbackFps;
@@ -87,8 +89,7 @@ bool DetectionResultSaver::write(const cv::Mat& bgrFrame) {
 		m_writer.write(bgrFrame);
 	}
 	else {
-		// 用 QImage::save 而不是 cv::imwrite：前者支持非 ASCII 路径，
-		// 而用户自选的保存目录里带中文是很常见的
+		// 用 QImage::save 而不是 cv::imwrite
 		if (!DetectionRenderer::toQImage(bgrFrame).save(m_imagePath)) {
 			m_error = QStringLiteral("写入图片失败: ") + m_imagePath;
 			return false;

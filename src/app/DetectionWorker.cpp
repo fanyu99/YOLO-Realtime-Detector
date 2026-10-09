@@ -20,6 +20,7 @@ void DetectionWorker::setConfig(const DetectorConfig& config) {
 	m_config = config;
 }
 
+// 启动工作线程
 bool DetectionWorker::start() {
 	if (m_running.load(std::memory_order_relaxed))
 		return true;							// 已在运行
@@ -31,10 +32,6 @@ bool DetectionWorker::start() {
 
 	m_running.store(true, std::memory_order_relaxed);
 
-	// QThread::create 里的函数直接在【新线程】里执行。
-	// 不要用 connect(thread, &QThread::started, this, lambda) 那种写法：
-	// 当 receiver(this) 的线程亲和性是 GUI 线程时，AutoConnection 会退化成
-	// QueuedConnection，work() 会被投递回 GUI 线程执行，界面直接卡死。
 	m_thread = std::unique_ptr<QThread>(QThread::create([ this ]() {
 		try {
 			work();
@@ -52,25 +49,27 @@ bool DetectionWorker::start() {
 				QStringLiteral("[DetectionWorker]: 工作线程发生未知异常"),
 				DetectorErrorCategory::Other, DetectorErrorCode::UnknownError));
 		}
-		// 线程已结束：复位运行标志，让 isRunning() 如实反映状态，
-		// 避免后续 start() 误以为它还在跑，把任务投进一个已经死掉的队列
+		// 线程结束: 复位状态
 		m_running.store(false, std::memory_order_relaxed);
 	}));
-	if (m_thread)m_thread->start();
+	// 启动线程
+	if (m_thread)
+		m_thread->start();
 
 	Logger::instance()->info(QStringLiteral("[DetectionWorker]: 工作线程已启动"));
 	return true;
 }
 
+// 停止工作线程,会丢弃队列中还没有开始的task
 void DetectionWorker::stop() {
 	if (!m_thread)
 		return;
 
-	std::vector<quint64> dropped;
+	std::vector<quint64> dropped;	 // 丢弃的JobId
 	m_running.store(false, std::memory_order_relaxed);
 	{
 		std::lock_guard<std::mutex> lock(m_mutex);
-		// 丢弃尚未开始的 Task：它们永远不会被执行，必须让 Manager 知道
+		// 丢弃尚未开始的 Task,让 Manager 知道
 		while (!m_queue.empty()) {
 			dropped.push_back(m_queue.front()->jobId);
 			m_queue.pop();
@@ -78,17 +77,19 @@ void DetectionWorker::stop() {
 	}
 	m_cv.notify_all();							
 
-	for (quint64 jobId : dropped)				// 信号一律在锁外发
+	for (quint64 jobId : dropped)		// 信号在锁外发		
 		emit taskCancelled(jobId);
 
+	// 释放内存
 	m_thread->wait();						
 	m_thread.reset();							
-	m_detector.reset();						
+	m_detector.reset(); 						
 
 	Logger::instance()->info(QStringLiteral("[DetectionWorker]: 工作线程已停止"));
 	emit stopped();
 }
 
+// 提交任务
 bool DetectionWorker::submit(std::unique_ptr<DetectionTask> task) {
 	if (!task)
 		return false;
@@ -99,10 +100,11 @@ bool DetectionWorker::submit(std::unique_ptr<DetectionTask> task) {
 			return false;
 		m_queue.push(std::move(task));
 	}
-	m_cv.notify_one();
+	m_cv.notify_one();	  // 通知一个工作线程
 	return true;
 }
 
+// 工作循环
 void DetectionWorker::work() {
 	// 在 worker 线程内加载模型：ONNX 会话构造较重,在worker线程进行构造
 	m_detector = std::make_unique<Detector>(m_config);
@@ -113,7 +115,6 @@ void DetectionWorker::work() {
 	}
 	else {
 		// 构造期产生的警告(如输入尺寸已按模型自动对齐)必须显式上抛：
-		// 这是"成功但改了参数"，用户需要知道，否则界面显示的尺寸会与实际使用的分叉
 		for (const DetectorWarning& warning : m_detector->warnings()) {
 			Logger::instance()->warning(warning.message);
 			emit detectorWarning(warning);
@@ -121,13 +122,11 @@ void DetectionWorker::work() {
 		Logger::instance()->info(QStringLiteral("[DetectionWorker]: 检测器就绪，运行设备: ")
 			+ QString::fromUtf8(m_detector->device()));
 
-		// 预热：把 ONNX Runtime / CUDA EP 的首次初始化开销
-		// 提前到"用户还没提交检测任务"的时刻，否则这笔一次性成本会落在第一帧上。
-		// 放在警告之后：警告里的尺寸对齐会改变 config，预热必须用对齐后的尺寸。
+		// 预热
 		m_detector->warmup(3);
 	}
 	emit started();
-
+	 // 工作循环
 	while(true) {
 		std::unique_ptr<DetectionTask> task;
 		{
@@ -136,15 +135,14 @@ void DetectionWorker::work() {
 				// 任务队列不为空或者停止时不阻塞
 				return !m_running.load(std::memory_order_relaxed) || !m_queue.empty();
 				});
+			// 如果停止,直接退出
 			if (!m_running.load(std::memory_order_relaxed))
-				break;							
+				break;					
+			// 取任务
 			task = std::move(m_queue.front());
 			m_queue.pop();
 		}
-		// 单任务级兜底：一个坏帧/坏任务不该带走整个 worker。
-		// 没有这层的话，异常会被线程入口接住，worker 静默死亡，
-		// 而该 Job 永远收不到终态信号 —— Manager 会一直以为"有作业在跑"，
-		// 后续改配置会被永久拒绝。
+		// 锁外执行耗时任务
 		try {
 			this->execute(*task);
 		}
@@ -205,11 +203,26 @@ void DetectionWorker::execute(DetectionTask& task) {
 			: DetectorError(QStringLiteral("[DetectionWorker]: 检测器未初始化!"),
 				DetectorErrorCategory::Other, DetectorErrorCode::UnknownError);
 	}
+	else if (!task.source) {
+		m_lastError = DetectorError(QStringLiteral("[DetectionWorker]: 帧源为空!"),
+			DetectorErrorCategory::Other, DetectorErrorCode::UnknownError);
+	}
+	// 打开帧源
+	else if (!task.source->open()) {
+		// 打开失败的错误分类沿用旧实现：图片归 Image，视频/摄像头归 Detection
+		const bool isImage = (task.source->type() == FrameSourceType::SingleImage);
+		m_lastError = DetectorError(QStringLiteral("[DetectionWorker]: ") + task.source->lastError(),
+			isImage ? DetectorErrorCategory::Image : DetectorErrorCategory::Detection,
+			isImage ? DetectorErrorCode::InvalidImage : DetectorErrorCode::DetectionFailed);
+	}
 	else {
-		switch (task.type) {
-		case DetectionTaskType::SingleImage:	ok = runImage(task);  break;
-		case DetectionTaskType::VideoStream:	ok = runStream(task); break;
+		switch (task.source->type()) {
+		case FrameSourceType::SingleImage:	ok = runImage(task);  break;
+		case FrameSourceType::VideoFile:
+		case FrameSourceType::Camera:		ok = runStream(task); break;
 		}
+		// 显式地进行关闭帧源
+		task.source->close();
 	}
 
 	// 执行结束,更新共享状态并emit信号
@@ -227,74 +240,43 @@ void DetectionWorker::execute(DetectionTask& task) {
 	}
 }
 
-// 单张图像：一个工作单元
+// 单张图像
 bool DetectionWorker::runImage(DetectionTask& task) {
-	// 一张图 = 一个工作单元
 	task.shared->currentUnitTotal.store(1, std::memory_order_relaxed);
 
-	// 自己读一次图：Detector::detect(QString) 内部也是 imread，
-	// 这里把 Mat 留在手上，才能在 worker 线程里画框转 QImage
-	cv::Mat frame = cv::imread(task.source.toStdString());
-	if (frame.empty()) {
-		m_lastError = DetectorError(QStringLiteral("[DetectionWorker]: 图片加载失败: ") + task.source,
-			DetectorErrorCategory::Image, DetectorErrorCode::InvalidImage);
-		return false;
-	}
-
+	// 图已在 FrameSource::open() 里读好
+	// 直接获取单张图片
+	const cv::Mat frame = task.source->getFrame();
 	DetectionResult result = m_detector->detect(frame);
 	if (result.error.has_error()) {
 		m_lastError = result.error;
 		return false;
 	}
 	result.taskId = task.taskId;
-	result.source = task.source;   // 回看时要知道这是哪个输入的结果
+	result.source = task.source->displayName();	  // 设置展示名称,例如文件路径/摄像头ID等
 
 	// 保存（未开启保存时 saver 全程 no-op）
 	DetectionResultSaver saver;
-	if (!saver.begin(task, frame.cols, frame.rows, 0.0) && !saver.lastError().isEmpty())
+	const cv::Size size = task.source->frameSize();
+	if (!saver.begin(task, size.width, size.height, task.source->fps()) && !saver.lastError().isEmpty())
 		Logger::instance()->warning(QStringLiteral("[DetectionWorker]: ") + saver.lastError());
 	finishUnit(task, frame, result, saver);
 	reportSaveResult(saver);
 	return true;
 }
 
-// 视频文件 / 摄像头流：逐帧推进，帧就是工作单元
+// 视频文件 / 摄像头流：逐帧推进
 bool DetectionWorker::runStream(DetectionTask& task) {
-	cv::VideoCapture cap;
-	if (task.cameraId >= 0)
-		cap.open(task.cameraId);
-	else
-		cap.open(task.source.toStdString());
-
-	if (!cap.isOpened()) {
-		m_lastError = DetectorError(QStringLiteral("[DetectionWorker]: 无法打开视频源!"),
-			DetectorErrorCategory::Detection, DetectorErrorCode::DetectionFailed);
-		return false;
-	}
-
-	// 摄像头：让驱动只缓 1 帧。
-	// 推理慢于出帧时，cap.read() 会一直返回【最旧的】缓存帧，端到端延迟无限累积。
-	// 必须在 open() 之后设；部分后端（如 Windows 的 MSMF）会忽略它，set() 返回 false
-	// 就说明没生效 —— 那种情况只能改用"单槽采集线程"的方案。
-	// 视频文件不需要：按需解码不存在积压，而且视频检测要求每一帧都不漏。
-	if (task.cameraId >= 0) {
-		if (cap.set(cv::CAP_PROP_BUFFERSIZE, 1))
-			Logger::instance()->info(QStringLiteral("[DetectionWorker]: 摄像头缓冲已设为 1 帧"));
-		else
-			Logger::instance()->warning(QStringLiteral(
-				"[DetectionWorker]: 当前后端不支持设置缓冲帧数，实时预览可能逐渐滞后"));
-	}
+	FrameSource& source = *task.source;
 
 	// 预读总帧数：摄像头返回 0，代表总量未知（UI 显示忙碌）
-	const int frameCount = task.cameraId >= 0 ? 0 : static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT));
-	task.shared->currentUnitTotal.store(frameCount, std::memory_order_relaxed);
+	task.shared->currentUnitTotal.store(static_cast<int>(source.totalFrames()), std::memory_order_relaxed);
 
 	// 保存（未开启保存时 saver 全程 no-op）。VideoWriter 需要帧尺寸与帧率，
-	// 用 cap.get() 而不是等第一帧，这样 VideoWriter 能在循环开始前就打开。
+	// 用 open() 时缓存好的值而不是等第一帧，这样 VideoWriter 能在循环开始前就打开。
 	DetectionResultSaver saver;
-	const int outW = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
-	const int outH = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
-	if (!saver.begin(task, outW, outH, cap.get(cv::CAP_PROP_FPS)) && !saver.lastError().isEmpty())
+	const cv::Size size = source.frameSize();
+	if (!saver.begin(task, size.width, size.height, source.fps()) && !saver.lastError().isEmpty())
 		Logger::instance()->warning(QStringLiteral("[DetectionWorker]: ") + saver.lastError());
 
 	cv::Mat frame;
@@ -302,12 +284,11 @@ bool DetectionWorker::runStream(DetectionTask& task) {
 	QElapsedTimer clock;
 	clock.start();
 
-	while (cap.read(frame)) {
+	// 读失败/流结束都返回空 Mat，循环随之退出
+	while (!(frame = source.getFrame()).empty()) {
 		// 逐帧检查取消
 		if (task.shared->cancelled())
 			break;								// 取消按正常结束处理，由 execute() 发 taskCancelled
-		if (frame.empty())
-			break;
 
 		DetectionResult result = m_detector->detect(frame);
 		if (result.error.has_error()) {
@@ -315,16 +296,13 @@ bool DetectionWorker::runStream(DetectionTask& task) {
 			return false;
 		}
 		result.taskId = task.taskId;
-		result.source = task.source;
+		result.source = source.displayName();
 		finishUnit(task, frame, result, saver);
 		++processed;
 	}
 
 	reportSaveResult(saver);
 
-	// 报告实际处理帧率：摄像头用它判断有没有跟上出帧速度。
-	// 明显低于摄像头标称帧率（比如 30fps 的摄像头只跑出 8fps）就说明方案 A 不够，
-	// 需要换成"单槽采集线程"才能把延迟压住。
 	const qint64 elapsedMs = clock.elapsed();
 	if (processed > 0 && elapsedMs > 0) {
 		const double fps = static_cast<double>(processed) * 1000.0 / static_cast<double>(elapsedMs);
@@ -341,13 +319,10 @@ void DetectionWorker::finishUnit(DetectionTask& task, const cv::Mat& frame,
 	if (task.accumulateResults)
 		task.results.push_back(result);
 
-	// 整体处理帧率：按相邻工作单元完成的间隔估算并做 EMA 平滑。
-	// 间隔包含读帧、检测，以及前一帧的渲染等处理开销；不是单独的模型推理耗时。
+	// 整体处理帧率
 	const float fps = task.fps.tick();
 
-	// 需要显示或需要保存时都得渲染。
-	// 注意：在 worker 线程内画框并转 QImage —— cv::Mat 是浅拷贝共享像素的，
-	// 直接跨线程传 Mat 等于传一块会被下一帧覆写的内存。
+	// 进行渲染结果
 	cv::Mat canvas;
 	QImage image;
 	if (task.renderFrames || saver.active()) {

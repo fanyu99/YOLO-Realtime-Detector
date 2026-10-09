@@ -168,11 +168,12 @@ Dialog {
 			DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
 		}
 		Button {
+			id: acceptButton
+			focus: true
 			text: "确定"
 			DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
 		}
 	}
-
 	// 点击"确定"：把表单内容提交给后端
 	onAccepted: {
 		if (!app) return
@@ -189,6 +190,7 @@ Dialog {
 					  widthSpin.value, heightSpin.value,
 					  cudaCheck.checked)
 	}
+	AcceptShortcut { popup: dialog; button: acceptButton }
 
 	// 选择 onnx 模型文件
 	FileDialog {

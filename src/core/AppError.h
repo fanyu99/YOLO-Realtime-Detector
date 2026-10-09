@@ -4,11 +4,9 @@
 #include <QtQmlIntegration/QtQmlIntegration>
 
 // 应用层错误
-// Q_GADGET + QML_ELEMENT 使该结构体可以在 QML 中作为值类型使用，
-// 这样 QML 侧的 errorOccurred(error) 才能读取 error.errorMessage / error.errorCode
 struct AppError {
 	Q_GADGET
-	QML_ELEMENT
+	QML_ELEMENT		 // 用于QML侧直接使用相关属性
 public:
 	// 错误码
 	enum class Code {
@@ -29,10 +27,8 @@ public:
 
 	AppError(const QString& msg, Code code = Code::UnknownError) : errorMessage(msg), errorCode(code) {}
 
-	// 以下 getter 供 QML 读取
+	// getter 供 QML 读取
 	QString errorMessageText() const { return errorMessage; }
 	Code errorCodeValue() const { return errorCode; }
 };
-
-// 兼容原有命名：枚举已移入 AppError 内部，这里用别名保持原有写法可用
 using AppErrorCode = AppError::Code;

@@ -7,8 +7,8 @@
 [![OpenCV](https://img.shields.io/badge/OpenCV-5.0-5C3EE8.svg)](https://opencv.org/)
 
 基于 **Qt 6（Quick/QML）**、**ONNX Runtime** 与 **OpenCV** 的实时 YOLO 目标检测桌面应用。
-支持对**图片、视频文件、摄像头实时流**做推理，在画面上绘制检测框，并可将标注后的结果
-落盘保存。
+支持对**图片、视频文件、USB 摄像头实时流、海康（MVS）工业相机**做推理，在画面上绘制
+检测框，并可将标注后的结果落盘保存。
 
 界面使用 QML 编写，窗口标题为「检测头」。文档提供中英双语：
 英文见 [README.md](README.md)，本篇为简体中文说明。
@@ -47,7 +47,14 @@
 
 **输入与作业**
 
-- 单图、单视频、摄像头实时流，以及**批量作业**（图片与视频可混排）。
+- 单图、单视频、USB 摄像头实时流、海康（MVS）工业相机，以及**批量作业**（图片与视频可
+  混排）。
+- **帧源可插拔**（策略模式）。所有输入都是 `FrameSource`，只对外暴露
+  `open()` / `getFrame()` / `close()`；worker 只靠这三个调用驱动任务，并从 `type()`
+  推导执行路径（`runImage` / `runStream`），作业工厂也从同一个值派生作业种类。新增帧源
+  只需在应用层工厂里加一个创建函数 —— 不必新增 `submitXxx()` 入口，调度层与界面都不用改。
+- 海康相机支持 GigE 与 USB3 工业相机，按序列号发现设备，触发模式可选：连续采集（默认）、
+  软触发、或 Line0 / Line1 / Line2 硬触发。
 - 两级作业模型：一个 *Job* 对应界面上的一个进度条，内部拆成 N 个 *Task* 交由专用工作
   线程执行。
 - 统一的进度公式，同时覆盖批量作业与单流逐帧进度。
@@ -75,7 +82,8 @@
 ```
                       ┌──────────────────────────────────────────┐
    QML 层             │  main.qml · Theme · LogView ·            │
-   (qml/)             │  ConfigDialog · CameraDialog             │
+   (qml/)             │  ConfigDialog · CameraDialog ·           │
+                      │  HikCameraDialog                         │
                       └───────────────┬──────────────────────────┘
                                       │  属性绑定 / Q_INVOKABLE
                       ┌───────────────▼──────────────────────────┐
@@ -85,16 +93,20 @@
                       │  DetectionRenderer (帧 → QImage)         │
                       │  DetectionResultSaver (结果落盘)         │
                       │  DetectionImageProvider (image:// 提供器)│
+                      │  帧源工厂 (QML → FrameSource)            │
                       │  Logger            (日志桥接)            │
                       └───────────────┬──────────────────────────┘
                                       │  DetectorConfig / DetectionResult
                       ┌───────────────▼──────────────────────────┐
    核心层             │  Detector   (ONNX 会话、预处理、后处理)  │
    (src/core/)        │  DetectionTypes · Box · AppError         │
+                      │  FrameSource (策略模式) →                │
+                      │    FileFrameSource · HikCameraFrameSource│
                       └───────────────┬──────────────────────────┘
                                       │
                       ┌───────────────▼──────────────────────────┐
-                      │  ONNX Runtime (CUDA / CPU)  ·  OpenCV    │
+                      │  ONNX Runtime (CUDA / CPU) · OpenCV ·    │
+                      │  海康 MVS SDK（仅海康相机）              │
                       └──────────────────────────────────────────┘
 ```
 
@@ -108,6 +120,10 @@
   标志位。
 - **`DetectionApp` 只认不透明的 `jobId`。** 线程、队列、取消这些事全部收敛在
   `DetectionManager` / `DetectionWorker` 内部。
+- **推理过程不感知帧源。** `DetectionTask` 持有的是 `FrameSourcePtr`，而不是路径或设备号；
+  worker 只调 `open()` / `getFrame()` / `close()`。文件、USB 摄像头与海康 SDK 相机因此
+  共用同一条执行路径，厂商 SDK 也被封在 `HikCameraFrameSource` 内部（PIMPL：头文件不引入
+  `MvCameraControl.h`）。
 
 ---
 
@@ -130,6 +146,9 @@
 │   ├── core/                   # 推理内核 —— 无界面、无 QObject
 │   │   ├── Detector.{h,cpp}        # ONNX 会话、letterbox、YOLO 解码、NMS、视频循环
 │   │   ├── DetectionTypes.h        # DetectorConfig、错误/警告、Job/Task/Box 模型
+│   │   ├── FrameSource.h           # 帧源抽象接口（策略模式）+ 路径/类型判定工具
+│   │   ├── FileFrameSource.{h,cpp}      # 图片 / 视频文件 / USB 摄像头帧源
+│   │   ├── HikCameraFrameSource.{h,cpp} # 海康 MVS 帧源：设备枚举、触发模式
 │   │   ├── Box.h                   # 检测框值类型（Q_GADGET，可被 QML 读取）
 │   │   └── AppError.h              # 应用层错误值类型
 │   ├── app/                    # Qt 应用层
@@ -148,7 +167,8 @@
 │   ├── Theme.qml               # 配色 / 主题单例
 │   ├── LogView.qml             # 日志列表，按级别着色
 │   ├── ConfigDialog.qml        # 模型与检测参数对话框
-│   └── CameraDialog.qml        # 摄像头设备选择
+│   ├── CameraDialog.qml        # 摄像头设备选择
+│   └── HikCameraDialog.qml     # 海康相机设备选择 + 触发模式
 │
 ├── resources/                  # 通过 Qt 资源系统编译进二进制的素材
 │   ├── images.qrc              # 资源清单
@@ -180,9 +200,15 @@
 | ONNX Runtime | 1.30.0 | GPU/CUDA 13 包；CPU 包同样可用 |
 | 生成器 | Ninja（或 NMake/JOM） | |
 | CUDA Toolkit + cuDNN | 13.x / 9.x | *可选* —— 仅 GPU 推理需要 |
+| 海康 MVS SDK | — | **编译必需** —— 提供 `MvCameraControl.h` / `MvCameraControl.lib`。SDK 根目录取自环境变量 `%MVCAM_COMMON_RUNENV%`，取不到时回退到 `D:/MVS/Development`。 |
 
 GPU 推理是可选路径：若缺少 CUDA / cuDNN 运行库，检测器会记录一条警告并自动回退到 CPU
 执行提供器。
+
+海康这条路在编译期**不是可选的**：`HikCameraFrameSource` 链接了 `MvCameraControl.lib`，
+因此可执行文件的导入表里就有 `MvCameraControl.dll`（及其依赖的 GenICam / 传输层），
+**即使你从不打开海康相机**，启动时也必须有对应架构的 MVS 运行时。下文
+`DEPLOY_MVS_RUNTIME` 会处理这件事。
 
 ---
 
@@ -207,6 +233,11 @@ GPU 推理是可选路径：若缺少 CUDA / cuDNN 运行库，检测器会记�
 
    > Linux / macOS 下把 `^` 换成 `\`。`CMAKE_PREFIX_PATH` 指向 Qt 的 `lib/cmake` 所在
    > 目录；`OpenCV_DIR` 指向包含 `OpenCVConfig.cmake` 的目录。
+   >
+   > 海康 MVS SDK 的根目录取自环境变量 `MVCAM_COMMON_RUNENV`（安装 MVS 时会自动设置）。
+   > 取不到时 CMake 回退到 `D:/MVS/Development`；若你的 SDK 装在别处，请导出该环境变量，
+   > 或修改 `CMakeLists.txt` 顶部的 `MVS_SDK_ROOT`。找不到 `MvCameraControl` 会直接
+   > 配置失败。
 
 3. 编译：
 
@@ -226,6 +257,7 @@ GPU 推理是可选路径：若缺少 CUDA / cuDNN 运行库，检测器会记�
 | 选项 | 默认值 | 说明 |
 |---|---|---|
 | `DEPLOY_CUDA_RUNTIME` | `ON` | 是否把 CUDA/cuDNN 运行库复制到可执行文件旁。若已通过 `PATH` 提供，可用 `-DDEPLOY_CUDA_RUNTIME=OFF` 关闭。 |
+| `DEPLOY_MVS_RUNTIME` | `ON` | 是否把海康 MVS 运行时（`MvCameraControl.dll` 及 GenICam / 传输层 DLL，约 110 MB）复制到可执行文件旁。会自动从 SDK 根目录与常见的 `MVS/Runtime/Win64_x64` 位置探测；非标准安装可用 `-DMVS_RUNTIME_DIR=<目录>` 指定，或 `-DDEPLOY_MVS_RUNTIME=OFF` 自行保证 `PATH`。 |
 
 ---
 
@@ -244,8 +276,17 @@ GPU 推理是可选路径：若缺少 CUDA / cuDNN 运行库，检测器会记�
    |---|---|
    | **选择文件 ▾** | 选择单张图片或单个视频 |
    | **摄像头检测** | 选择设备号并启动实时流 |
+   | **海康相机检测** | 枚举海康工业相机，按序列号选择设备、选择触发模式后启动实时流 |
    | **批量检测** | 多选图片 / 视频，作为一个作业依次跑完 |
    | **停止检测** | 取消当前作业（仅作业运行中可用） |
+
+   > **海康相机检测**与**摄像头检测**是两条不同的路径：前者通过海康 MVS SDK 与 GigE /
+   > USB3 工业相机通信，后者走 OpenCV 的设备编号。两者最终都是同一种作业，因此进度、
+   > 回看、取消与结果保存的行为完全一致。
+   >
+   > 触发模式：*off*（连续采集，默认）、*software*（软触发）、*line0* / *line1* /
+   > *line2*（硬触发）。传入了无法识别的取值会记一条警告并回退到 *off*；设备本身不支持的
+   > 模式会在启动流时报错到日志。
 
 3. **查看结果** —— 标注后的画面显示在结果区。用 **上一个** / **下一个** 翻阅缓冲结果，
    用 **回到实时** 恢复跟随实时画面。回看过程不会暂停推理。
@@ -320,6 +361,9 @@ GPU 推理是可选路径：若缺少 CUDA / cuDNN 运行库，检测器会记�
 | 检测框位置偏移或缩放不对 | 输入尺寸与模型不匹配。查看警告横幅 —— 应用会自动对齐并提示改动。 |
 | 没有用上 CUDA | 未找到 CUDA / cuDNN 运行库。设置 `CUDA_PATH`/`CUDNN_PATH`（或 `PATH`）以便 `DEPLOY_CUDA_RUNTIME` 找到它们；否则会使用 CPU EP。 |
 | 首次推理很慢 | 属正常现象 —— 启动时已预热会话，但换模型后的第一帧仍需付出会话创建成本。 |
+| 配置阶段找不到 `MvCameraControl` | 未找到海康 MVS SDK。请安装 MVS SDK（会设置 `MVCAM_COMMON_RUNENV`），或修改 `CMakeLists.txt` 顶部的 `MVS_SDK_ROOT`。`MVS_CAMERA_CONTROL_LIB` 是 `find_library` 的必需项，因此这是硬性配置错误。 |
+| 加入海康相机支持后程序完全起不来 | MVS 运行时缺失 —— exe 的导入表里有 `MvCameraControl.dll`，缺了它是启动失败，而不是「海康功能不可用」。`DEPLOY_MVS_RUNTIME` 本应把它复制到 exe 旁；若自动探测没找到，请传 `-DMVS_RUNTIME_DIR=<目录>`，或把正确架构的 MVS 运行时目录加入 `PATH`。注意 MVS 同时会安装 **32 位**运行时并加进 `PATH`：按 `PATH` 顺序先命中的那份架构不对，就是直接加载失败，不会继续往后找。 |
+| **海康相机检测**列表为空 | 相机未上电、GigE 不在同一网段 / USB3 未连接、MVS 运行时缺失，或相机已被其它进程占用（例如 MVS 客户端 —— 同一时刻只能有一个进程取流）。排除后点 **刷新**，并查看日志里的 SDK 错误码。 |
 
 ---
 

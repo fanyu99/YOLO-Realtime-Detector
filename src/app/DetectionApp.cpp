@@ -2,10 +2,13 @@
 
 #include <QFileInfo>
 #include <QQmlEngine>
+#include <QVariantMap>
 #include <algorithm>
 
 #include "DetectionImageProvider.h"
 #include "DetectionResultSaver.h"
+#include "FileFrameSource.h"
+#include "HikCameraFrameSource.h"
 #include "Logger.h"
 
 // 匿名工具函数: 帧信号通知限流
@@ -71,6 +74,60 @@ AppError DetectionApp::mapDetectionErrortoAppError(const DetectorError& error) c
 	}
 }
 
+// 帧源工厂,
+// 1. 文件帧源
+FrameSourcePtr DetectionApp::makeFileSource(const QString& path) const {
+	return FileFrameSource::forFile(path);
+}
+
+FrameSourcePtr DetectionApp::makeCameraSource(int cameraId) const {
+	// 设备号无效时返回空，由调用方按"配置无效"上报
+	return FileFrameSource::forCamera(cameraId);
+}
+
+FrameSourcePtr DetectionApp::makeHikCameraSource(const QString& serial,const QString& triggerMode) const {
+	if (triggerMode == "off") {
+		return HikCameraFrameSource::forDevices(serial, HikCameraFrameSource::TriggerMode::Off);
+	}
+	else
+	if (triggerMode == "software") {
+		return HikCameraFrameSource::forDevices(serial, HikCameraFrameSource::TriggerMode::Software);
+	}
+	else if (triggerMode == "line0") {
+		return HikCameraFrameSource::forDevices(serial, HikCameraFrameSource::TriggerMode::Line0);
+	}
+	else if (triggerMode == "line1") {
+		return HikCameraFrameSource::forDevices(serial, HikCameraFrameSource::TriggerMode::Line1);
+	}
+	else if (triggerMode == "line2") {
+		return HikCameraFrameSource::forDevices(serial, HikCameraFrameSource::TriggerMode::Line2);
+	}
+	else {
+		Logger::instance()->warning(QStringLiteral("[DetectionApp]: 海康相机触发模式无效，使用默认的连续采集模式"));
+		return HikCameraFrameSource::forDevices(serial, HikCameraFrameSource::TriggerMode::Off);
+	}
+
+
+}
+
+// 枚举在线海康相机，供 HikCameraDialog 填列表。
+// 这是一次阻塞的 SDK 调用，只在对话框打开 / 点"刷新"时触发，
+// 不要放进 QML 的属性绑定里（否则每次求值都会问一遍 SDK）。
+QVariantList DetectionApp::hikDevices() const {
+	QVariantList list;
+	const QVector<HikCameraFrameSource::DeviceInfo> devices = HikCameraFrameSource::enumerateDevices();
+	list.reserve(devices.size());
+	for (const HikCameraFrameSource::DeviceInfo& device : devices) {
+		QVariantMap item;
+		item.insert(QStringLiteral("serial"), device.serial);
+		item.insert(QStringLiteral("model"), device.model);
+		item.insert(QStringLiteral("userDefinedName"), device.userDefinedName);
+		item.insert(QStringLiteral("online"), device.online);
+		list.append(item);
+	}
+	return list;
+}
+
 // 配置摘要(用于日志)
 QString DetectionApp::configSummary() const {
 	return QStringLiteral("模型: ") + QString::fromStdWString(m_config.model_path.wstring())
@@ -121,11 +178,11 @@ void DetectionApp::onDetectClicked() {
 	const QString path = QString::fromStdWString(m_filePath.wstring());
 	if (isImagePath(path)) {
 		Logger::instance()->info(QStringLiteral("[DetectionApp]: 提交图片检测: ") + path);
-		m_currentJobId = m_manager->submitImage(path, effectiveResultsDir());
+		m_currentJobId = m_manager->submitSource(makeFileSource(path), effectiveResultsDir());
 	}
 	else if (isVideoPath(path)) {
 		Logger::instance()->info(QStringLiteral("[DetectionApp]: 提交视频检测: ") + path);
-		m_currentJobId = m_manager->submitVideo(path, effectiveResultsDir());
+		m_currentJobId = m_manager->submitSource(makeFileSource(path), effectiveResultsDir());
 	}
 	else {
 		reportError(AppError(QStringLiteral("[Detector]: 文件类型不支持!"), AppErrorCode::InvalidFilePath));
@@ -159,7 +216,46 @@ void DetectionApp::onDetectCameraClicked(int camera_id) {
 	}
 
 	Logger::instance()->info(QStringLiteral("[DetectionApp]: 请求摄像头检测，设备 id = ") + QString::number(camera_id));
-	m_currentJobId = m_manager->submitCamera(camera_id, effectiveResultsDir());
+	 // 创建帧源
+	FrameSourcePtr source = makeCameraSource(camera_id);
+	if (!source) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: 摄像头设备号无效!"), AppErrorCode::InvalidConfig));
+		return;
+	}
+	m_currentJobId = m_manager->submitSource(std::move(source), effectiveResultsDir());
+	if (m_currentJobId == 0)
+		return;
+
+	m_progress = 0.0f;
+	setState(m_currentJobId, true, true);
+}
+// qml侧调用: 海康相机检测
+void DetectionApp::onDetectHikCameraClicked(const QString& serial,const QString& triggerMode) {
+	if (m_busy) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: 已有检测在进行中，请先停止!"), AppErrorCode::DetectionFailed));
+	}
+	if (!m_config.isValid()) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: 配置无效!"), AppErrorCode::InvalidConfig));
+		return;
+	}
+	if (!m_config.model_exists()) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: 模型路径无效!"), AppErrorCode::InvalidModelPath));
+		return;
+	}
+	if (!m_manager->start()) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: 检测器未就绪!"), AppErrorCode::DetectorError));
+		return;
+	}
+
+	Logger::instance()->info(QStringLiteral("[DetectionApp]: 请求海康相机检测，设备序列号 = ") + serial + QStringLiteral(", 触发模式 = ") + triggerMode);
+	// 创建帧源
+	FrameSourcePtr source = makeHikCameraSource(serial,triggerMode);
+	if (!source) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: 海康相机设备序列号无效!"), AppErrorCode::InvalidConfig));
+		return;
+	}
+	// 提交检测
+	m_currentJobId = m_manager->submitSource(std::move(source), effectiveResultsDir());
 	if (m_currentJobId == 0)
 		return;
 
@@ -169,8 +265,6 @@ void DetectionApp::onDetectCameraClicked(int camera_id) {
 
 // qml侧调用: 批量检测（图片/视频可混排，一个 Job 含多个 Task）
 quint64 DetectionApp::submitBatch(const QList<QUrl>& urls) {
-	// 收 QUrl 而不是 QStringList：QML 的多选文件对话框直接给 url 列表，
-	// 在这里用 toLocalFile() 转一次，比在 QML 里手工剥 file:// 前缀可靠得多
 	QStringList paths;
 	paths.reserve(urls.size());
 	for (const QUrl& url : urls) {
@@ -203,8 +297,15 @@ quint64 DetectionApp::submitBatch(const QList<QUrl>& urls) {
 	Logger::instance()->info(QStringLiteral("[DetectionApp]: 提交批量检测，文件数: ")
 		+ QString::number(paths.size()));
 
-	// 批量作业的结果不走 results（会被视频帧撑爆），完成时只报汇总
-	m_currentJobId = m_manager->submitBatch(paths, effectiveResultsDir());
+	// 每个文件一个帧源。认不出的后缀会由 FileFrameSource 建成单图源，
+	// 由 worker 在执行时报"图片加载失败"，与逐个提交时的行为一致。
+	QVector<FrameSourcePtr> sources;
+	sources.reserve(paths.size());
+	for (const QString& path : paths)
+		sources.append(makeFileSource(path));
+
+
+	m_currentJobId = m_manager->submitBatch(std::move(sources), effectiveResultsDir());
 	if (m_currentJobId == 0)
 		return 0;								// 提交失败，Manager 已经 emit jobFailed
 

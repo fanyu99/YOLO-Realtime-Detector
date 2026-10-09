@@ -4,8 +4,6 @@
 
 DetectionManager::DetectionManager(QObject* parent) : QObject(parent) {
 	// 跨线程的 queued 连接要求参数类型能被元系统识别。
-	// Q_GADGET 类型本身已可注册，这里显式登记一次，避免运行时出现
-	// "Cannot queue arguments of type ..." 的告警。
 	qRegisterMetaType<DetectionResult>();
 	qRegisterMetaType<DetectorError>();
 	qRegisterMetaType<DetectorWarning>();
@@ -16,7 +14,7 @@ DetectionManager::~DetectionManager() {
 	shutdown();
 }
 
-// 应用配置 = 停掉旧 worker + 用新配置建新 worker。
+// 应用配置  停掉旧 worker + 用新配置建新 worker。
 bool DetectionManager::applyConfig(const DetectorConfig& config) {
 	if (!m_jobs.isEmpty()) {
 		Logger::instance()->warning(QStringLiteral("[DetectionManager]: 有作业进行中，配置未应用"));
@@ -33,8 +31,7 @@ bool DetectionManager::applyConfig(const DetectorConfig& config) {
 }
 
 bool DetectionManager::start() {
-	// 幂等：已经在跑就直接返回。它用的就是创建时注入的那份配置，
-	// 运行期间不会被改（换配置走 applyConfig()）。
+	// 幂等：已经在跑就直接返回
 	if (m_worker && m_worker->isRunning())
 		return true;
 
@@ -61,7 +58,6 @@ bool DetectionManager::start() {
 void DetectionManager::shutdown() {
 	if (m_worker) {
 		// stop() 会把队列里未开始的 Task 以 taskCancelled信号上报，
-		// 那些信号在 GUI 线程同步派发，正好让 retireTask 把表清干净。
 		m_worker->stop();
 		m_worker.reset();
 	}
@@ -71,40 +67,22 @@ void DetectionManager::shutdown() {
 
 // 提交作业
 
-quint64 DetectionManager::submitImage(const QString& path, const QString& saveDir) {
-	if (path.isEmpty()) {
-		emit jobFailed(0, DetectorError(QStringLiteral("[DetectionManager]: 图片路径为空!"),
-										DetectorErrorCategory::Image, DetectorErrorCode::InvalidImage));
+quint64 DetectionManager::submitSource(FrameSourcePtr source, const QString& saveDir) {
+	if (!source) {
+		emit jobFailed(0, DetectorError(QStringLiteral("[DetectionManager]: 帧源为空!"),
+										DetectorErrorCategory::Other, DetectorErrorCode::UnknownError));
 		return 0;
 	}
-	return submit(makeSingleTaskJob(nextJobId(), nextTaskId(), DetectionTaskType::SingleImage, path, -1, saveDir));
+	return submit(makeSingleTaskJob(nextJobId(), nextTaskId(), std::move(source), saveDir));
 }
 
-quint64 DetectionManager::submitVideo(const QString& path, const QString& saveDir) {
-	if (path.isEmpty()) {
-		emit jobFailed(0, DetectorError(QStringLiteral("[DetectionManager]: 视频路径为空!"),
-										DetectorErrorCategory::Image, DetectorErrorCode::InvalidImage));
-		return 0;
-	}
-	return submit(makeSingleTaskJob(nextJobId(), nextTaskId(), DetectionTaskType::VideoStream, path, -1, saveDir));
-}
-
-quint64 DetectionManager::submitCamera(int cameraId, const QString& saveDir) {
-	if (cameraId < 0) {
-		emit jobFailed(0, DetectorError(QStringLiteral("[DetectionManager]: 摄像头设备号无效!"),
-										DetectorErrorCategory::Config, DetectorErrorCode::InvalidConfig));
-		return 0;
-	}
-	return submit(makeSingleTaskJob(nextJobId(), nextTaskId(), DetectionTaskType::VideoStream, QString(), cameraId, saveDir));
-}
-
-quint64 DetectionManager::submitBatch(const QStringList& paths, const QString& saveDir) {
-	if (paths.isEmpty()) {
+quint64 DetectionManager::submitBatch(QVector<FrameSourcePtr> sources, const QString& saveDir) {
+	if (sources.isEmpty()) {
 		emit jobFailed(0, DetectorError(QStringLiteral("[DetectionManager]: 批量输入为空!"),
 										DetectorErrorCategory::Image, DetectorErrorCode::InvalidImage));
 		return 0;
 	}
-	return submit(makeBatchJob(nextJobId(), paths, saveDir));
+	return submit(makeBatchJob(nextJobId(), std::move(sources), saveDir));
 }
 
 quint64 DetectionManager::submit(DetectionJob job) {
@@ -139,11 +117,8 @@ quint64 DetectionManager::dispatch(DetectionJob job) {
 
 	const int total = static_cast<int>(job.tasks.size());
 
-	// Job 级的 Task 总数在这里一次定好。
-	// 不要让 worker 边跑边累加 —— 那样进度会虚高（total = completed + inflight）。
 	job.shared->totalTasks.store(total, std::memory_order_relaxed);
 
-	// 先登记再投递：worker 一旦开跑就会回信号，登记在前更稳妥
 	m_jobs.insert(job.jobId, job.shared);
 	m_pendingTasks.insert(job.jobId, total);
 
@@ -198,10 +173,7 @@ bool DetectionManager::isContained(quint64 jobId) const {
 
 // worker 上报 -> 作业级事件
 
-// 检测器警告(非致命)：日志已由 worker 侧写过，这里做两件事 ——
-//   1) 若检测器按模型对齐了输入尺寸，把新尺寸回写到 Manager 持有的配置。
-//      不回写的话，Manager / App / QML 显示的尺寸会和检测器实际使用的分叉。
-//   2) 原样转发给上层，让 UI 显式提示用户。
+// 检测器警告(非致命)
 void DetectionManager::onDetectorWarning(const DetectorWarning& warning) {
 	if (warning.code == DetectorWarning::Code::InputSizeAligned) {
 		m_config.input_width = warning.to_width;
@@ -216,12 +188,6 @@ void DetectionManager::onDetectorFailed(const DetectorError& error) {
 }
 
 void DetectionManager::onTaskStarted(quint64 jobId) {
-	// 一个 Job 只在**第一个** Task 开始时上报一次 jobStarted。
-	//
-	// worker 是逐 Task 发 taskStarted 的，直接逐次转发会让上层以为"新作业又开始了"。
-	// 这个 bug 在"一个 Job 一个 Task"时不存在，加了批量才暴露：
-	// 上层（App）收到 jobStarted 会重置回看缓冲，于是每张图都把缓冲清空一次，
-	// 缓冲里永远只剩最后一条 —— 表现为"批量结果看着像单张预览"。
 	if (m_startedJobs.contains(jobId))
 		return;
 	m_startedJobs.insert(jobId);
@@ -233,7 +199,6 @@ void DetectionManager::onTaskProgress(quint64 jobId, quint64 taskId, int unitDon
 	Q_UNUSED(unitDone);
 	Q_UNUSED(unitTotal);
 	// 进度以共享状态为准：它同时含 Job 级的 task 计数与当前 Task 的单元进度，
-	// progress() 里用统一公式合成，这里不必自己算
 	const TaskSharedPtr shared = m_jobs.value(jobId);
 	if (shared)
 		emit jobProgress(jobId, shared->progress());
@@ -275,18 +240,11 @@ void DetectionManager::onTaskCancelled(quint64 jobId) {
 }
 
 // 一个 Task 到达终态后的统一收尾。
-//
-// 关键：**多 Task 作业必须等全部 Task 结束才发作级信号**。
-// 之前每个 Task 完成就 emit jobFinished，单 Task 作业下没问题，
-// 但批量作业会在第一个 Task 完成时就让 UI 以为整个作业结束了。
 void DetectionManager::settleTask(quint64 jobId, bool failed, bool cancelled,
 								  const DetectorError& error,
 								  const QVector<DetectionResult>& results)
 {
-	if (cancelled) {
-		// 取消不算"完成"：进度应停在取消那一刻，否则进度条会跳到 100%
-	}
-	else {
+	if (!cancelled) {
 		advanceTaskCounters(jobId, failed);
 	}
 

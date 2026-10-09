@@ -4,7 +4,7 @@
 #include <QtQmlIntegration/QtQmlIntegration>
 
 // 检测框
-// Q_GADGET + QML_ELEMENT 使该结构体可以在 QML 中作为值类型使用
+// Q_GADGET + QML_ELEMENT: 用于QML直接使用相关属性 
 struct Box {
 	Q_GADGET
 	QML_ELEMENT
@@ -18,12 +18,11 @@ public:
 	float x, y, w, h, conf;
 	int cls;
 
-	// 显式构造函数：Q_GADGET 会引入成员函数，这里保留与原来一致的聚合式初始化写法
 	Box() = default;
 	Box(float x_, float y_, float w_, float h_, float conf_, int cls_)
 		: x(x_), y(y_), w(w_), h(h_), conf(conf_), cls(cls_) {}
 
-	// 以下 getter 供 QML 读取(命名避免与成员变量冲突)
+	//  getter 供 QML 读取(命名避免与成员变量冲突)
 	float getX() const { return x; }
 	float getY() const { return y; }
 	float getWidth() const { return w; }

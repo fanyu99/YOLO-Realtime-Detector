@@ -2,6 +2,10 @@
 
 本文档记录各模块的职责、线程模型与关键设计取舍。英文 README 的架构小节是这里的摘要版。
 
+## 当前更新: 
+- 使用`FrameSource`抽象接口统一帧源
+- 当前支持`FileFrameSource`(图片/视频/摄像头)和`HikCameraFrameSource`(海康相机)
+
 ---
 
 ## 1. 分层
@@ -66,16 +70,16 @@ progress = (已结束 Task 数 + 当前 Task 内部单元比例) / Task 总数
 
 公式单调：当前 Task 完成时 `completedTasks++` 且单元比例归零，总和仍然上升。
 
-**两个枚举是互补的，不是重复：**
+**帧源类型与作业种类是互补的，不是重复：**
 
-| 枚举 | 层级 | 用途 |
+| 类型 | 层级 | 用途 |
 |---|---|---|
-| `DetectionTaskType` | 任务级 / 执行层 | worker 据此决定走 `runImage` 还是 `runStream` |
+| `FrameSourceType` | 任务级 / 执行层 | worker 据此决定走 `runImage` 还是 `runStream`，并据此准备进度与编码器参数 |
 | `DetectionJobType` | 作业级 / 展示层 | UI 据此决定如何呈现结果、完成时发哪个信号 |
 
-`DetectionTaskType` 区分不了「摄像头」与「单视频」（两者都是 `VideoStream`），也表达不了
-「批量」（每个 Task 类型可不同）。因此单 Task 作业的 `job.type` 由 `jobTypeOf(task)`
-**单向派生**，保证「什么算视频」只在 `isVideoPath()` 一处定义。
+`FrameSourceType` 表达不了「批量」（一个 Job 里各 Task 的类型可以不同）。因此单 Task 作业的
+`job.type` 由 `jobTypeOf(task)` 从 `task.source->type()` **单向派生**，
+保证「什么算视频 / 什么算摄像头」只在 `FrameSource::type()` 一处定义。
 
 ---
 
@@ -103,12 +107,23 @@ ONNX 会话的封装，负责预处理、推理与后处理。
 ### `DetectionTypes.h`
 
 类型中枢：`LetterboxInfo`、`DetectorConfig`、`DetectorError`、`DetectorWarning`、
-`DetectionResult`、`TaskShared`、`FpsCounter`、`DetectionTask`、`DetectionJob`，
-以及 `jobTypeOf()` / `makeSingleTaskJob()` / `makeBatchJob()` / `isVideoPath()` /
-`isImagePath()`。
+`DetectionResult`、`TaskShared`、`FpsCounter`、`DetectionTask`、`DetectionJob`、
+`DetectionJobType`，以及 `jobTypeOf()` / `makeSingleTaskJob()` / `makeBatchJob()`。
 
-其中 `isVideoPath()` / `isImagePath()` 只按后缀判断、不访问磁盘 —— 目的是让「什么算视频」
-只有一个定义，供 `DetectionApp` 与 `makeBatchJob()` 共用。
+`DetectionTask` 只持有一个 `FrameSourcePtr`，不再有「图片/视频/摄像头」的标志位 ——
+执行路径、展示种类、是否累积结果，全部从 `source->type()` 派生。
+
+### `FrameSource.h` / `FileFrameSource.h`
+
+帧源的抽象与唯一实现。`FileFrameSource` 覆盖「图片文件 / 视频文件 / 摄像头」三种输入，
+把 `cv::imread`、`cv::VideoCapture`、摄像头缓冲调优、总帧数/帧率/尺寸的读取都收在这里。
+
+- 构造只记参数、不做 I/O，因此可以在 GUI 线程构造后交给 worker；`open()` / `getFrame()` /
+  `close()` 只在 worker 线程调用 —— 打开摄像头可能阻塞约 1s，放 GUI 线程会直接卡住界面。
+- 单图源只产一帧（`getFrame()` 第二次返回空 Mat），因此 `runImage()` 与 `runStream()`
+  的取帧循环形状一致。
+- `isVideoPath()` / `isImagePath()` 定义在这里（只按后缀判断、不访问磁盘），
+  供 `FileFrameSource` 判定类型、`DetectionApp` 做提交前的合法性检查共用。
 
 ### `Box.h` / `AppError.h`
 
@@ -117,6 +132,20 @@ QML 可见的值类型（`Q_GADGET` + `QML_ELEMENT`），提供 `Box2Rect` / `Re
 ### `ImageShower`（`src/tools/`）
 
 基于 `cv::imshow` 的独立预览工具，与主界面无关，供 `main.cpp` 中已注释的演示函数使用。
+
+### 帧源`FrameSource`将图片/视频/摄像头/其他(例如海康相机等)转换为cv::Mat
+
+用于替换原来的分散的文件路径/摄像头ID的获取帧的方式
+
+更改为使用统一的抽象接口`FrameSource`作为帧源获取帧(策略模式)
+
+`open()`打开帧源,`getFrame()`获取帧,`close()`关闭帧源
+
+目前完成的有`FileFrameSource`和`HikCameraFrameSource`
+
+`FileFrameSource`用于为单图/视频帧/摄像头帧提供统一的接口
+
+`HikCameraFrameSource`作为海康相机帧源,QML为其添加一个Dialog用于选择当前可用的相机设备以及选择触发模式(默认关闭并使用连续采集模式)
 
 ---
 
@@ -201,7 +230,7 @@ Qt 风格日志器：通过 `qInstallMessageHandler` 接管 Qt 自身的 `qDebug
 | `LogView.qml` | 日志列表，按级别着色 |
 | `ConfigDialog.qml` | 模型与检测参数表单，确定后调用 `app.setConfig(...)` |
 | `CameraDialog.qml` | 摄像头设备选择，确定后调用 `app.onDetectCameraClicked(id)` |
-
+|`HikCameraDialog.qml`| 海康相机设备选择，确定后调用 `app.onDetectHikCameraClicked(serial,triggerMode)` |
 结果画面用 `Image` 绑定 `app.frameSource()`：
 
 - `source` 必须带上会变化的 `rev`，否则 QML 会因为 URL 完全相同而吃缓存；
@@ -231,7 +260,5 @@ Qt 风格日志器：通过 `qInstallMessageHandler` 接管 Qt 自身的 `qDebug
 - **多 worker 并行**：`DetectionManager::m_worker` 目前是单个 `unique_ptr`，注释已注明
   「单路输入先用 1 个 worker」。改为 `std::vector` 并在 `dispatch()` 中轮询/按负载分配即可，
   两级 Job/Task 模型本身已支持多 worker 消费同一个 Job 的多个 Task。
-- **新增输入类型**：在 `DetectionTypes.h` 扩展 `DetectionTaskType` 与 `isVideoPath()` /
-  `isImagePath()`，并在 `DetectionWorker::execute()` 中分派。
 - **新增后处理**：`Detector::parse_yolo_ouput()` 目前针对 YOLO 检测头，分割/姿态需另加解析
   函数并在 `runInference()` 中分支。
