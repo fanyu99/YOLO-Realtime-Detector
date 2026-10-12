@@ -5,6 +5,7 @@
 #include <QString>
 #include <atomic>
 #include <vector>
+#include <span>
 #include "Box.h"
 #include "DetectionTypes.h"
 
@@ -46,9 +47,13 @@ public:
 	bool preprocess(const cv::Mat& src, cv::Mat&chw, int dst_w=640, int dst_h=640);
 	// 解析推理结果
 	// num_anchors 由输出张量反推(output_shape[2])
-	QVector<Box> parse_yolo_ouput(float* data, int num_classes, int num_anchors)const;
-	// 将预测框从 letterbox 后的 640x640 空间映射回原图
-	QVector<Box> map_boxes_to_original_image(const QVector<Box>& boxes, const LetterboxInfo& info) const;
+	// 内部使用 std::vector 直接喂给 OpenCV NMS，避免 QVector<->std::vector 适配拷贝
+	std::vector<Box> parse_yolo_ouput(float* data, int num_classes, int num_anchors)const;
+	// 将预测框从 letterbox 后的 640x640 空间映射回原图(返回新容器)
+	QVector<Box> map_boxes_to_original_image(std::span<const Box> boxes, const LetterboxInfo& info) const;
+	// 就地映射：直接改写调用方容器，省掉一次结果容器的构造与拷贝。
+	// 接受任何连续内存容器(QVector/std::vector/数组)，非连续容器请先转为连续容器。
+	void map_boxes_to_original_image_replace(std::span<Box> boxes, const LetterboxInfo& info);
 private:
 	// 创建会话选项
 	static Ort::SessionOptions CreateSessionOptions(int threads, bool use_cuda, int device_id, bool& cuda_ok);

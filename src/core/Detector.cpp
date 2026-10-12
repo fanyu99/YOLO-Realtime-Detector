@@ -2,17 +2,7 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <vector>
-namespace {
-	// QVector 与 std::vector 互转
-	template <typename T>
-	std::vector<T> toStd(const QVector<T>& v) {
-		return std::vector<T>(v.cbegin(), v.cend());
-	}
-	template <typename T>
-	QVector<T> toQt(const std::vector<T>& v) {
-		return QVector<T>(v.cbegin(), v.cend());
-	}
-}
+#include <span>
 Detector::Detector()
 	: env(ORT_LOGGING_LEVEL_WARNING, "Detector"),
 	session{ nullptr },
@@ -192,9 +182,12 @@ bool Detector::preprocess(const cv::Mat& src, cv::Mat& chw, int dst_w, int dst_h
 	cv::dnn::blobFromImage(src, chw, 1.0 / 255.0f, cv::Size(dst_w, dst_h), cv::Scalar(), true, false, CV_32F);
 	return true;
 }
+
 // 解析结果
-QVector<Box> Detector::parse_yolo_ouput(float* data, int num_classes, int num_anchors)const {
-	QVector<Box> boxes;
+// 内部全程用 std::vector：OpenCV 的 NMSBoxes 直接吃 std::vector，
+// 省掉原先 QVector -> std::vector -> QVector 的两趟适配拷贝。
+std::vector<Box> Detector::parse_yolo_ouput(float* data, int num_classes, int num_anchors)const {
+	std::vector<Box> boxes;
 	if (!data || num_classes <= 0 || num_anchors <= 0)
 		return boxes;
 	// YOLO 输入 (1,4+num_classes,num_anchors)的张量
@@ -222,26 +215,30 @@ QVector<Box> Detector::parse_yolo_ouput(float* data, int num_classes, int num_an
 	}
 	// 找出所有预测框后进行后处理
 	// 1. NMS
-	std::vector<int> indices; // 保存NMS后的索引（NMSBoxes 只接受 std::vector）
-	QVector<cv::Rect>rects;
-	QVector<float>confidences; // 保存置信度
+	std::vector<cv::Rect> rects;
+	std::vector<float> confidences; // 保存置信度
+	rects.reserve(boxes.size());
+	confidences.reserve(boxes.size());
 	for (const auto& box : boxes) {// 将Box转换为cv::Rect
 		rects.push_back(Box::Box2Rect(box, config.input_width, config.input_height));
 		confidences.push_back(box.conf);
 	}
-	cv::dnn::NMSBoxes(toStd(rects), toStd(confidences), config.conf_threshold, config.iou_threshold, indices);	 // NMS处理
-	// 2. 根据indices保留筛选后的boxes
-	QVector<Box>filtered_boxes;
-	for (int i : toQt(indices)) {
-		filtered_boxes.push_back(boxes[i]);
+	std::vector<int> indices; // 保存NMS后的索引
+	cv::dnn::NMSBoxes(rects, confidences, config.conf_threshold, config.iou_threshold, indices);	 // NMS处理
+	// 2. 根据indices保留筛选后的boxes(就地压缩，避免再开一个容器)
+	std::vector<Box> filtered_boxes;
+	filtered_boxes.reserve(indices.size());
+	for (int i : indices) {
+		filtered_boxes.push_back(boxes[static_cast<size_t>(i)]);
 	}
 	return filtered_boxes;
 }
+
 // 将预测框映射回原图
 // letterbox 是等比缩放，所以必须先减去 padding 偏移，再统一除以 scale；
-QVector<Box>Detector::map_boxes_to_original_image(const QVector<Box>& boxes, const LetterboxInfo& info) const {
+QVector<Box>Detector::map_boxes_to_original_image(std::span<const Box> boxes, const LetterboxInfo& info) const {
 	QVector<Box>mapped_boxes;
-	mapped_boxes.reserve(boxes.size());
+	mapped_boxes.reserve(static_cast<qsizetype>(boxes.size()));
 	const float inv_scale = 1.0f / info.scale;
 	const float max_x = static_cast<float>(info.orig_w);
 	const float max_y = static_cast<float>(info.orig_h);
@@ -263,6 +260,29 @@ QVector<Box>Detector::map_boxes_to_original_image(const QVector<Box>& boxes, con
 	}
 	return mapped_boxes;
 }
+// 替换
+void Detector::map_boxes_to_original_image_replace(std::span<Box> boxes, const LetterboxInfo& info) {
+	const float inv_scale = 1.0f / info.scale;
+	const float max_x = static_cast<float>(info.orig_w);
+	const float max_y = static_cast<float>(info.orig_h);
+	for (auto& box : boxes) {
+		// 中心点：先反平移，再反缩放
+		float x = (box.x - static_cast<float>(info.pad_w)) * inv_scale;
+		float y = (box.y - static_cast<float>(info.pad_h)) * inv_scale;
+		float w = box.w * inv_scale;
+		float h = box.h * inv_scale;
+		// 裁剪到原图范围后重新计算中心点与宽高
+		float x1 = std::max(0.0f, std::min(x - w / 2.0f, max_x));
+		float y1 = std::max(0.0f, std::min(y - h / 2.0f, max_y));
+		float x2 = std::max(0.0f, std::min(x + w / 2.0f, max_x));
+		float y2 = std::max(0.0f, std::min(y + h / 2.0f, max_y));
+		box.x = (x1 + x2) / 2.0f;
+		box.y = (y1 + y2) / 2.0f;
+		box.w = x2 - x1;
+		box.h = y2 - y1;
+	}
+}
+
 // 推理检测目标
 DetectionResult Detector::detect(const QString& image_path) {
 	// 加载图片
@@ -372,10 +392,14 @@ DetectionResult Detector::runInference(cv::Mat& chw, const LetterboxInfo& info) 
 			return { {},error,0 };
 		}
 
-		QVector<Box>boxes = parse_yolo_ouput(output_data, num_classes, num_anchors);
-		QVector<Box>mapped_boxes = map_boxes_to_original_image(boxes, info);
-		qInfo() << "[Detector]: 检测到" << mapped_boxes.size() << "个目标，推理耗时:" << duration << "ms";
-		return DetectionResult{ mapped_boxes,DetectorError{QStringLiteral(""),DetectorErrorCategory::None,DetectorErrorCode::None} ,duration};
+		std::vector<Box>boxes = parse_yolo_ouput(output_data, num_classes, num_anchors);
+		// 就地映射回原图坐标：span 直接借用 vector 的连续存储，不发生拷贝
+		map_boxes_to_original_image_replace( boxes, info );
+		qInfo() << "[Detector]: 检测到" << boxes.size() << "个目标，推理耗时:" << duration << "ms";
+		// 仅在返回给 Qt 结果的边界上构造 QVector<Box>
+		return DetectionResult{ QVector<Box>(boxes.begin(), boxes.end()),
+								DetectorError{QStringLiteral(""),DetectorErrorCategory::None,DetectorErrorCode::None},
+								duration};
 	}
 	catch (const Ort::Exception& e) {
 		m_lastError = DetectorError(QStringLiteral("[Detector]: ONNX 推理失败: ") + QString::fromUtf8(e.what()),

@@ -1,4 +1,5 @@
 #include "DetectionRenderer.h"
+#include <span>
  // 画框 + 画类别 + 画帧率+ 画推理延迟
 namespace DetectionRenderer {
 
@@ -34,8 +35,8 @@ namespace DetectionRenderer {
 			static_cast<int>(rgb.step), QImage::Format_RGB888).copy();
 	}
 
-	cv::Mat renderMat(const cv::Mat& frame, const QVector<Box>& boxes,
-		const QVector<QString>& classNames, long long durationMs, float fps)
+	cv::Mat renderMat(const cv::Mat& frame, std::span<const Box> boxes,
+		std::span<const QString> classNames, long long durationMs, float fps)
 	{
 		if (frame.empty())
 			return cv::Mat();
@@ -75,8 +76,8 @@ namespace DetectionRenderer {
 		return canvas;
 	}
 
-	QImage render(const cv::Mat& frame, const QVector<Box>& boxes,
-		const QVector<QString>& classNames, long long durationMs, float fps)
+	QImage render(const cv::Mat& frame, std::span<const Box> boxes,
+		std::span<const QString> classNames, long long durationMs, float fps)
 	{
 		return toQImage(renderMat(frame, boxes, classNames, durationMs, fps));
 	}

@@ -18,7 +18,7 @@ void ImageShower::showImage(const cv::Mat& image) {
 	cv::imshow("图片", image);
 }
 // 显示带检测框的图片(duration为毫秒)
-void ImageShower::showDetections(const cv::Mat& imag, const QVector<Box>& boxes,  long long duration ,const QVector<QString>& class_names) {
+void ImageShower::showDetections(const cv::Mat& imag, std::span<const Box> boxes,  long long duration ,std::span<const QString> class_names) {
 
 	cv::Mat image = imag.clone();
 	if (image.empty()) {
@@ -31,7 +31,7 @@ void ImageShower::showDetections(const cv::Mat& imag, const QVector<Box>& boxes,
 	for (const auto& box : boxes) {
 		cv::Rect rect = Box::Box2Rect(box, image.cols, image.rows);
 		cv::rectangle(image, rect, cv::Scalar(255, 0, 0), 2);
-		if (!class_names.isEmpty() && box.cls >= 0 && box.cls < class_names.size()) {
+		if (!class_names.empty() && box.cls >= 0 && static_cast<size_t>(box.cls) < class_names.size()) {
 			const QString label = class_names[box.cls] + u' ' + QString::number(box.conf, 'f', 6);
 			cv::putText(image, label.toStdString(), rect.tl(), cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cv::Scalar(255, 255, 255), 2);
 		}
@@ -41,7 +41,7 @@ void ImageShower::showDetections(const cv::Mat& imag, const QVector<Box>& boxes,
 	cv::imshow("检测结果", image);
 }
 // 显示带检测框的图片
-void ImageShower::showDetections(const cv::Mat& imag, const QVector<Box>& boxes, const QVector<QString>& class_names) {
+void ImageShower::showDetections(const cv::Mat& imag, std::span<const Box> boxes, std::span<const QString> class_names) {
 	cv::Mat image = imag.clone();
 	if (image.empty()) {
 		qWarning() << "图片为空/加载失败!";
@@ -50,7 +50,7 @@ void ImageShower::showDetections(const cv::Mat& imag, const QVector<Box>& boxes,
 	for (const auto& box : boxes) {
 		cv::Rect rect = Box::Box2Rect(box, image.cols, image.rows);
 		cv::rectangle(image, rect, cv::Scalar(255, 0, 0), 2);
-		if (!class_names.isEmpty() && box.cls >= 0 && box.cls < class_names.size()) {
+		if (!class_names.empty() && box.cls >= 0 && static_cast<size_t>(box.cls) < class_names.size()) {
 			const QString label = class_names[box.cls] + u' ' + QString::number(box.conf, 'f', 6);
 			cv::putText(image, label.toStdString(), rect.tl(), cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cv::Scalar(255, 255, 255), 2);
 		}
