@@ -17,7 +17,7 @@ namespace {
 }
 
 // 文件帧源: 单图/视频文件,路径
-FrameSourcePtr FileFrameSource::forFile(const QString& path) {
+FrameSourcePtr FileFrameSource::forFile(QStringView path) {
 	const FrameSourceType type = isVideoPath(path) ? FrameSourceType::VideoFile
 												   : FrameSourceType::SingleImage;
 	return FrameSourcePtr(new FileFrameSource(path, type, -1));	 // 返回对应的路径下的源对象
@@ -30,8 +30,8 @@ FrameSourcePtr FileFrameSource::forCamera(int cameraId) {
 	return FrameSourcePtr(new FileFrameSource(QString(), FrameSourceType::Camera, cameraId));
 }
 
-FileFrameSource::FileFrameSource(const QString& filePath, FrameSourceType type, int cameraId)
-	: m_filePath(filePath), m_type(type), m_cameraId(cameraId) {
+FileFrameSource::FileFrameSource(QStringView filePath, FrameSourceType type, int cameraId)
+	: m_filePath(filePath.toString()), m_type(type), m_cameraId(cameraId) {
 }
 
 FileFrameSource::~FileFrameSource() {

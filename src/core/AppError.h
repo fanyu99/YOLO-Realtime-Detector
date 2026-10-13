@@ -25,7 +25,7 @@ public:
 	QString errorMessage;	// 错误信息
 	Code errorCode;			// 错误代码
 
-	AppError(const QString& msg, Code code = Code::UnknownError) : errorMessage(msg), errorCode(code) {}
+	AppError(QStringView msg, Code code = Code::UnknownError) : errorMessage(msg.toString()), errorCode(code) {}
 
 	// getter 供 QML 读取
 	QString errorMessageText() const { return errorMessage; }

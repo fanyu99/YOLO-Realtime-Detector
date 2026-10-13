@@ -15,6 +15,6 @@ public :
 };
 class VideoShower : public ImageShower {
 public:
-	static void showVideo(const QString& videoPath); // 显示视频(路径)
+	static void showVideo(QStringView videoPath); // 显示视频(路径)
 	static void showCamera(int cameraIndex = 0); // 显示摄像头
 };

@@ -37,13 +37,13 @@ using FrameSourcePtr = std::shared_ptr<FrameSource>;		// 使用抽象工厂
 
 
 // 判断是否为视频路径。
-inline bool isVideoPath(const QString& path) {
+inline bool isVideoPath(QStringView path) {
 	static const QStringList kVideoExts = {
 		QStringLiteral(".mp4"), QStringLiteral(".avi"), QStringLiteral(".mov"),
 		QStringLiteral(".mkv"), QStringLiteral(".wmv")
 	};
-	const QString lower = path.toLower();
-	for (const QString& ext : kVideoExts)
+	const QString lower = path.toString().toLower();
+	for (QStringView ext : kVideoExts)
 		if (lower.endsWith(ext))
 			return true;
 	return false;

@@ -60,8 +60,8 @@ void ImageShower::showDetections(const cv::Mat& imag, std::span<const Box> boxes
 	cv::imshow("检测结果", image);
 }
 
-void VideoShower::showVideo(const QString& videoPath) {
-	cv::VideoCapture cap(videoPath.toStdString());
+void VideoShower::showVideo(QStringView videoPath) {
+	cv::VideoCapture cap(videoPath.toString().toStdString());
 	if (!cap.isOpened()) {
 		qWarning() << "视频打开失败!";
 		return;

@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(YOLO LANGUAGES CXX)
-
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Qt 版本兼容垫片（qt_standard_project_setup / qt_add_executable 等）。
 # 注意用完整路径：include() 的参数若带 .cmake 扩展名会被当成「文件路径」，
 # 不会去 CMAKE_MODULE_PATH 里搜索。

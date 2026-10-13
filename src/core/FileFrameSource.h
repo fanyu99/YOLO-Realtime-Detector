@@ -9,7 +9,7 @@ class FileFrameSource : public FrameSource {
 public:
 	// 按后缀判定类型: 视频后缀 -> VideoFile, 其余一律按 SingleImage 处理
 	// (认不出的路径由 open() 以"图片加载失败"报错, 与批量作业的既有行为一致)
-	static FrameSourcePtr forFile(const QString& path);
+	static FrameSourcePtr forFile(QStringView path);
 	static FrameSourcePtr forCamera(int cameraId);	// cameraId < 0 返回 nullptr
 
 	~FileFrameSource() override;
@@ -27,7 +27,7 @@ public:
 	QString lastError() const override { return m_error; }
 
 private:
-	FileFrameSource(const QString& filePath, FrameSourceType type, int cameraId);
+	FileFrameSource(QStringView filePath, FrameSourceType type, int cameraId);
 
 	QString m_filePath;
 	FrameSourceType m_type;

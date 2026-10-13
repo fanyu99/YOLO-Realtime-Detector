@@ -184,8 +184,6 @@ bool Detector::preprocess(const cv::Mat& src, cv::Mat& chw, int dst_w, int dst_h
 }
 
 // 解析结果
-// 内部全程用 std::vector：OpenCV 的 NMSBoxes 直接吃 std::vector，
-// 省掉原先 QVector -> std::vector -> QVector 的两趟适配拷贝。
 std::vector<Box> Detector::parse_yolo_ouput(float* data, int num_classes, int num_anchors)const {
 	std::vector<Box> boxes;
 	if (!data || num_classes <= 0 || num_anchors <= 0)
@@ -284,17 +282,15 @@ void Detector::map_boxes_to_original_image_replace(std::span<Box> boxes, const L
 }
 
 // 推理检测目标
-DetectionResult Detector::detect(const QString& image_path) {
-	// 加载图片
-	cv::Mat image = cv::imread(image_path.toStdString());
-	if (image.empty()) {
-		DetectorError error(QStringLiteral("[Detector]: 打开图片失败: ") + image_path, DetectorErrorCategory::Image, DetectorErrorCode::InvalidImage);
+DetectionResult Detector::detect(QStringView image_path) {
+	if(image_path.isEmpty()){
+		DetectorError error( QStringLiteral( "[Detector]: 未指定输入图片" ), DetectorErrorCategory::Image, DetectorErrorCode::InvalidImage );
 		m_lastError = error;
 		return DetectionResult{ {},error ,0 };
 	}
+	cv::Mat image = cv::imread( image_path.toString().toStdString());
 	return detect(image);
 }
-
 DetectionResult Detector::detect(const cv::Mat& imag) {
 	cv::Mat image = imag.clone();
 	if (image.empty()) {
@@ -393,10 +389,8 @@ DetectionResult Detector::runInference(cv::Mat& chw, const LetterboxInfo& info) 
 		}
 
 		std::vector<Box>boxes = parse_yolo_ouput(output_data, num_classes, num_anchors);
-		// 就地映射回原图坐标：span 直接借用 vector 的连续存储，不发生拷贝
 		map_boxes_to_original_image_replace( boxes, info );
 		qInfo() << "[Detector]: 检测到" << boxes.size() << "个目标，推理耗时:" << duration << "ms";
-		// 仅在返回给 Qt 结果的边界上构造 QVector<Box>
 		return DetectionResult{ QVector<Box>(boxes.begin(), boxes.end()),
 								DetectorError{QStringLiteral(""),DetectorErrorCategory::None,DetectorErrorCode::None},
 								duration};
@@ -477,6 +471,7 @@ QVector<DetectionResult> Detector::detect_video(cv::VideoCapture& cap, std::atom
 	}
 	QVector<DetectionResult> results;
 	cv::Mat frame;
+
 	while (cap.read(frame)) {
 		// 逐帧检查停止标志：摄像头流不会自然结束,以此进行中断
 		if (stop && stop->load(std::memory_order_relaxed))
@@ -525,14 +520,15 @@ Ort::SessionOptions Detector::CreateSessionOptions(int threads, bool use_cuda, i
 }
 
 // 推理视频
-QVector<DetectionResult> Detector::detect_video(const QString& video_path, std::atomic<bool>* stop) {
-	cv::VideoCapture cap(video_path.toStdString());
+QVector<DetectionResult>Detector::detect_video( QStringView video_path, std::atomic<bool>* stop ) {
+	cv::VideoCapture cap(video_path.toString().toStdString());
 	if (!cap.isOpened()) {
-		DetectorError error(QStringLiteral("[Detector]: 打开视频失败!"), DetectorErrorCategory::Other, DetectorErrorCode::UnknownError);
-		m_lastError = error;
+		DetectorError error( QStringLiteral( "[Detector]: 打开视频失败!" ), DetectorErrorCategory::Other, DetectorErrorCode::UnknownError );
+		m_lastError = error.errorMessage;
 		return {};
 	}
-	return detect_video(cap, stop);
+	return detect_video(cap, stop );
+
 }
 
 Detector::~Detector() {

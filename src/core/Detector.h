@@ -32,10 +32,10 @@ public:
 	// 预热：用假输入跑若干次 Run
 	bool warmup(int iterations = 3);
 	// 检测目标
-	DetectionResult detect(const QString& image_path);	// 传路径
+	DetectionResult detect( QStringView image_path );	// 传路径
 	DetectionResult detect(const cv::Mat& image);		// 传图/帧
 	// 传视频路径 / 视频流；stop 非空时逐帧检查，用于取消长作业(如摄像头流)
-	QVector<DetectionResult> detect_video(const QString& video_path, std::atomic<bool>* stop = nullptr);
+	QVector<DetectionResult>detect_video(QStringView video_path, std::atomic<bool>* stop = nullptr);
 	QVector<DetectionResult> detect_video(cv::VideoCapture& cap, std::atomic<bool>* stop = nullptr);
 	// 当前推理实际使用的设备："CUDA" 或 "CPU"
 	const char* device() const;
@@ -47,12 +47,9 @@ public:
 	bool preprocess(const cv::Mat& src, cv::Mat&chw, int dst_w=640, int dst_h=640);
 	// 解析推理结果
 	// num_anchors 由输出张量反推(output_shape[2])
-	// 内部使用 std::vector 直接喂给 OpenCV NMS，避免 QVector<->std::vector 适配拷贝
 	std::vector<Box> parse_yolo_ouput(float* data, int num_classes, int num_anchors)const;
 	// 将预测框从 letterbox 后的 640x640 空间映射回原图(返回新容器)
 	QVector<Box> map_boxes_to_original_image(std::span<const Box> boxes, const LetterboxInfo& info) const;
-	// 就地映射：直接改写调用方容器，省掉一次结果容器的构造与拷贝。
-	// 接受任何连续内存容器(QVector/std::vector/数组)，非连续容器请先转为连续容器。
 	void map_boxes_to_original_image_replace(std::span<Box> boxes, const LetterboxInfo& info);
 private:
 	// 创建会话选项

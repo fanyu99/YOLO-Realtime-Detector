@@ -336,7 +336,7 @@ void HikCameraFrameSource::close() {
 		m_camera->handle.reset();
 }
 //    工厂函数,创建FrameSource
-FrameSourcePtr HikCameraFrameSource::forDevices(const QString& serial, TriggerMode mode) {
+FrameSourcePtr HikCameraFrameSource::forDevices(QStringView serial, TriggerMode mode) {
 
 	if (!ensureSdkInitialized())
 		return FrameSourcePtr();

@@ -112,9 +112,9 @@ private:
 	void reportError(const AppError& error);								// 统一上报错误：发信号 + 写日志
 	AppError mapDetectionErrortoAppError(const DetectorError& error) const;	// 检测器错误 -> 应用层错误
 	// 帧源工厂
-	FrameSourcePtr makeFileSource(const QString& path) const;
+	FrameSourcePtr makeFileSource(QStringView path) const;
 	FrameSourcePtr makeCameraSource(int cameraId) const;
-	FrameSourcePtr makeHikCameraSource(const QString& serial,const QString& triggerMode = "Off") const;
+	FrameSourcePtr makeHikCameraSource( QStringView serial, QStringView triggerMode = QString("Off") ) const;
 	QString configSummary() const;											// 生成配置摘要文本(用于日志)
 	// 实际生效的保存目录：开关关掉时为空（worker 见到空目录就不保存）
 	// 实际生效的结果目录：开关关掉时为空（worker 见到空目录就不保存）。
@@ -133,9 +133,9 @@ private:
 					   int totalTasks, int failedTasks);
 	void onJobFailed(quint64 jobId, const DetectorError& error);
 	void onJobCancelled(quint64 jobId);
-	void onJobSaved(quint64 jobId, const QString& dir, int fileCount);	// 结果已落盘 -> 成功横幅
+	void onJobSaved(quint64 jobId, QStringView dir, int fileCount);	// 结果已落盘 -> 成功横幅
 	void onDetectorWarning(const DetectorWarning& warning);		// 检测器警告 -> 横幅
-	void showBanner(const QString& text, BannerLevel level);	// 统一的横幅出口
+	void showBanner(QStringView text, BannerLevel level);	// 统一的横幅出口
 	void onConfigAdjusted(const DetectorConfig& config);		// 检测器对齐了配置尺寸 -> 同步本地副本
 
 	std::unique_ptr<DetectionManager> m_manager;

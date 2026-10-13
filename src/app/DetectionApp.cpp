@@ -76,7 +76,7 @@ AppError DetectionApp::mapDetectionErrortoAppError(const DetectorError& error) c
 
 // 帧源工厂,
 // 1. 文件帧源
-FrameSourcePtr DetectionApp::makeFileSource(const QString& path) const {
+FrameSourcePtr DetectionApp::makeFileSource(QStringView  path) const {
 	return FileFrameSource::forFile(path);
 }
 
@@ -85,7 +85,7 @@ FrameSourcePtr DetectionApp::makeCameraSource(int cameraId) const {
 	return FileFrameSource::forCamera(cameraId);
 }
 
-FrameSourcePtr DetectionApp::makeHikCameraSource(const QString& serial,const QString& triggerMode) const {
+FrameSourcePtr DetectionApp::makeHikCameraSource(const QString& serial,QStringView triggerMode) const {
 	if (triggerMode == "off") {
 		return HikCameraFrameSource::forDevices(serial, HikCameraFrameSource::TriggerMode::Off);
 	}
@@ -337,8 +337,8 @@ void DetectionApp::dismissBanner() {
 }
 
 // 统一的横幅出口：一条槽位，避免多条堆叠
-void DetectionApp::showBanner(const QString& text, BannerLevel level) {
-	m_bannerText = text;
+void DetectionApp::showBanner(QStringView text, BannerLevel level) {
+	m_bannerText = text.toString();
 	m_bannerLevel = level;
 	emit bannerChanged();
 }
@@ -652,7 +652,7 @@ void DetectionApp::onDetectorWarning(const DetectorWarning& warning) {
 }
 
 // 结果已落盘：成功横幅（路径 + 文件数）。日志侧 worker 已经记过一条。
-void DetectionApp::onJobSaved(quint64 jobId, const QString& dir, int fileCount) {
+void DetectionApp::onJobSaved(quint64 jobId, QStringView dir, int fileCount) {
 	Q_UNUSED(jobId);
 	showBanner(QStringLiteral("已保存 %1 个推理结果到 %2").arg(fileCount).arg(dir), BannerSuccess);
 }

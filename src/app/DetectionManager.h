@@ -30,11 +30,6 @@ public:
 	void shutdown();								// 停止 worker 并清理全部作业
 	const DetectorConfig& config() const { return m_config; }
 
-	// 提交作业。saveDir 为空表示本次不保存结果；
-	// 非空时 worker 会把画了框的结果写到 <saveDir>/detection_results/ 下。
-	//
-	// 帧源的具体类型由调用方决定：这里是唯一的统一入口，
-	// 以后新增帧源类型（RTSP / SDK 相机等）不用再加新的 submitXxx()。
 	quint64 submitSource(FrameSourcePtr source, const QString& saveDir = QString());
 	quint64 submitBatch(QVector<FrameSourcePtr> sources, const QString& saveDir = QString());
 	quint64 submit(DetectionJob job);				// 通用入口

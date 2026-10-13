@@ -20,7 +20,7 @@ public:
     };
 	bool isOpened() const override;
     static QVector<DeviceInfo>enumerateDevices(); // 枚举在线设备
-	static FrameSourcePtr forDevices(const QString& serial, TriggerMode mode = TriggerMode::Off); // 根据序列号创建帧源
+	static FrameSourcePtr forDevices(QStringView serial, TriggerMode mode = TriggerMode::Off); // 根据序列号创建帧源
     bool open() override;  
     cv::Mat getFrame()override;  // 获取帧,获取到空cv::Mat代表终止,同现在的摄像头源
     cv::Size frameSize()const override;

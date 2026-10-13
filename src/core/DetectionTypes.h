@@ -123,8 +123,8 @@ public:
 	Code errorCode;
 
 	DetectorError() : errorCategory(Category::None), errorCode(Code::None) {}
-	DetectorError(const QString& msg, Category category = Category::Other, Code code = Code::UnknownError)
-		: errorMessage(msg), errorCategory(category), errorCode(code) {}
+	DetectorError(QStringView msg, Category category = Category::Other, Code code = Code::UnknownError)
+		: errorMessage(msg.toString()), errorCategory(category), errorCode(code) {}
 	bool has_error() const {
 		return !errorMessage.isEmpty() && errorCategory != Category::None && errorCode != Code::None;
 	}
@@ -164,9 +164,9 @@ public:
 	int to_width = 0, to_height = 0;		// 改动后(模型值)
 
 	DetectorWarning() = default;
-	DetectorWarning(const QString& msg, Code code_,
+	DetectorWarning(QStringView msg, Code code_,
 					int from_w = 0, int from_h = 0, int to_w = 0, int to_h = 0)
-		: message(msg), code(code_), from_width(from_w), from_height(from_h),
+		: message(msg.toString()), code(code_), from_width(from_w), from_height(from_h),
 		  to_width(to_w), to_height(to_h) {}
 
 	// getter 供 QML 读取
@@ -250,8 +250,8 @@ enum class DetectionTaskStatus {
 // 含原子成员，既不可拷贝也不可移动 —— 只能通过 shared_ptr 使用。
 //   progress = (已完成 task 数 + 当前 task 内部的单元比例) / task 总数
 struct TaskShared {
-	TaskShared(quint64 jobId_, DetectionJobType jobType_, const QString& saveDir_ = QString())
-		: jobId(jobId_), jobType(jobType_), saveDir(saveDir_) {}
+	TaskShared(quint64 jobId_, DetectionJobType jobType_, QStringView saveDir_ = QString())
+		: jobId(jobId_), jobType(jobType_), saveDir(saveDir_.toString()) {}
 
 	const quint64 jobId;								// 只读
 	const DetectionJobType jobType;						// 只读：作业种类，供 Manager 在收尾时回传给 UI
@@ -379,7 +379,7 @@ inline DetectionJobType jobTypeOf(const DetectionTask& task) {
 // saveDir 为空表示本次不保存结果。
 inline DetectionJob makeSingleTaskJob(quint64 jobId, quint64 taskId,
 									  FrameSourcePtr source,
-									  const QString& saveDir = QString())
+									  QStringView saveDir = QString())
 {
 	DetectionJob job;
 	job.jobId = jobId;
@@ -405,7 +405,7 @@ inline DetectionJob makeSingleTaskJob(quint64 jobId, quint64 taskId,
 // （认不出的路径由 FileFrameSource 建成 SingleImage，执行时报"图片加载失败"）
 // saveDir 为空表示本次不保存结果。
 inline DetectionJob makeBatchJob(quint64 jobId, QVector<FrameSourcePtr> sources,
-								 const QString& saveDir = QString()) {
+								 QStringView saveDir = QString()) {
 	DetectionJob job;
 	job.jobId = jobId;
 	job.type = DetectionJobType::Batch;			// 批量无法从单个 task 派生，显式指定

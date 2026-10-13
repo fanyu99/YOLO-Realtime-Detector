@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <opencv2/opencv.hpp>
 #include "Logger.h"
+#include <span>
 
 DetectionWorker::DetectionWorker(QObject* parent) : QObject(parent) {}
 
@@ -272,8 +273,6 @@ bool DetectionWorker::runStream(DetectionTask& task) {
 	// 预读总帧数：摄像头返回 0，代表总量未知（UI 显示忙碌）
 	task.shared->currentUnitTotal.store(static_cast<int>(source.totalFrames()), std::memory_order_relaxed);
 
-	// 保存（未开启保存时 saver 全程 no-op）。VideoWriter 需要帧尺寸与帧率，
-	// 用 open() 时缓存好的值而不是等第一帧，这样 VideoWriter 能在循环开始前就打开。
 	DetectionResultSaver saver;
 	const cv::Size size = source.frameSize();
 	if (!saver.begin(task, size.width, size.height, source.fps()) && !saver.lastError().isEmpty())

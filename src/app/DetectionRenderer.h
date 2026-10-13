@@ -12,7 +12,6 @@
 // 把「帧 + 检测框」渲染成可以直接给 QML 的 QImage。
 //
 // 渲染放在 worker 线程。
-// 数组参数一律用 std::span：调用方传 QVector / std::vector / 数组皆可，
 // 只要内存连续；渲染是同步调用，span 不跨越调用期，无生命周期风险。
 namespace DetectionRenderer {
 				  
