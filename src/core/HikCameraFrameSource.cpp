@@ -382,7 +382,7 @@ FrameSourcePtr HikCameraFrameSource::forDevices(QStringView serial, TriggerMode 
 	{
 		return FrameSourcePtr();
 	}
-	HikCameraFrameSource* source = new HikCameraFrameSource(serial);
+	HikCameraFrameSource* source = new HikCameraFrameSource(serial.toString());
 	source->m_camera->deviceInfo = std::make_unique<MV_CC_DEVICE_INFO>(*deviceInfo); // 深拷贝设备信息防止被释放
 	source->m_camera->handle = std::unique_ptr<void, Handle_Deleter>(handle);
 	source->m_mode = mode; // 设置触发模式
