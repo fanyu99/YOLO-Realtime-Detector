@@ -13,6 +13,7 @@ DetectionWorker::~DetectionWorker() {
 	stop();
 }
 
+// 设置配置
 void DetectionWorker::setConfig(const DetectorConfig& config) {
 	if (m_running.load(std::memory_order_relaxed)) {
 		Logger::instance()->warning(QStringLiteral("[DetectionWorker]: 工作线程运行中，忽略配置变更"));
@@ -165,9 +166,7 @@ void DetectionWorker::work() {
 	}
 }
 
-// 补发失败信号：只在任务还没落到终态时才发，
-// 避免和 execute() 已经发过的 taskCompleted/taskFailed/taskCancelled 重复，
-// 否则 Manager 的 retireTask 会被多减一次，误删别的作业。
+// 补发失败信号：只在任务还没落到终态时才
 void DetectionWorker::failTaskIfUnfinished(DetectionTask& task) {
 	const TaskSharedPtr shared = task.shared;
 	if (!shared)

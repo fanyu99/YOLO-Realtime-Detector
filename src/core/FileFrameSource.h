@@ -3,12 +3,10 @@
 
 #include <opencv2/videoio.hpp>
 
-// 以「文件路径」或「摄像头设备号」为输入的帧源。
-// 是图片/视频/摄像头由工厂决定(看后缀 / 看是否给了设备号), 之后一律通过
+// 以文件（图片/视频）作为帧源
 class FileFrameSource : public FrameSource {
 public:
-	// 按后缀判定类型: 视频后缀 -> VideoFile, 其余一律按 SingleImage 处理
-	// (认不出的路径由 open() 以"图片加载失败"报错, 与批量作业的既有行为一致)
+	// 按照后缀判定类型
 	static FrameSourcePtr forFile(QStringView path);
 	static FrameSourcePtr forCamera(int cameraId);	// cameraId < 0 返回 nullptr
 
@@ -23,7 +21,7 @@ public:
 	size_t totalFrames() const override { return m_totalFrames; }
 	double fps() const override { return m_fps; }
 	cv::Size frameSize() const override { return m_size; }
-	QString displayName() const override { return m_filePath; }	// 摄像头无源文件,返回空串
+	QString displayName() const override { return m_filePath; }	// 显示名称，摄像头无源文件,返回空串
 	QString lastError() const override { return m_error; }
 
 private:

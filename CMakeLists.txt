@@ -20,8 +20,57 @@ endif()
 set(MVS_INCLUDE_DIRS "${MVS_SDK_ROOT}/Includes")
 set(MVS_LIBRARY_DIRS "${MVS_SDK_ROOT}/Libraries/${MVS_ARCH}")
 set(CMAKE_AUTOMOC ON)
+
+# -----------------------------------------------------------------------------
+# 全局构建模式开关：一键在 Release / Debug 之间切换
+#
+#   -DYOLO_BUILD_DEBUG=OFF（默认）→ Release 编译 + OpenCV Release 库
+#   -DYOLO_BUILD_DEBUG=ON          → Debug 编译   + OpenCV Debug 库（opencv_world500d 等）
+#
+# 一个开关同时决定「编译配置」与「OpenCV 包目录」，避免出现 Debug 编译却链接
+# Release OpenCV 的组合：Debug 下头文件会把 cv:: 放进 cv::debug_build_guard 命名
+# 空间，与 release 库的符号名不一致，会直接链接失败。
+# -----------------------------------------------------------------------------
+option(YOLO_BUILD_DEBUG "ON = Debug 构建并使用 OpenCV debug 库；OFF = Release（默认）" OFF)
+
+set(YOLO_OPENCV_RELEASE_DIR "D:/opencv/build" CACHE PATH "OpenCV Release 包根目录（含 OpenCVConfig.cmake）")
+set(YOLO_OPENCV_DEBUG_DIR "D:/opencv/build-official-20261023" CACHE PATH "OpenCV Debug 包根目录（含 OpenCVConfig.cmake）")
+
+if(YOLO_BUILD_DEBUG)
+    set(_yolo_build_type "Debug")
+    set(_yolo_opencv_dir "${YOLO_OPENCV_DEBUG_DIR}")
+    set(_yolo_opencv_label "Debug")
+else()
+    set(_yolo_build_type "Release")
+    set(_yolo_opencv_dir "${YOLO_OPENCV_RELEASE_DIR}")
+    set(_yolo_opencv_label "Release")
+endif()
+
+# 单配置生成器（Ninja / Makefiles）靠 CMAKE_BUILD_TYPE 决定优化级别与 CRT；
+# 多配置生成器（Visual Studio / Xcode）由 --config 或 IDE 选择，这里只决定 OpenCV 包。
+get_property(_yolo_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(_yolo_multi_config)
+    message(STATUS "多配置生成器：YOLO_BUILD_DEBUG 只选择 OpenCV 包，"
+        "构建配置请用 --config Debug|Release 指定")
+else()
+    set(CMAKE_BUILD_TYPE "${_yolo_build_type}" CACHE STRING "Build type" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
+endif()
+
+if(NOT EXISTS "${_yolo_opencv_dir}/OpenCVConfig.cmake")
+    message(FATAL_ERROR
+        "YOLO_BUILD_DEBUG=${YOLO_BUILD_DEBUG} 需要 OpenCV ${_yolo_opencv_label} 包，"
+        "但在 ${_yolo_opencv_dir} 下找不到 OpenCVConfig.cmake。\n"
+        "请把包放到该目录，或修改缓存变量 YOLO_OPENCV_DEBUG_DIR / YOLO_OPENCV_RELEASE_DIR。")
+endif()
+
+# 必须 FORCE 覆盖缓存里的 OpenCV_DIR：否则上一次 configure 留下的路径会被沿用，
+# 切换开关后依旧链到旧包（find_package 优先读 cache）。
+set(OpenCV_DIR "${_yolo_opencv_dir}" CACHE PATH "OpenCV 包目录（由 YOLO_BUILD_DEBUG 决定）" FORCE)
+message(STATUS "构建模式: ${_yolo_build_type}；OpenCV: ${_yolo_opencv_label} (${OpenCV_DIR})")
+
 find_package(OpenCV REQUIRED)
-find_package(Qt6 REQUIRED COMPONENTS Core)
+find_package(Qt6 REQUIRED COMPONENTS Core Test)
 # 查找 MvCameraControl.lib（海康相机控制核心库）
 find_library(MVS_CAMERA_CONTROL_LIB
     NAMES MvCameraControl
@@ -30,7 +79,6 @@ find_library(MVS_CAMERA_CONTROL_LIB
     REQUIRED
 )
 
-find_package(OpenCV REQUIRED)
 find_package(onnxruntime CONFIG REQUIRED)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
 find_package(Qt${QT_VERSION_MAJOR}
@@ -38,12 +86,27 @@ find_package(Qt${QT_VERSION_MAJOR}
         Quick
         Multimedia
 )
-
+# 设置AUTOMOC等
 qt_standard_project_setup()
 
 message("成功找到OpenCV库: ${OpenCV_LIBS}")
 message("成功找到ONNXRUNTIME库: ${onnxruntime_LIBS}")
 message("成功找到MVS库: ${MVS_LIBRARY_DIRS}")
+
+# 当前这套 OpenCV 包里是否有 debug 库（*d.lib）。有则 Debug 配置可以正常链接。
+get_target_property(_yolo_cv_debug_implib opencv_world IMPORTED_IMPLIB_DEBUG)
+if(NOT _yolo_cv_debug_implib)
+    # 多配置生成器随时可能用 --config Debug 编译，必须无条件兜底；
+    # 单配置生成器则只有本次就是 Debug 时才需要。
+    if(_yolo_multi_config OR YOLO_BUILD_DEBUG)
+        message(WARNING
+            "${OpenCV_DIR} 不带 OpenCV debug 库（无 *d.lib）。Debug 配置下将启用 "
+            "CV_IGNORE_DEBUG_BUILD_GUARD 以兼容链接；若想调试 OpenCV，请设置 "
+            "YOLO_BUILD_DEBUG=ON 并让它指向带 debug 库的包。")
+        add_compile_definitions($<$<CONFIG:Debug>:CV_IGNORE_DEBUG_BUILD_GUARD>)
+    endif()
+endif()
+unset(_yolo_cv_debug_implib)
 # -----------------------------------------------------------------------------
 # 源码搜索路径
 #
@@ -57,7 +120,6 @@ set(YOLO_SOURCE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/tools"
 )
-
 
 # -----------------------------------------------------------------------------
 # 可执行程序入口 + 内嵌资源
@@ -104,6 +166,16 @@ qt_add_library(DetectionWorker STATIC
 foreach(_lib Detector ImageShower DetectionWorker)
     target_include_directories(${_lib} PUBLIC ${YOLO_SOURCE_DIRS})
 endforeach()
+
+# -----------------------------------------------------------------------------
+#  开启测试、测试程序
+# -----------------------------------------------------------------------------
+option(BUILD_TESTS "performance_tests" ON) # 设置测试开关
+if(BUILD_TESTS)
+# 开启测试
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 
 # -----------------------------------------------------------------------------
 # 可执行程序

@@ -85,7 +85,7 @@ FrameSourcePtr DetectionApp::makeCameraSource(int cameraId) const {
 	return FileFrameSource::forCamera(cameraId);
 }
 
-FrameSourcePtr DetectionApp::makeHikCameraSource(const QString& serial,QStringView triggerMode) const {
+FrameSourcePtr DetectionApp::makeHikCameraSource(QStringView serial,QStringView triggerMode) const {
 	if (triggerMode == "off") {
 		return HikCameraFrameSource::forDevices(serial, HikCameraFrameSource::TriggerMode::Off);
 	}
