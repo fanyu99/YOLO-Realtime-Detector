@@ -47,7 +47,7 @@ bool FileFrameSource::open() {
 	m_imageTaken = false;
 
 	switch (m_type) {
-		// 单图
+	// 单图
 	case FrameSourceType::SingleImage:
 		m_image = cv::imread(m_filePath.toStdString());
 		if (m_image.empty()) {

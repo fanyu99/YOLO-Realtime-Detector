@@ -3,9 +3,6 @@
 #include <QPalette>
 #include <QStyleHints>
 #include <qDebug>
-#include "Detector.h"
-#include "Box.h"
-#include "ImageShower.h"
 #include "Logger.h"
 
 // 深色配色：深灰背景 + 高对比度白色文字

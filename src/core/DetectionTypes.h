@@ -193,7 +193,7 @@ public:
 	quint64 taskId = 0;		// 任务ID(由 Worker 回填，0 表示未归属)
 	QString source;			// 输入来源(图片/视频路径；摄像头为空)，由 Worker 回填,用于显示
 
-	DetectionResult() = default;
+	DetectionResult() = default;          
 	DetectionResult(const QVector<Box>& boxes_, const DetectorError& error_, long long duration_)
 		: boxes(boxes_), error(error_), duration(duration_) {}
 
@@ -222,14 +222,12 @@ public:
 //  批量：Job 含 N 个 Task（图片/视频可混排），由 Manager 分发给 worker 执行
 // 
 //  所有权规定：
-//    - TaskShared 只通过 shared_ptr 使用。Manager / Job / 每个 Task 各持一份
+//     TaskShared 只通过 shared_ptr 使用。Manager / Job / 每个 Task 各持一份
 //      指针拷贝，指向同一个对象;
-//    - DetectionTask 用 unique_ptr 独占：worker 执行完销毁。
+//     DetectionTask 用 unique_ptr 独占：worker 执行完销毁。
 
 
-// 执行路径（取一帧还是逐帧推进）不再用独立枚举表达：
-// 由 DetectionTask::source->type() 决定，见 FrameSource。
-// 作业种类仍需要单独枚举 —— 它比帧源种类多一个 Batch。
+// Job类型： 单图/视频/摄像头流/批量
 enum class DetectionJobType {
 	SingleImage,	// 一张图   -> 完成后给一张结果图
 	SingleVideo,	// 一个视频 -> 完成后给一串帧结果
@@ -330,9 +328,8 @@ struct FpsCounter {
 		const qint64 ms = m_clock.restart();
 		if (ms <= 0)
 			return fps;
-
 		const float instant = 1000.0f / static_cast<float>(ms);		// 瞬时帧率
-		fps = alpha * instant + (1.0f - alpha) * fps;			
+		fps = alpha * instant + (1.0f - alpha) * fps;	// 计算平滑帧率
 		return fps;
 	}
 

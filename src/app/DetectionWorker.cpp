@@ -282,7 +282,7 @@ bool DetectionWorker::runStream(DetectionTask& task) {
 	QElapsedTimer clock;
 	clock.start();
 
-	// 读失败/流结束都返回空 Mat，循环随之退出
+	// 读失败/流结束都返回空 Mat，循环退出
 	while (!(frame = source.getFrame()).empty()) {
 		// 逐帧检查取消
 		if (task.shared->cancelled())

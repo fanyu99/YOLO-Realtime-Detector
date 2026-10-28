@@ -12,11 +12,19 @@ Item {
 
 	property var theme: null		// 由外部注入的主题对象(Theme.qml)
 
-	// 日志上限，避免长时间运行内存无限增长
+	// 外部传入的日志模型(可选)。为 null 时本组件自建模型并自行订阅 Logger；
+	// 传入时(如性能面板有嵌入 / 分离两处视图)，由持有者负责填充，
+	// 本组件只负责显示，两份视图共享同一份历史。
+	property ListModel logModel: null
+
+	// 日志上限，避免长时间运行内存无限增长(仅本组件自建模型时生效)
 	readonly property int maxLines: 1000
 
+	// 实际使用的模型：外部给的优先，否则用自建的
+	readonly property ListModel activeModel: logModel ? logModel : internalLogModel
+
 	// 日志数据模型：每条记录含 level / time / message
-	ListModel { id: logModel }
+	ListModel { id: internalLogModel }
 
 	ColumnLayout {
 		anchors.fill: parent
@@ -32,7 +40,7 @@ Item {
 			}
 			ToolButton {
 				text: "清空"
-				onClicked: logModel.clear()
+				onClicked: root.activeModel.clear()
 			}
 			// 推理日志输出间隔：逐帧推理的结果日志每隔 N 帧才落一条，
 			// 避免视频 / 摄像头把日志面板刷爆。0 表示不间隔（每帧都输出）。
@@ -78,7 +86,7 @@ Item {
 				id: logList
 				anchors.fill: parent
 				anchors.margins: 6
-				model: logModel
+				model: root.activeModel
 				clip: true
 				spacing: 1
 
@@ -101,13 +109,15 @@ Item {
 		}
 	}
 
-	// 订阅日志信号：后端每写一条日志，这里就往模型里追加一行
+	// 订阅日志信号：后端每写一条日志，这里就往模型里追加一行。
+	// 模型由外部提供时不订阅，避免两份视图重复写入。
 	Connections {
 		target: Logger
+		enabled: root.logModel === null
 		function onMessageLogged(level, levelName, time, message) {
-			logModel.append({ "level": level, "time": time, "message": message })
-			if (logModel.count > root.maxLines)
-				logModel.remove(0, logModel.count - root.maxLines)
+			internalLogModel.append({ "level": level, "time": time, "message": message })
+			if (internalLogModel.count > root.maxLines)
+				internalLogModel.remove(0, internalLogModel.count - root.maxLines)
 		}
 	}
 }

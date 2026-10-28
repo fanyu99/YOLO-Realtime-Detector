@@ -16,7 +16,6 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
 else()
     set(MVS_ARCH "win32")
 endif()
-
 set(MVS_INCLUDE_DIRS "${MVS_SDK_ROOT}/Includes")
 set(MVS_LIBRARY_DIRS "${MVS_SDK_ROOT}/Libraries/${MVS_ARCH}")
 set(CMAKE_AUTOMOC ON)
@@ -32,6 +31,11 @@ set(CMAKE_AUTOMOC ON)
 # 空间，与 release 库的符号名不一致，会直接链接失败。
 # -----------------------------------------------------------------------------
 option(YOLO_BUILD_DEBUG "ON = Debug 构建并使用 OpenCV debug 库；OFF = Release（默认）" OFF)
+if(YOLO_BUILD_DEBUG)
+    message(STATUS "YOLO_BUILD_DEBUG= ON : Debug 构建 + OpenCV Debug 库")
+else()
+    message(STATUS "YOLO_BUILD_DEBUG= OFF : Release 构建 + OpenCV Release 库")
+endif()
 
 set(YOLO_OPENCV_RELEASE_DIR "D:/opencv/build" CACHE PATH "OpenCV Release 包根目录（含 OpenCVConfig.cmake）")
 set(YOLO_OPENCV_DEBUG_DIR "D:/opencv/build-official-20261023" CACHE PATH "OpenCV Debug 包根目录（含 OpenCVConfig.cmake）")
@@ -69,12 +73,71 @@ endif()
 set(OpenCV_DIR "${_yolo_opencv_dir}" CACHE PATH "OpenCV 包目录（由 YOLO_BUILD_DEBUG 决定）" FORCE)
 message(STATUS "构建模式: ${_yolo_build_type}；OpenCV: ${_yolo_opencv_label} (${OpenCV_DIR})")
 
+# --------------------------------------------------------------------------
+# FFmpeg
+#
+# 安装目录优先取环境变量 FFMPEG_DIR，没有则使用 D:/ffmpeg。
+# 也可以在配置时覆盖：-DFFMPEG_ROOT=D:/some/other/ffmpeg
+# ---------------------------------------------------------------------------
+set(_ffmpeg_default "$ENV{FFMPEG_DIR}")
+if(NOT _ffmpeg_default)
+    set(_ffmpeg_default "D:/ffmpeg")
+endif()
+
+set(FFMPEG_ROOT "${_ffmpeg_default}" CACHE PATH
+    "FFmpeg 安装目录（应包含 include/、lib/、bin/）")
+file(TO_CMAKE_PATH "${FFMPEG_ROOT}" FFMPEG_ROOT)
+
+set(FFMPEG_INCLUDE_DIR "${FFMPEG_ROOT}/include")
+set(FFMPEG_LIBRARY_DIR "${FFMPEG_ROOT}/lib")
+set(FFMPEG_RUNTIME_DIR "${FFMPEG_ROOT}/bin")
+
+if(NOT EXISTS "${FFMPEG_INCLUDE_DIR}/libavcodec/avcodec.h")
+    message(FATAL_ERROR
+        "在 ${FFMPEG_INCLUDE_DIR} 下找不到 libavcodec/avcodec.h。\n"
+        "请检查 FFMPEG_ROOT（当前为 ${FFMPEG_ROOT}），"
+        "或配置时传入 -DFFMPEG_ROOT=<FFmpeg 安装目录>。")
+endif()
+
+# 使用 DLL 的 import lib（avcodec.lib 等），不要用 lib*.lib 静态库。
+set(FFMPEG_COMPONENTS
+    avcodec
+    avformat
+    avutil
+    swscale
+    swresample
+    avfilter
+    avdevice
+    postproc
+)
+
+foreach(component IN LISTS FFMPEG_COMPONENTS)
+    if(NOT EXISTS "${FFMPEG_LIBRARY_DIR}/${component}.lib")
+        message(FATAL_ERROR
+            "找不到 ${FFMPEG_LIBRARY_DIR}/${component}.lib，"
+            "FFmpeg 安装目录可能不完整。")
+    endif()
+
+    add_library(FFmpeg::${component} SHARED IMPORTED)
+    set_target_properties(FFmpeg::${component} PROPERTIES
+        IMPORTED_IMPLIB "${FFMPEG_LIBRARY_DIR}/${component}.lib"
+        IMPORTED_LOCATION "${FFMPEG_RUNTIME_DIR}/${component}.dll"
+        INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIR}"
+    )
+endforeach()
+
+
+
 find_package(OpenCV REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Core Test)
 # 查找 MvCameraControl.lib（海康相机控制核心库）
 find_library(MVS_CAMERA_CONTROL_LIB
     NAMES MvCameraControl
-    PATHS "${MVS_LIBRARY_DIRS}"
+    PATHS "${MVS_LIBRARY_DIRS}"          
+      
+     
+     
+     
     NO_DEFAULT_PATH
     REQUIRED
 )
@@ -129,7 +192,8 @@ set(PROJECT_SOURCES
 )
 # 应用内嵌资源：默认示例图片与示例模型（rcc 按 .qrc 所在目录解析相对路径）
 qt_add_resources(PROJECT_SOURCES resources/images.qrc)
-
+# 添加工具目录：RTSP拉流工具以及ImageShower
+add_subdirectory(src/tools)
 # -----------------------------------------------------------------------------
 # 静态库
 # -----------------------------------------------------------------------------
@@ -171,10 +235,14 @@ endforeach()
 #  开启测试、测试程序
 # -----------------------------------------------------------------------------
 option(BUILD_TESTS "performance_tests" ON) # 设置测试开关
-if(BUILD_TESTS)
-# 开启测试
-    enable_testing()
-    add_subdirectory(tests)
+enable_testing()
+if(BUILD_TESTS )
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
+        message(STATUS "=============开启测试=============")
+        add_subdirectory(tests)
+    else()
+        message(STATUS "=============未找到测试目录，跳过测试=============")
+     endif()
 endif()
 
 # -----------------------------------------------------------------------------
@@ -425,3 +493,5 @@ if(WIN32 AND DEPLOY_MVS_RUNTIME)
             "MvCameraControl.dll will have to come from PATH; unused if you don't use Hik cameras.")
     endif()
 endif()
+
+
