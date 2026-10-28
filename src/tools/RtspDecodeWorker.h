@@ -83,8 +83,8 @@ namespace Decode {
 		}
 	};
 
-	// 中断回调函数，用于在读取RTSP流时检查是否超时或中断。
-	// 返回非 0 时 FFmpeg 会中止当前阻塞操作并返回 AVERROR_EXIT。
+	// 中断回调函数，用于在读取RTSP流时检查是否超时或中断
+	// ffmpeg内部会进行周期性的调用回调函数，0就继续，1就中断
 	inline int interrupt_cb( void* opaque ) {
 		auto* ctx = static_cast<InterruptContext*>(opaque);
 		if (!ctx)
@@ -100,9 +100,16 @@ namespace Decode {
 
 
 }
+/*
+Worker解码线程工作流程：
+1. controller 调用startDecoding()
+2. 	内部执行打开流，查找视频流并更新上下文信息，然后进行解码循环
+3. 解码循环中，每读取并解码一个packet，发出frameDecoded()信号，供controller缓存最新帧
+4. finished()在最终一次执行循环结束后调用；最终如果执行成功（EOF），发出 finished(true, NoError) 信号；如果出现错误，发出 finished(false, error) 信号交由controller进行处理是否需要重试
 
+3. 如果出现错误，通过reportError()发出错误信号并回填m_lastError（最后通过finished()上报）
 
-// 解码错误统一使用 RtspTypes.h 中的 RtspOverallError（worker 与 controller 共用一份）
+*/
 
 
 // Rtsp解码Worker
@@ -132,7 +139,7 @@ public:
 	void startDecoding();
 	// 停止解码
 	// 注意：如果 startDecoding() 正在同一个线程里阻塞，调用stopDecoding()不会停止(queued会阻塞)
-	// 跨线程停止请用 requestStop()。
+	// 跨线程停止用 requestStop()。
 	void stopDecoding();
 	// 线程安全的停止请求：只写原子变量，可以被任意线程直接调用
 	void requestStop();
@@ -148,15 +155,17 @@ public:
 	void reset();
 
 signals:
-	// 状态发生变化，上层的controller得知
-	void statusChanged( RtspStatus status);
+	// 状态发生变化，上层的controller得知（worker 只上报过程状态：Opening/Opened/Playing/Paused，不负责重连你等机制）
+	void statusChanged( RtspStatus status );
 	void frameDecoded( const LastestFrameStore& newFrame );	 // 上层Conjtroller调用，获取最新的视频帧结果
-	void streamFinished(); // 流结束（正常 EOF）
+	// 一次解码会话结束（startDecoding 返回前必定发出一次）：
+	//   clean = true  : 正常 EOF 或被主动停止，重连由 controller 决定是否进行
+	//   clean = false : 因错误结束，error 为最后一次错误
+	void finished( bool clean, const RtspOverallError& error );
 	void errorOccurred( const RtspOverallError& error ); // 错误
 
 private:
-	// 统一上报错误：发送 errorOccurred + statusChanged(Error)，
-	// 让 controller 只需连接两处信号即可同步错误和状态
+	// 统一上报错误：只发 errorOccurred，并记录本次执行出错
 	void reportError( const RtspOverallError& error );
 	// 打开输入（avformat_open_input + find_stream_info + 查找视频流）
 	bool openInput();
@@ -181,6 +190,7 @@ private:
 	std::atomic<bool> m_stopRequested{ false }; // 停止请求
 	std::atomic<bool> m_running{ false }; // 是否正在解码
 	quint64 m_decodedFrameIndex{ 0 };	 // 当前的解码index
+	RtspOverallError m_lastError{}; // 用于finished上报错误
 
 	// 中断上下文必须声明在 m_formatContext 之前：
 	// 成员按声明逆序析构，这样可以保证 format context 先销毁，

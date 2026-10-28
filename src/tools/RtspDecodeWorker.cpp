@@ -12,28 +12,24 @@ RtspDecodeWorker::RtspDecodeWorker( QObject* parent )
 }
 
 RtspDecodeWorker::RtspDecodeWorker( const RtspConfig& config, QObject* parent )
-	: QObject( parent )
-	, m_config( config )
-	, m_rtspUrl( config.url )
+	: RtspDecodeWorker( parent )
 {
-	qRegisterMetaType<RtspStatus>( "RtspStatus" );
-	qRegisterMetaType<RtspOverallError>( "RtspOverallError" );
-	qRegisterMetaType<LastestFrameStore>( "LastestFrameStore" );
+	m_config = config;
+	m_rtspUrl = config.url;
 }
 
 RtspDecodeWorker::~RtspDecodeWorker() {
 	this->reset();
 }
 
-// 统一上报错误：发送 errorOccurred + statusChanged(Error)，
-//  controller 连接两处信号同步错误和状态
+// 统一上报错误：只发 errorOccurred 并记录最后一次错误，
 void RtspDecodeWorker::reportError( const RtspOverallError& error ) {
+	m_lastError = error;
 	emit errorOccurred( error );
-	emit statusChanged( RtspStatus::Error );
 }
 
 // 清理所有资源
-// 顺序：先释放只属于解码过程的 frame/packet，再释放解码器，最后关闭输入。
+// 顺序：先释放只属于解码过程的 frame/packet，再释放解码器，最后关闭输入
 void RtspDecodeWorker::releaseResources() {
 	if (m_swsContext) {
 		sws_freeContext( m_swsContext );
@@ -64,8 +60,9 @@ void RtspDecodeWorker::setRtspUrl( const QString& url ) {
 QUrl RtspDecodeWorker::getRtspUrl() const {
 	return m_rtspUrl;
 }
-// 设置RTSP配置
+// 设置RTSP配置(仅在未解码时可用，正在解码触发错误，不静默更新)
 // 无效由解码时进行发出错误
+// 设置后会使用新配置启动解码
 void RtspDecodeWorker::setRtspConfig( const RtspConfig& config ) {
 	m_config = config;
 	m_rtspUrl = config.url;
@@ -99,12 +96,14 @@ void RtspDecodeWorker::requestStop() {
 }
 
 // 开始解码
+// 一次调用 = 一次完整会话：open -> 解码循环 -> 释放资源 -> finished(...)
+// 重连不在这里做，由 controller 监听 finished 后决定是否再次调用
 void RtspDecodeWorker::startDecoding() {
 	// 校验是否正在解码中，如果是则直接返回错误
 	// 防止重复 start 在同一对象上并发执行
 	bool expected = false;
 	if (!m_running.compare_exchange_strong( expected, true, std::memory_order_acq_rel )) {
-		reportError( RtspOverallError( QStringLiteral( "解码已在运行" ), RtspOverallError::InvalidConfig ) );
+		reportError( RtspOverallError( QStringLiteral( "解码已在运行" ), RtspOverallError::AlreadyRunning ) );
 		return;
 	}
 
@@ -112,38 +111,48 @@ void RtspDecodeWorker::startDecoding() {
 	m_stopRequested.store( false, std::memory_order_relaxed );
 	m_interruptContext.abort.store( false, std::memory_order_relaxed );
 	m_decodedFrameIndex = 0;
+	m_lastError = RtspOverallError{};
+
+	// 执行统一结束：无论成功、失败还是被停止，最后都发一次 finished 并复位 m_running
+	// 如果clean为true,设置无错误；clean为false,设置最后一次错误
+	const auto finish = [ this ]( bool clean ) {
+		releaseResources();	   // 清理资源
+		// 复位并发出结束信号（错误信息在错误信号发出时就保存在m_lastError）
+		m_running.store( false, std::memory_order_relaxed );
+		emit finished( clean && m_lastError.errorCode == RtspOverallError::NoError, m_lastError );
+	};
 
 	// 校验URL
 	if (m_rtspUrl.isEmpty() || !m_rtspUrl.isValid() || m_rtspUrl.scheme().isEmpty()) {
 		reportError( RtspOverallError::InvalidUrlError( QStringLiteral( "无效的URL: " ) + m_rtspUrl.toString() ) );
-		m_running.store( false, std::memory_order_relaxed );
+		finish( false );
 		return;
 	}
 	// 校验配置
 	if (!m_config.isValid()) {
 		reportError( RtspOverallError::InvalidConfigError( QStringLiteral( "无效配置" ) ) );
-		m_running.store( false, std::memory_order_relaxed );
+		finish( false );
 		return;
 	}
+
 	// 初始化网络模块（只初始化一次）
 	static std::once_flag networkInitOnce;
 	std::call_once( networkInitOnce, [ ] {
 		avformat_network_init(); // 初始化网络模块
 		} );
-
+	// 设置为打开状态
 	emit statusChanged( RtspStatus::Opening );
 	// 打开输入并初始化解码器，进入读取和解码循环
 	const bool ok = openInput() && initDecoder() && readAndDecodeLoop();
-	Q_UNUSED( ok );
 
-	// 统一释放所有资源
-	releaseResources();
-	m_running.store( false, std::memory_order_relaxed );
-	// 解码循环退出（正常 EOF / 被请求停止 / 失败已另行上报 Error）后，回到 Stopped
-	emit statusChanged( RtspStatus::Stopped );
+	// 主动停止或正常结束都不算错误；
+	// 出错时 m_lastError 已被 reportError 填好
+	const bool clean = ok || isStopRequested() || m_lastError.errorCode == RtspOverallError::NoError;
+	finish( clean );
 }
 
 // 打开输入并初始化
+// 设置回调函数和超时时间等
 bool RtspDecodeWorker::openInput() {
 	// 如果 URL 里没有用户名/密码，而配置里提供了，则补进去
 	QUrl openUrl = m_rtspUrl;
@@ -367,7 +376,7 @@ bool RtspDecodeWorker::readAndDecodeLoop() {
 		}
 		// 发送给解码器进行解码
 		int sendRet = avcodec_send_packet( m_codecContext.get(), m_packet.get() );
-		if (sendRet == AVERROR(EAGAIN)) {
+		if (sendRet == AVERROR( EAGAIN )) {
 			// 解码器输入队列满
 			// 先把输出帧收完（receive），再重发同一个 packet
 			if (!receiveFrames()) {
@@ -396,7 +405,6 @@ bool RtspDecodeWorker::readAndDecodeLoop() {
 	if (cleanEof && !isStopRequested()) {
 		avcodec_send_packet( m_codecContext.get(), nullptr );
 		receiveFrames();
-		emit streamFinished();
 	}
 
 	return !failed;
@@ -408,10 +416,10 @@ bool RtspDecodeWorker::receiveFrames() {
 		// 如果暂停，取消
 		if (isStopRequested())
 			return true;
-		 // 接收帧
+		// 接收帧
 		const int ret = avcodec_receive_frame( m_codecContext.get(), m_frame.get() );
 		// 如果等待后续的packet或者冲刷完，返回true
-		if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+		if (ret == AVERROR( EAGAIN ) || ret == AVERROR_EOF) {
 			// EAGAIN: 当前 packet 暂时没有更多帧，等下一个 packet
 			// EOF: 解码器已经冲刷完
 			return true;
@@ -512,14 +520,15 @@ void RtspDecodeWorker::stopDecoding() {
 
 // 暂停解码
 void RtspDecodeWorker::pauseDecoding() {
-	m_running.store(false,std::memory_order_relaxed);
-	m_interruptContext.abort.store( true, std::memory_order_relaxed );
+	m_running.store( false, std::memory_order_relaxed );
+	m_interruptContext.abort.store( true, std::memory_order_relaxed );	// 设置中断，ffmpeg内部的周期性调用回调函数interrupt_cb(详见Worker::Decode中的中断回调函数)触发中断
 	emit statusChanged( RtspStatus::Paused );
 }
 
 // 恢复解码
 void RtspDecodeWorker::resumeDecoding() {
-	m_running.store(true,std::memory_order_relaxed);
+	m_running.store( true, std::memory_order_relaxed );
 	m_interruptContext.abort.store( false, std::memory_order_relaxed );
 	emit statusChanged( RtspStatus::Playing );
 }
+

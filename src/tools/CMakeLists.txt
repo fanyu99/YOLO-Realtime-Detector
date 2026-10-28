@@ -7,9 +7,11 @@ qt_add_library(RtspDecodeWorker STATIC
     RtspDecodeWorker.h
     RtspTypes.h
 )
+
 qt_add_library(RtspImageProvider STATIC 
     RtspImageProvider.cpp
     RtspImageProvider.h
+    RtspTypes.h
 )
 
 qt_add_library(RtspStreamController STATIC 
@@ -18,11 +20,9 @@ qt_add_library(RtspStreamController STATIC
 )
 
 
-
 qt_add_executable(ffmpeg_learning
     main.cpp
 )
-
 target_link_libraries(RtspDecodeWorker PUBLIC
     Qt6::Core
     Qt6::Gui
@@ -38,6 +38,7 @@ target_link_libraries(RtspDecodeWorker PUBLIC
 target_link_libraries(RtspImageProvider PUBLIC
     Qt6::Core
     Qt6::Quick
+    Qt6::Gui
 )
 target_link_libraries(RtspStreamController PUBLIC
     Qt6::Core
@@ -49,6 +50,7 @@ target_link_libraries(RtspStreamController PUBLIC
 
 target_link_libraries(ffmpeg_learning PRIVATE
     RtspStreamController
+    RtspImageProvider
     Qt6::Core
 )
 

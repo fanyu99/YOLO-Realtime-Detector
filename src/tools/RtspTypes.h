@@ -38,11 +38,13 @@ public:
 		NoError = 0, // 没有错误
 		InvalidUrl, // 无效的URL
 		ConnectionFailed, // 连接失败
+		ReconnectFailed, // 重连失败
 		AuthenticationFailed, // 身份验证失败
 		StreamNotFound, // 流未找到
 		StreamFailed, // 打开流失败
 		ReadTimeout, // 读取超时
 		InvalidConfig, // 配置无效
+		AlreadyRunning, // 解码已在运行
 		Other // 未知错误
 	};
 	Q_ENUM( ErrorCode )
