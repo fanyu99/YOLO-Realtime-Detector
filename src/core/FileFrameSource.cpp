@@ -47,7 +47,7 @@ bool FileFrameSource::open() {
 	m_imageTaken = false;
 
 	switch (m_type) {
-		// 单图,imread
+	// 单图
 	case FrameSourceType::SingleImage:
 		m_image = cv::imread(m_filePath.toStdString());
 		if (m_image.empty()) {
@@ -67,7 +67,7 @@ bool FileFrameSource::open() {
 			m_error = QStringLiteral("无法打开视频源!");
 			return false;
 		}
-		// 摄像头仅缓存最新帧,防止延迟过高
+		// 摄像头只缓存最新帧
 		if (m_type == FrameSourceType::Camera)
 			limitCameraBuffer(m_cap);
 
@@ -97,13 +97,14 @@ cv::Mat FileFrameSource::getFrame() {
 		return {};
 
 	if (m_type == FrameSourceType::SingleImage) {
-		if (m_imageTaken)			// 单图只产一帧，否则调用方的 while 循环不会结束
+		if (m_imageTaken)	//单图如果已经被取，返回空
 			return {};
 		m_imageTaken = true;
 		return m_image;
 	}
 
 	cv::Mat frame;
-	m_cap.read(frame);
+	QElapsedTimer timer;
+	m_cap.read(frame);	 // 读帧
 	return frame;					
 }

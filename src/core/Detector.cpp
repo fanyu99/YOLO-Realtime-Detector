@@ -1,4 +1,5 @@
 #include "Detector.h"
+#include "Logger.h"
 #include <QDebug>
 #include <QElapsedTimer>
 #include <vector>
@@ -337,8 +338,7 @@ DetectionResult Detector::detect( QStringView image_path ) {
 	cv::Mat image = cv::imread( image_path.toString().toStdString() );
 	return detect( image );
 }
-DetectionResult Detector::detect( const cv::Mat& imag ) {
-	cv::Mat image = imag.clone();
+DetectionResult Detector::detect( const cv::Mat& image ) {
 	if (image.empty()) {
 		DetectorError error( QStringLiteral( "[Detector]: 打开图片失败,图片无效!" ), DetectorErrorCategory::Image, DetectorErrorCode::InvalidImage );
 		m_lastError = error;
@@ -435,7 +435,9 @@ DetectionResult Detector::runInference( cv::Mat& chw, const LetterboxInfo& info 
 
 		std::vector<Box>boxes = parse_yolo_ouput( output_data, num_classes, num_anchors );
 		map_boxes_to_original_image_replace( boxes, info );
-		qInfo() << "[Detector]: 检测到" << boxes.size() << "个目标，推理耗时:" << duration << "ms";
+		// 逐帧推理日志：按 setInfoInterval 的间隔输出
+		Logger::instance()->infoWithInterval(QStringLiteral("[Detector]: 检测到%1个目标，推理耗时: %2ms")
+			.arg(boxes.size()).arg(duration));
 		return DetectionResult{ QVector<Box>( boxes.begin(), boxes.end() ),
 								DetectorError{ QStringLiteral( "" ),DetectorErrorCategory::None,DetectorErrorCode::None },
 								duration };

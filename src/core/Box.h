@@ -27,23 +27,25 @@ public:
 	float getWidth() const { return w; }
 	float getHeight() const { return h; }
 	float getConf() const { return conf; }
-	int getCls() const { return cls; }
-	float getArea()const { return w * h; }
-
-	static cv::Rect Box2Rect( const Box& box, int W, int H ) {
-		int x = static_cast<int>(box.x - box.w / 2);
-		int y = static_cast<int>(box.y - box.h / 2);
-		int w = static_cast<int>(box.w);
-		int h = static_cast<int>(box.h);
-		// 防止越界
-		x = std::max( 0, x );
-		y = std::max( 0, y );
-		w = std::min( w, W - x );	  // 向上取整
-		h = std::min( h, H - y );
-		return cv::Rect( x, y, w, h );
-	}
-	static Box Rect2Box( const cv::Rect& rect, float conf, int cls, int W, int H ) {
-		float x = static_cast<float>(rect.x + rect.width / 2);
+    int getCls() const { return cls; }
+    float getArea() const { return w * h; }
+    // Box和cv::Rect互换
+    static cv::Rect Box2Rect(const Box &box, int W, int H)
+    {
+        int x = static_cast<int>(box.x - box.w / 2);
+        int y = static_cast<int>(box.y - box.h / 2);
+        int w = static_cast<int>(box.w);
+        int h = static_cast<int>(box.h);
+        // 防止越界
+        x = std::max(0, x);
+        y = std::max(0, y);
+        w = std::min(w, W - x); // 向上取整
+        h = std::min(h, H - y);
+        return cv::Rect(x, y, w, h);
+    }
+    static Box Rect2Box(const cv::Rect &rect, float conf, int cls, int W, int H)
+    {
+        float x = static_cast<float>(rect.x + rect.width / 2);
 		float y = static_cast<float>(rect.y + rect.height / 2);
 		float w = static_cast<float>(rect.width);
 		float h = static_cast<float>(rect.height);
@@ -54,5 +56,5 @@ public:
 		h = std::max( 0.0f, std::min( h, static_cast<float>(H - y) ) );
 
 		return Box{ x, y, w, h, conf, cls };
-	}
+    }
 };

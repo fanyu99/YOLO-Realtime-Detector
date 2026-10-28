@@ -16,21 +16,132 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
 else()
     set(MVS_ARCH "win32")
 endif()
-
 set(MVS_INCLUDE_DIRS "${MVS_SDK_ROOT}/Includes")
 set(MVS_LIBRARY_DIRS "${MVS_SDK_ROOT}/Libraries/${MVS_ARCH}")
 set(CMAKE_AUTOMOC ON)
+
+# -----------------------------------------------------------------------------
+# 全局构建模式开关：一键在 Release / Debug 之间切换
+#
+#   -DYOLO_BUILD_DEBUG=OFF（默认）→ Release 编译 + OpenCV Release 库
+#   -DYOLO_BUILD_DEBUG=ON          → Debug 编译   + OpenCV Debug 库（opencv_world500d 等）
+#
+# 一个开关同时决定「编译配置」与「OpenCV 包目录」，避免出现 Debug 编译却链接
+# Release OpenCV 的组合：Debug 下头文件会把 cv:: 放进 cv::debug_build_guard 命名
+# 空间，与 release 库的符号名不一致，会直接链接失败。
+# -----------------------------------------------------------------------------
+option(YOLO_BUILD_DEBUG "ON = Debug 构建并使用 OpenCV debug 库；OFF = Release（默认）" OFF)
+if(YOLO_BUILD_DEBUG)
+    message(STATUS "YOLO_BUILD_DEBUG= ON : Debug 构建 + OpenCV Debug 库")
+else()
+    message(STATUS "YOLO_BUILD_DEBUG= OFF : Release 构建 + OpenCV Release 库")
+endif()
+
+set(YOLO_OPENCV_RELEASE_DIR "D:/opencv/build" CACHE PATH "OpenCV Release 包根目录（含 OpenCVConfig.cmake）")
+set(YOLO_OPENCV_DEBUG_DIR "D:/opencv/build-official-20261023" CACHE PATH "OpenCV Debug 包根目录（含 OpenCVConfig.cmake）")
+
+if(YOLO_BUILD_DEBUG)
+    set(_yolo_build_type "Debug")
+    set(_yolo_opencv_dir "${YOLO_OPENCV_DEBUG_DIR}")
+    set(_yolo_opencv_label "Debug")
+else()
+    set(_yolo_build_type "Release")
+    set(_yolo_opencv_dir "${YOLO_OPENCV_RELEASE_DIR}")
+    set(_yolo_opencv_label "Release")
+endif()
+
+# 单配置生成器（Ninja / Makefiles）靠 CMAKE_BUILD_TYPE 决定优化级别与 CRT；
+# 多配置生成器（Visual Studio / Xcode）由 --config 或 IDE 选择，这里只决定 OpenCV 包。
+get_property(_yolo_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(_yolo_multi_config)
+    message(STATUS "多配置生成器：YOLO_BUILD_DEBUG 只选择 OpenCV 包，"
+        "构建配置请用 --config Debug|Release 指定")
+else()
+    set(CMAKE_BUILD_TYPE "${_yolo_build_type}" CACHE STRING "Build type" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
+endif()
+
+if(NOT EXISTS "${_yolo_opencv_dir}/OpenCVConfig.cmake")
+    message(FATAL_ERROR
+        "YOLO_BUILD_DEBUG=${YOLO_BUILD_DEBUG} 需要 OpenCV ${_yolo_opencv_label} 包，"
+        "但在 ${_yolo_opencv_dir} 下找不到 OpenCVConfig.cmake。\n"
+        "请把包放到该目录，或修改缓存变量 YOLO_OPENCV_DEBUG_DIR / YOLO_OPENCV_RELEASE_DIR。")
+endif()
+
+# 必须 FORCE 覆盖缓存里的 OpenCV_DIR：否则上一次 configure 留下的路径会被沿用，
+# 切换开关后依旧链到旧包（find_package 优先读 cache）。
+set(OpenCV_DIR "${_yolo_opencv_dir}" CACHE PATH "OpenCV 包目录（由 YOLO_BUILD_DEBUG 决定）" FORCE)
+message(STATUS "构建模式: ${_yolo_build_type}；OpenCV: ${_yolo_opencv_label} (${OpenCV_DIR})")
+
+# --------------------------------------------------------------------------
+# FFmpeg
+#
+# 安装目录优先取环境变量 FFMPEG_DIR，没有则使用 D:/ffmpeg。
+# 也可以在配置时覆盖：-DFFMPEG_ROOT=D:/some/other/ffmpeg
+# ---------------------------------------------------------------------------
+set(_ffmpeg_default "$ENV{FFMPEG_DIR}")
+if(NOT _ffmpeg_default)
+    set(_ffmpeg_default "D:/ffmpeg")
+endif()
+
+set(FFMPEG_ROOT "${_ffmpeg_default}" CACHE PATH
+    "FFmpeg 安装目录（应包含 include/、lib/、bin/）")
+file(TO_CMAKE_PATH "${FFMPEG_ROOT}" FFMPEG_ROOT)
+
+set(FFMPEG_INCLUDE_DIR "${FFMPEG_ROOT}/include")
+set(FFMPEG_LIBRARY_DIR "${FFMPEG_ROOT}/lib")
+set(FFMPEG_RUNTIME_DIR "${FFMPEG_ROOT}/bin")
+
+if(NOT EXISTS "${FFMPEG_INCLUDE_DIR}/libavcodec/avcodec.h")
+    message(FATAL_ERROR
+        "在 ${FFMPEG_INCLUDE_DIR} 下找不到 libavcodec/avcodec.h。\n"
+        "请检查 FFMPEG_ROOT（当前为 ${FFMPEG_ROOT}），"
+        "或配置时传入 -DFFMPEG_ROOT=<FFmpeg 安装目录>。")
+endif()
+
+# 使用 DLL 的 import lib（avcodec.lib 等），不要用 lib*.lib 静态库。
+set(FFMPEG_COMPONENTS
+    avcodec
+    avformat
+    avutil
+    swscale
+    swresample
+    avfilter
+    avdevice
+    postproc
+)
+
+foreach(component IN LISTS FFMPEG_COMPONENTS)
+    if(NOT EXISTS "${FFMPEG_LIBRARY_DIR}/${component}.lib")
+        message(FATAL_ERROR
+            "找不到 ${FFMPEG_LIBRARY_DIR}/${component}.lib，"
+            "FFmpeg 安装目录可能不完整。")
+    endif()
+
+    add_library(FFmpeg::${component} SHARED IMPORTED)
+    set_target_properties(FFmpeg::${component} PROPERTIES
+        IMPORTED_IMPLIB "${FFMPEG_LIBRARY_DIR}/${component}.lib"
+        IMPORTED_LOCATION "${FFMPEG_RUNTIME_DIR}/${component}.dll"
+        INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIR}"
+    )
+endforeach()
+
+
+
 find_package(OpenCV REQUIRED)
-find_package(Qt6 REQUIRED COMPONENTS Core)
+find_package(Qt6 REQUIRED COMPONENTS Core Test)
 # 查找 MvCameraControl.lib（海康相机控制核心库）
 find_library(MVS_CAMERA_CONTROL_LIB
     NAMES MvCameraControl
-    PATHS "${MVS_LIBRARY_DIRS}"
+    PATHS "${MVS_LIBRARY_DIRS}"          
+      
+     
+     
+     
     NO_DEFAULT_PATH
     REQUIRED
 )
 
-find_package(OpenCV REQUIRED)
 find_package(onnxruntime CONFIG REQUIRED)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
 find_package(Qt${QT_VERSION_MAJOR}
@@ -38,12 +149,27 @@ find_package(Qt${QT_VERSION_MAJOR}
         Quick
         Multimedia
 )
-
+# 设置AUTOMOC等
 qt_standard_project_setup()
 
 message("成功找到OpenCV库: ${OpenCV_LIBS}")
 message("成功找到ONNXRUNTIME库: ${onnxruntime_LIBS}")
 message("成功找到MVS库: ${MVS_LIBRARY_DIRS}")
+
+# 当前这套 OpenCV 包里是否有 debug 库（*d.lib）。有则 Debug 配置可以正常链接。
+get_target_property(_yolo_cv_debug_implib opencv_world IMPORTED_IMPLIB_DEBUG)
+if(NOT _yolo_cv_debug_implib)
+    # 多配置生成器随时可能用 --config Debug 编译，必须无条件兜底；
+    # 单配置生成器则只有本次就是 Debug 时才需要。
+    if(_yolo_multi_config OR YOLO_BUILD_DEBUG)
+        message(WARNING
+            "${OpenCV_DIR} 不带 OpenCV debug 库（无 *d.lib）。Debug 配置下将启用 "
+            "CV_IGNORE_DEBUG_BUILD_GUARD 以兼容链接；若想调试 OpenCV，请设置 "
+            "YOLO_BUILD_DEBUG=ON 并让它指向带 debug 库的包。")
+        add_compile_definitions($<$<CONFIG:Debug>:CV_IGNORE_DEBUG_BUILD_GUARD>)
+    endif()
+endif()
+unset(_yolo_cv_debug_implib)
 # -----------------------------------------------------------------------------
 # 源码搜索路径
 #
@@ -58,7 +184,6 @@ set(YOLO_SOURCE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/tools"
 )
 
-
 # -----------------------------------------------------------------------------
 # 可执行程序入口 + 内嵌资源
 # -----------------------------------------------------------------------------
@@ -67,7 +192,8 @@ set(PROJECT_SOURCES
 )
 # 应用内嵌资源：默认示例图片与示例模型（rcc 按 .qrc 所在目录解析相对路径）
 qt_add_resources(PROJECT_SOURCES resources/images.qrc)
-
+# 添加工具目录：RTSP拉流工具以及ImageShower
+add_subdirectory(src/tools)
 # -----------------------------------------------------------------------------
 # 静态库
 # -----------------------------------------------------------------------------
@@ -104,6 +230,20 @@ qt_add_library(DetectionWorker STATIC
 foreach(_lib Detector ImageShower DetectionWorker)
     target_include_directories(${_lib} PUBLIC ${YOLO_SOURCE_DIRS})
 endforeach()
+
+# -----------------------------------------------------------------------------
+#  开启测试、测试程序
+# -----------------------------------------------------------------------------
+option(BUILD_TESTS "performance_tests" ON) # 设置测试开关
+enable_testing()
+if(BUILD_TESTS )
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
+        message(STATUS "=============开启测试=============")
+        add_subdirectory(tests)
+    else()
+        message(STATUS "=============未找到测试目录，跳过测试=============")
+     endif()
+endif()
 
 # -----------------------------------------------------------------------------
 # 可执行程序
@@ -353,3 +493,5 @@ if(WIN32 AND DEPLOY_MVS_RUNTIME)
             "MvCameraControl.dll will have to come from PATH; unused if you don't use Hik cameras.")
     endif()
 endif()
+
+

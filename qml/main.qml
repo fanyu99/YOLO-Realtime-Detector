@@ -507,6 +507,8 @@ Window {
 					}
 
 					// ---- 日志区 ----
+					// 性能面板已移除：阶段级耗时改由 tests/test_performance 测量，
+					// 日常使用只需要画面左上角的 fps 与结果里的推理耗时(worker 侧已直接产出)。
 					LogView {
 						theme: theme
 						SplitView.preferredHeight: 190

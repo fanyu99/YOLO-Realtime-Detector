@@ -10,7 +10,6 @@
 // 调度层。
 //   对上：给 App 提供「提交作业 / 取消 / 查进度」的接口与作业级信号。
 //   对下：把作业拆成 Task 投递给 worker，并把 worker 的上报汇总成 job 级事件。
-// 唯一允许跨线程直接读的是 TaskShared 里的原子量（见 progress() / cancel()）。
 class DetectionManager : public QObject {
 	Q_OBJECT
 public:
@@ -20,11 +19,10 @@ public:
 
 	~DetectionManager() override;
 
-	// 应用配置：内部完成"停旧 worker + 用新配置建新 worker"。
-	// 返回 false 表示配置无效、模型不存在，或当前有作业在跑（此时旧配置保持不变）。
+	// 应用配置：内部完成停旧 worker + 用新配置建新 worker
 	bool applyConfig(const DetectorConfig& config);
 
-	// 确保 worker 已按当前配置启动（幂等）。
+	// 确保 worker 已按当前配置启动。
 	bool start();
 
 	void shutdown();								// 停止 worker 并清理全部作业
@@ -68,7 +66,7 @@ private:
 	quint64 nextJobId() { return ++m_nextJobId; }
 	quint64 nextTaskId() { return ++m_nextTaskId; }
 	quint64 dispatch(DetectionJob job);
-	// 一个 Task 到达终态后的统一收尾：累加计数，全部结束后才发作级信号
+	// 一个 Task 到达终态后的统一收尾：累加计数，全部结束后才发作业级Job信号
 	void settleTask(quint64 jobId, bool failed, bool cancelled,
 					const DetectorError& error,
 					const QVector<DetectionResult>& results);
