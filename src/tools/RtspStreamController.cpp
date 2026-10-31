@@ -53,32 +53,32 @@ void RtspStreamController::ensureWorkerCreated() {
 		m_worker->moveToThread( m_thread.get() );
 
 		// 状态转发：Worker(解码线程) -> Controller(缓存) -> QML(绑定)
-		connect( m_worker.get(), &RtspDecodeWorker::statusChanged,
+		connect( m_worker.get(), &RtspDecodeWorker::StatusChanged,
 			this, &RtspStreamController::onWorkerStatusChanged );
 		// 错误转发（只缓存 + 转发）
-		connect( m_worker.get(), &RtspDecodeWorker::errorOccurred,
+		connect( m_worker.get(), &RtspDecodeWorker::ErrorOccurred,
 			this, &RtspStreamController::onWorkerError );
 		// 会话结束：重连
-		connect( m_worker.get(), &RtspDecodeWorker::finished,
+		connect( m_worker.get(), &RtspDecodeWorker::Finished,
 			this, &RtspStreamController::onWorkerFinished );
 		// 帧转发并缓存
-		connect( m_worker.get(), &RtspDecodeWorker::frameDecoded, this, [ this ]( const LastestFrameStore& newFrame ) {
+		connect( m_worker.get(), &RtspDecodeWorker::FrameDecoded, this, [ this ]( const LastestFrameStore& newFrame ) {
 			m_lastestFrameStore = newFrame;
-			emit FrameUpdated( newFrame.lastestFrame );
+			emit FrameUpdated( newFrame );
 			} );
 		// 流信息更新：缓存新流信息并通知QML进行更新
-		connect(m_worker.get(), &RtspDecodeWorker::dataContextChanged, this, [ this ]( const RtspDataContext& context ) {
+		connect(m_worker.get(), &RtspDecodeWorker::DataContextChanged, this, [ this ]( const RtspDataContext& context ) {
 			m_dataContext = context;
 			emit DataContextChanged(m_dataContext);
 			} );
 		// 统计信息更新：缓存Worker上报的计数与帧率，状态和重连次数由Controller填写
-		connect( m_worker.get(), &RtspDecodeWorker::streamStatusChanged, this, [ this ]( const RtspStreamStatus& status ) {
+		connect( m_worker.get(), &RtspDecodeWorker::StreamStatusChanged, this, [ this ]( const RtspStreamStatus& status ) {
 			const int reconnectCount = m_retryCount;
 			const RtspStatus currentStatus = m_currentStatus;
 			m_streamStatus = status;
 			m_streamStatus.reconnectCount = reconnectCount;
 			m_streamStatus.currentStatus = currentStatus;
-			emit StreamStatusChanged();
+			emit StreamStatusChanged( m_streamStatus );
 			} );
 	}
 }
@@ -142,7 +142,7 @@ void RtspStreamController::scheduleRetry() {
 	m_phase = RetryProgress::WaitingRetry;
 	m_streamStatus.reconnectCount = m_retryCount;
 	setStatus( RtspStatus::Reconnecting );
-	emit retryCountChanged();
+	emit RetryCountChanged();
 	emit Reconnecting();
 	emit ReconnectAttempt( m_retryCount, m_inputConfig.maxReconnect );
 	m_retryTimer.start( backoffMs( m_retryCount ) );
@@ -164,7 +164,6 @@ void RtspStreamController::giveUp() {
 	m_currentError = RtspOverallError( QStringLiteral( "重连失败：已超过最大重连次数" ),
 		RtspOverallError::ReconnectFailed );
 	setStatus( RtspStatus::Error );
-	emit StreamClosed();
 	emit ReconnectFailed( m_retryCount, m_currentError );
 	emit ErrorOccurred( m_currentError );
 }
@@ -178,12 +177,11 @@ void RtspStreamController::onWorkerStatusChanged( RtspStatus status ) {
 	switch (status) {
 	case RtspStatus::Opened:
 		setStatus( status );
-		emit StreamOpened();
 		break;
 	case RtspStatus::Playing:
 		m_retryCount = 0; // 成功,复位重连计数
 		m_streamStatus.reconnectCount = 0;
-		emit retryCountChanged();
+		emit RetryCountChanged();
 		setStatus( status );
 		break;
 	case RtspStatus::Paused:
@@ -212,7 +210,6 @@ void RtspStreamController::onWorkerFinished( bool clean, const RtspOverallError&
 	// 用户主动停止（置为Idle）
 	if (m_phase == RetryProgress::Idle) {
 		setStatus( RtspStatus::Stopped );
-		emit StreamClosed();
 		return;
 	}
 	// 正常 EOF：不重连，回到空闲
@@ -221,8 +218,7 @@ void RtspStreamController::onWorkerFinished( bool clean, const RtspOverallError&
 		m_retryCount = 0;
 		m_streamStatus.reconnectCount = 0;
 		setStatus( RtspStatus::Stopped );
-		emit retryCountChanged();
-		emit StreamClosed();
+		emit RetryCountChanged();
 		return;
 	}
 	// 出错：判断是否重连
@@ -250,7 +246,7 @@ bool RtspStreamController::start() {
 	m_streamStatus.reconnectCount = 0;
 	m_pendingRestart = false;
 	
-	emit retryCountChanged();
+	emit RetryCountChanged();
 
 	// 启动Worker
 	launchWorker();
@@ -271,13 +267,13 @@ void RtspStreamController::stop() {
 	}
 	else if (wasWaitingRetry || !m_worker) {
 		setStatus( RtspStatus::Stopped );
-		emit StreamClosed();
 	}
 }
 
 // 暂停取流
 void RtspStreamController::pause() {
 	if (m_worker && m_worker->isRunning() && m_currentStatus == RtspStatus::Playing) {
+		// 直接内联调用，避免队列调用在解码线程阻塞
 		m_worker->pauseDecoding();
 	}
 }
@@ -285,6 +281,7 @@ void RtspStreamController::pause() {
 // 恢复取流
 bool RtspStreamController::restart() {
 	if (m_worker && m_currentStatus == RtspStatus::Paused ) {
+		// 直接内联调用，避免队列调用在解码线程阻塞
 		m_worker->resumeDecoding();
 		return true;
 	}
@@ -332,7 +329,7 @@ void RtspStreamController::setStatus( RtspStatus status ) {
 	m_currentStatus = status;
 	m_streamStatus.currentStatus = status;
 	emit StatusChanged( status );
-	emit StreamStatusChanged();
+	emit StreamStatusChanged( m_streamStatus );
 }
 // 是否/设置自动重连
 bool RtspStreamController::autoReconnect() const {
@@ -351,7 +348,7 @@ void RtspStreamController::setAutoReconnect( bool autoReconnect ) {
 			setStatus( RtspStatus::Error );
 		}
 	}
-	emit autoReconnectChanged();
+	emit AutoReconnectChanged();
 }
 
 // 最大重连次数
@@ -364,7 +361,7 @@ void RtspStreamController::setMaxReconnect( int maxReconnect ) {
 	if (m_inputConfig.maxReconnect == maxReconnect)
 		return;
 	m_inputConfig.maxReconnect = qMax( 0, maxReconnect );
-	emit autoReconnectChanged();
+	emit AutoReconnectChanged();
 }
 
 // 当前的重连次数
@@ -388,7 +385,7 @@ void RtspStreamController::setUrl( const QUrl& url ) {
 		return;
 	m_rtspUrl = url;
 	m_inputConfig.url = url;
-	emit rtspUrlChanged();
+	emit RtspUrlChanged();
 	m_restartTimer.start();
 }
 
@@ -408,10 +405,10 @@ void RtspStreamController::setInputConfig( const RtspConfig& config ) {
 
 	m_inputConfig = config;
 	m_rtspUrl = config.url;
-	emit inputConfigChanged();
+	emit InputConfigChanged();
 
 	if (policyChanged)
-		emit autoReconnectChanged();
+		emit AutoReconnectChanged();
 	if (streamChanged)	  // 流更改，需要重新启动拉流
 		m_restartTimer.start(); 
 }

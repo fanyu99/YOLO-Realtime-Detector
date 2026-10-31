@@ -108,10 +108,10 @@ namespace Decode {
 Worker解码线程工作流程：
 1. controller 调用startDecoding()
 2. 	内部执行打开流，查找视频流并更新上下文信息，然后进行解码循环
-3. 解码循环中，每读取并解码一个packet，发出frameDecoded()信号，供controller缓存最新帧
-4. finished()在最终一次执行循环结束后调用；最终如果执行成功（EOF），发出 finished(true, NoError) 信号；如果出现错误，发出 finished(false, error) 信号交由controller进行处理是否需要重试
+3. 解码循环中，每读取并解码一个packet，发出FrameDecoded()信号，供controller缓存最新帧
+4. Finished()在最终一次执行循环结束后调用；最终如果执行成功（EOF），发出 Finished(true, NoError) 信号；如果出现错误，发出 Finished(false, error) 信号交由controller进行处理是否需要重试
 
-3. 如果出现错误，通过reportError()发出错误信号并回填m_lastError（最后通过finished()上报最终的错误）
+3. 如果出现错误，通过reportError()发出错误信号并回填m_lastError（最后通过Finished()上报最终的错误）
 
 */
 
@@ -135,8 +135,6 @@ public:
 	void setRtspConfig( const RtspConfig& config );
 	// 设置数据上下文
 	void setRtspDataContext( const RtspDataContext& context );
-	// 获取数据上下文
-	RtspDataContext getRtspDataContext() const;
 
 	// 开始解码：阻塞函数，内部完成 open -> 解码循环 -> 释放资源，
 	// 必须在解码线程中调用
@@ -160,17 +158,17 @@ public:
 
 signals:
 	// 状态发生变化，上层的controller得知（worker 只上报过程状态：Opening/Opened/Playing/Paused，不负责重连等机制）
-	void statusChanged( RtspStatus status );
+	void StatusChanged( RtspStatus status );
 	// 向controller上报解码后的帧，包含帧、索引、pts等信息
-	void frameDecoded( const LastestFrameStore& newFrame );	 // 上层Conjtroller调用，获取最新的视频帧结果
+	void FrameDecoded( const LastestFrameStore& newFrame );	 // 上层Conjtroller调用，获取最新的视频帧结果
 	// 一次解码会话结束（startDecoding 返回前必定发出一次）：
 	//   clean = true  : 正常 EOF 或被主动停止，重连由 controller 决定是否进行
 	//   clean = false : 因错误结束，error 为最后一次错误
 	// 统一的会话结束信号
-	void finished( bool clean, const RtspOverallError& error );
-	void errorOccurred( const RtspOverallError& error ); // 错误发生
-	void  dataContextChanged( const RtspDataContext& context ); // RtspDataContext数据上下文发生变化，通知controller保存最新的流信息
-	void streamStatusChanged( const RtspStreamStatus& status ); // 按固定间隔(1s)上报拉流统计信息
+	void Finished( bool clean, const RtspOverallError& error );
+	void ErrorOccurred( const RtspOverallError& error ); // 错误发生
+	void DataContextChanged( const RtspDataContext& context ); // RtspDataContext数据上下文发生变化，通知controller保存最新的流信息
+	void StreamStatusChanged( const RtspStreamStatus& status ); // 按固定间隔(1s)上报拉流统计信息
 
 private:
 	// 统一上报错误：只发 errorOccurred，并记录本次执行出错

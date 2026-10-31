@@ -31,7 +31,7 @@ RtspDecodeWorker::~RtspDecodeWorker() {
 // 统一上报错误：只发 errorOccurred 并记录最后一次错误，
 void RtspDecodeWorker::reportError( const RtspOverallError& error ) {
 	m_lastError = error;
-	emit errorOccurred( error );
+	emit ErrorOccurred( error );
 }
 
 // 清理所有资源
@@ -76,10 +76,6 @@ void RtspDecodeWorker::setRtspConfig( const RtspConfig& config ) {
 // 设置数据上下文
 void RtspDecodeWorker::setRtspDataContext( const RtspDataContext& context ) {
 	m_dataContext = context;
-}
-// 获取数据上下文
-RtspDataContext RtspDecodeWorker::getRtspDataContext() const {
-	return m_dataContext;
 }
 
 // 检查是否正在工作（只要不停止就为true）
@@ -141,7 +137,7 @@ void RtspDecodeWorker::startDecoding() {
 		releaseResources();	   // 清理资源
 		// 复位并发出结束信号（错误信息在错误信号发出时就保存在m_lastError）
 		m_running.store( false, std::memory_order_relaxed );
-		emit finished( clean && m_lastError.errorCode == RtspOverallError::NoError, m_lastError );
+		emit Finished( clean && m_lastError.errorCode == RtspOverallError::NoError, m_lastError );
 		};
 
 	// 校验URL
@@ -163,7 +159,7 @@ void RtspDecodeWorker::startDecoding() {
 		avformat_network_init(); // 初始化网络模块
 		} );
 	// 设置为打开状态
-	emit statusChanged( RtspStatus::Opening );
+	emit StatusChanged( RtspStatus::Opening );
 	// 打开输入并初始化解码器，进入读取和解码循环
 	const bool ok = openInput() && initDecoder() && readAndDecodeLoop();
 
@@ -257,7 +253,7 @@ bool RtspDecodeWorker::openInput() {
 	}
 
 	// 输入已打开且流信息可用，上报 Opened
-	emit statusChanged( RtspStatus::Opened );
+	emit StatusChanged( RtspStatus::Opened );
 	return true;
 }
 
@@ -358,7 +354,7 @@ void RtspDecodeWorker::recordStreamInfo( const AVStream* stream, const AVCodec* 
 	m_dataContext.fps = static_cast<int>(std::lround( fps ));
 	// 发送更改信号通知controller更新流信息
 	if (m_dataContext.isValid())
-		emit  dataContextChanged( m_dataContext );
+		emit DataContextChanged( m_dataContext );
 	else
 	{
 		reportError(RtspOverallError(QStringLiteral("读取的流信息无效!"),RtspOverallError::Other));
@@ -511,7 +507,7 @@ QImage RtspDecodeWorker::convertFrame( const AVFrame* frame ) {
 
 	const AVPixelFormat sourceFormat = static_cast<AVPixelFormat>(frame->format);
 	if (sourceFormat == AV_PIX_FMT_NONE) {
-		emit errorOccurred( RtspOverallError( QStringLiteral( "不支持的像素格式" ), RtspOverallError::Other ) );
+		emit ErrorOccurred( RtspOverallError( QStringLiteral( "不支持的像素格式" ), RtspOverallError::Other ) );
 		return {};
 	}
 
@@ -523,14 +519,14 @@ QImage RtspDecodeWorker::convertFrame( const AVFrame* frame ) {
 		frame->width, frame->height, AV_PIX_FMT_RGB32,
 		SWS_BILINEAR, nullptr, nullptr, nullptr );
 	if (!m_swsContext) {
-		emit errorOccurred( RtspOverallError( QStringLiteral( "无法创建像素格式转换上下文" ), RtspOverallError::Other ) );
+		emit ErrorOccurred( RtspOverallError( QStringLiteral( "无法创建像素格式转换上下文" ), RtspOverallError::Other ) );
 		return {};
 	}
 
 	// Format_RGB32 在内存中的布局与 AV_PIX_FMT_RGB32 一致（小端：B,G,R,A）
 	QImage image( frame->width, frame->height, QImage::Format_RGB32 );
 	if (image.isNull()) {
-		emit errorOccurred( RtspOverallError( QStringLiteral( "无法分配QImage" ), RtspOverallError::Other ) );
+		emit ErrorOccurred( RtspOverallError( QStringLiteral( "无法分配QImage" ), RtspOverallError::Other ) );
 		return {};
 	}
 
@@ -542,7 +538,7 @@ QImage RtspDecodeWorker::convertFrame( const AVFrame* frame ) {
 		frame->data, frame->linesize, 0, frame->height,
 		destinationData, destinationLinesize );
 	if (scaled <= 0) {
-		emit errorOccurred( RtspOverallError( QStringLiteral( "像素转换失败" ), RtspOverallError::Other ) );
+		emit ErrorOccurred( RtspOverallError( QStringLiteral( "像素转换失败" ), RtspOverallError::Other ) );
 		return {};
 	}
 
@@ -576,11 +572,11 @@ void RtspDecodeWorker::emitDecodedFrame( quint64 readTime, quint64 decodedTime )
 
 	// 第一帧成功解码并发出，进入 Playing
 	if (store.frameIndex == 0) {
-		emit statusChanged( RtspStatus::Playing );
+		emit StatusChanged( RtspStatus::Playing );
 	}
 	// 发送frameDecoded
 	++m_streamStatus.displayedFrameCount;
-	emit frameDecoded( store );
+	emit FrameDecoded( store );
 }
 
 // 按固定间隔（1s）汇总并上报统计信息
@@ -601,7 +597,7 @@ void RtspDecodeWorker::reportStreamStatus() {
 	m_lastStatusDisplayedFrames = m_streamStatus.displayedFrameCount;
 	m_statusClock.restart();
 
-	emit streamStatusChanged( m_streamStatus );
+	emit StreamStatusChanged( m_streamStatus );
 }
 
 // 停止解码
@@ -612,7 +608,7 @@ void RtspDecodeWorker::stopDecoding() {
 // 暂停解码
 void RtspDecodeWorker::pauseDecoding() {
 	m_interruptContext.pause.store( true, std::memory_order_relaxed );	// 设置中断，ffmpeg的av_read_frame内部的周期性调用回调函数interrupt_cb(详见Worker::Decode中的中断回调函数)触发中断
-	emit statusChanged( RtspStatus::Paused );
+	emit StatusChanged( RtspStatus::Paused );
 }
 
 // 恢复解码
@@ -624,7 +620,7 @@ void RtspDecodeWorker::resumeDecoding() {
 		m_interruptContext.pause.store( false, std::memory_order_relaxed );
 	}
 	m_pauseCV.notify_all(); // 唤醒阻塞的readAndDecodeLoop（）循环
-	emit statusChanged( RtspStatus::Playing );
+	emit StatusChanged( RtspStatus::Playing );
 
 }
 

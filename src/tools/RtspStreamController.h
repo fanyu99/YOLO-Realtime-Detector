@@ -24,7 +24,7 @@
 6. 提供基本的流的信息
 
 状态/错误统一流转：
-Worker(解码线程) --statusChanged/errorOccurred/finished--> Controller(缓存错误/状态供QML读取) --> QML(只读绑定)
+Worker(解码线程) --StatusChanged/ErrorOccurred/Finished--> Controller(缓存错误/状态供QML读取) --> QML(只读绑定)
 
 重连策略由Controller进行管理：
 重连需要进行退避操作，防止短时间频繁发起重连；
@@ -49,15 +49,15 @@ public:
 	explicit RtspStreamController( const RtspConfig& config, QObject* parent = nullptr );
 	~RtspStreamController();
 	// QML获取门面
-	Q_PROPERTY( QUrl rtspUrl READ getUrl WRITE setUrl NOTIFY rtspUrlChanged )
+	Q_PROPERTY( QUrl rtspUrl READ getUrl WRITE setUrl NOTIFY RtspUrlChanged )
 		Q_PROPERTY( RtspStatus currentStatus READ currentStatus NOTIFY StatusChanged )
-		Q_PROPERTY( RtspConfig inputConfig READ inputConfig WRITE setInputConfig NOTIFY inputConfigChanged )
+		Q_PROPERTY( RtspConfig inputConfig READ inputConfig WRITE setInputConfig NOTIFY InputConfigChanged )
 		Q_PROPERTY( RtspDataContext dataContext READ dataContext NOTIFY DataContextChanged )
 		Q_PROPERTY( RtspOverallError currentError READ currentError NOTIFY ErrorOccurred )
 		Q_PROPERTY( LastestFrameStore lastestFrameStore READ lastestFrameStore NOTIFY FrameUpdated )
-		Q_PROPERTY( bool autoReconnect READ autoReconnect WRITE setAutoReconnect NOTIFY autoReconnectChanged )
-		Q_PROPERTY( int maxReconnect READ maxReconnect WRITE setMaxReconnect NOTIFY autoReconnectChanged )
-		Q_PROPERTY( int retryCount READ retryCount NOTIFY retryCountChanged )
+		Q_PROPERTY( bool autoReconnect READ autoReconnect WRITE setAutoReconnect NOTIFY AutoReconnectChanged )
+		Q_PROPERTY( int maxReconnect READ maxReconnect WRITE setMaxReconnect NOTIFY AutoReconnectChanged )
+		Q_PROPERTY( int retryCount READ retryCount NOTIFY RetryCountChanged )
 		Q_PROPERTY( RtspStreamStatus streamStatus READ streamStatus NOTIFY StreamStatusChanged )
 
 		// 开始拉流
@@ -98,19 +98,19 @@ public:
 
 signals:
 	void StatusChanged( RtspStatus status );  // 状态改变，QML进行更新UI
-	void FrameUpdated( const QImage& newFrame );// 新帧可用
-	void StreamOpened();
-	void StreamClosed();
+	void FrameUpdated( const LastestFrameStore& newFrame );// 新帧可用
 	void DataContextChanged( const RtspDataContext& newInfo );
 	void Reconnecting();  // 进入了一次重连等待
 	void ReconnectAttempt( int attempt, int maxAttempts ); // 第 attempt 次重连
 	void ReconnectFailed( int attempts, const RtspOverallError& lastError ); // 重连彻底失败，终态
 	void ErrorOccurred( const RtspOverallError& error );
-	void rtspUrlChanged();
-	void inputConfigChanged();
-	void autoReconnectChanged();
-	void retryCountChanged();
-	void StreamStatusChanged();
+	void RtspUrlChanged();
+	void InputConfigChanged();
+	void AutoReconnectChanged();
+	// 仅作为QML属性通知，值通过retryCount()读取
+	void RetryCountChanged();
+	// 携带合并了currentStatus与reconnectCount的完整统计快照
+	void StreamStatusChanged( const RtspStreamStatus& status );
 
 
 private:
