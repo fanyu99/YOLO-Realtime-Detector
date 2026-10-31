@@ -6,6 +6,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <condition_variable>
 #include "RtspTypes.h"
 extern "C" {
 #include <libavdevice/avdevice.h>
@@ -63,7 +64,8 @@ namespace Decode {
 	struct InterruptContext {
 		int timeoutMs{ DEFAULT_RTSP_READ_TIMEOUT_MS }; // 超时时间
 		// 原子变量用于中断回调函数
-		std::atomic<bool> abort{ false }; // 外部的中断标志
+		std::atomic<bool> pause{ false }; // 外部的中断标志
+		std::atomic<bool>stop{false}; // 外部的停止标志，用于解码会话的停止（直接退出循环）
 		QElapsedTimer timer; // 计时器
 
 		explicit InterruptContext( int timeout = DEFAULT_RTSP_READ_TIMEOUT_MS )
@@ -89,8 +91,8 @@ namespace Decode {
 		auto* ctx = static_cast<InterruptContext*>(opaque);
 		if (!ctx)
 			return 0;
-		// 检查是否终止
-		if (ctx->abort.load( std::memory_order_relaxed ))
+		// 检查是否终止/停止
+		if (ctx->pause.load( std::memory_order_relaxed ) || ctx->stop.load( std::memory_order_relaxed ))
 			return 1;
 		// 检查是否超时
 		if (ctx->isTimeout())
@@ -107,7 +109,7 @@ Worker解码线程工作流程：
 3. 解码循环中，每读取并解码一个packet，发出frameDecoded()信号，供controller缓存最新帧
 4. finished()在最终一次执行循环结束后调用；最终如果执行成功（EOF），发出 finished(true, NoError) 信号；如果出现错误，发出 finished(false, error) 信号交由controller进行处理是否需要重试
 
-3. 如果出现错误，通过reportError()发出错误信号并回填m_lastError（最后通过finished()上报）
+3. 如果出现错误，通过reportError()发出错误信号并回填m_lastError（最后通过finished()上报最终的错误）
 
 */
 
@@ -182,13 +184,17 @@ private:
 	// 检查停止请求
 	bool isStopRequested() const;
 	// 把当前 m_frame 转换成 QImage 并发出信号
+	// 检查中断请求
+	bool isPaused() const;
 	void emitDecodedFrame();
 
 	RtspDataContext m_dataContext{}; // 数据上下文
 	RtspConfig m_config{};			// RTSP配置
 	QUrl m_rtspUrl{};				// RTSP URL
+	std::mutex m_pauseMutex; // 用来暂停的互斥锁，中断时阻塞解码
+	std::condition_variable m_pauseCV; // 用来暂停的条件变量，中断时阻塞解码
 	std::atomic<bool> m_stopRequested{ false }; // 停止请求
-	std::atomic<bool> m_running{ false }; // 是否正在解码
+	std::atomic<bool> m_running{ false }; // 是否正在工作（暂停时同样为true）
 	quint64 m_decodedFrameIndex{ 0 };	 // 当前的解码index
 	RtspOverallError m_lastError{}; // 用于finished上报错误
 

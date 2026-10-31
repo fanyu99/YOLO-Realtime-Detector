@@ -44,7 +44,7 @@ void RtspStreamController::ensureWorkerCreated() {
 
 	if (!m_thread)
 		m_thread = std::make_unique<QThread>();
-
+	// 第一次才创建worker对象，后续直接复用worker
 	if (!m_worker) {
 		m_worker = std::make_unique<RtspDecodeWorker>();
 		m_worker->moveToThread( m_thread.get() );
@@ -58,7 +58,7 @@ void RtspStreamController::ensureWorkerCreated() {
 		// 会话结束：重连
 		connect( m_worker.get(), &RtspDecodeWorker::finished,
 			this, &RtspStreamController::onWorkerFinished );
-		// 帧转发
+		// 帧转发并缓存
 		connect( m_worker.get(), &RtspDecodeWorker::frameDecoded, this, [ this ]( const LastestFrameStore& newFrame ) {
 			m_lastestFrameStore = newFrame;
 			emit FrameUpdated( newFrame.lastestFrame );
@@ -237,7 +237,7 @@ void RtspStreamController::stop() {
 	m_phase = RetryProgress::Idle;
 
 	if (m_worker && m_worker->isRunning()) {
-		m_worker->requestStop(); // 原子标志，线程安全
+		m_worker->requestStop(); // 直接调用而不是采用信号机制，避免阻塞
 	}
 	else if (wasWaitingRetry || !m_worker) {
 		setStatus( RtspStatus::Stopped );
@@ -247,14 +247,15 @@ void RtspStreamController::stop() {
 
 // 暂停取流
 void RtspStreamController::pause() {
-	if (m_worker && m_worker->isRunning())
-		QMetaObject::invokeMethod( m_worker.get(), &RtspDecodeWorker::pauseDecoding, Qt::QueuedConnection );
+	if (m_worker && m_worker->isRunning() && m_currentStatus == RtspStatus::Playing) {
+		m_worker->pauseDecoding();
+	}
 }
 
 // 恢复取流
 bool RtspStreamController::restart() {
-	if (m_worker && m_currentStatus == RtspStatus::Paused) {
-		QMetaObject::invokeMethod( m_worker.get(), &RtspDecodeWorker::resumeDecoding, Qt::QueuedConnection );
+	if (m_worker && m_currentStatus == RtspStatus::Paused ) {
+		m_worker->resumeDecoding();
 		return true;
 	}
 	onWorkerError( RtspOverallError{ QStringLiteral( "恢复拉流失败！" ), RtspOverallError::Other } );
