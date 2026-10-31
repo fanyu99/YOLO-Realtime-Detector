@@ -30,6 +30,8 @@ namespace Decode {
 		return QString::fromUtf8( errorBuffer );
 	}
 	// ====== 智能指针保护ffmpeg资源========
+	// 在离开作用域时自动释放资源
+	// 对于存在引用计数的资源，注意需要自行调用相关的unref
 	struct AVFormatContextDeleter {
 		void operator()( AVFormatContext* ctx ) const noexcept {
 			if (ctx)
@@ -157,14 +159,18 @@ public:
 	void reset();
 
 signals:
-	// 状态发生变化，上层的controller得知（worker 只上报过程状态：Opening/Opened/Playing/Paused，不负责重连你等机制）
+	// 状态发生变化，上层的controller得知（worker 只上报过程状态：Opening/Opened/Playing/Paused，不负责重连等机制）
 	void statusChanged( RtspStatus status );
+	// 向controller上报解码后的帧，包含帧、索引、pts等信息
 	void frameDecoded( const LastestFrameStore& newFrame );	 // 上层Conjtroller调用，获取最新的视频帧结果
 	// 一次解码会话结束（startDecoding 返回前必定发出一次）：
 	//   clean = true  : 正常 EOF 或被主动停止，重连由 controller 决定是否进行
 	//   clean = false : 因错误结束，error 为最后一次错误
+	// 统一的会话结束信号
 	void finished( bool clean, const RtspOverallError& error );
-	void errorOccurred( const RtspOverallError& error ); // 错误
+	void errorOccurred( const RtspOverallError& error ); // 错误发生
+	void  dataContextChanged( const RtspDataContext& context ); // RtspDataContext数据上下文发生变化，通知controller保存最新的流信息
+	void streamStatusChanged( const RtspStreamStatus& status ); // 按固定间隔(1s)上报拉流统计信息
 
 private:
 	// 统一上报错误：只发 errorOccurred，并记录本次执行出错
@@ -175,8 +181,8 @@ private:
 	bool initDecoder();
 	// 读取 packet 并解码，阻塞直到停止、EOF 或出错
 	bool readAndDecodeLoop();
-	// 循环接收解码器输出的帧
-	bool receiveFrames();
+	// 循环接收解码器解码packet后输出的帧
+	bool receiveFrames(quint64 readTime);
 	// AVFrame -> 独立所有权的 QImage
 	QImage convertFrame( const AVFrame* frame );
 	// 填充 RtspDataContext
@@ -186,9 +192,17 @@ private:
 	// 把当前 m_frame 转换成 QImage 并发出信号
 	// 检查中断请求
 	bool isPaused() const;
-	void emitDecodedFrame();
+	// 包装LastestFrameStore并发出frameDecoded信号
+	void emitDecodedFrame(quint64 readTime,quint64 decodedTime);
+	// 按固定间隔（1s）汇总并上报统计信息
+	void reportStreamStatus();
 
 	RtspDataContext m_dataContext{}; // 数据上下文
+	RtspStreamStatus m_streamStatus{}; // 拉流统计信息
+	QElapsedTimer m_statusClock; // 统计信息的上报计时
+	quint64 m_lastStatusDecodedFrames{ 0 }; // 上次上报时的解码帧数
+	quint64 m_lastStatusDisplayedFrames{ 0 }; // 上次上报时的显示帧数
+	quint64 m_lastReadTimeUs{ 0 }; // 最近一次成功读取压缩包的时间(us)
 	RtspConfig m_config{};			// RTSP配置
 	QUrl m_rtspUrl{};				// RTSP URL
 	std::mutex m_pauseMutex; // 用来暂停的互斥锁，中断时阻塞解码

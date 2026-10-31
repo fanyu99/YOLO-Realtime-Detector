@@ -52,11 +52,13 @@ public:
 	Q_PROPERTY( QUrl rtspUrl READ getUrl WRITE setUrl NOTIFY rtspUrlChanged )
 		Q_PROPERTY( RtspStatus currentStatus READ currentStatus NOTIFY StatusChanged )
 		Q_PROPERTY( RtspConfig inputConfig READ inputConfig WRITE setInputConfig NOTIFY inputConfigChanged )
-		Q_PROPERTY( RtspDataContext dataContext READ dataContext NOTIFY StreamInfoChanged )
+		Q_PROPERTY( RtspDataContext dataContext READ dataContext NOTIFY DataContextChanged )
 		Q_PROPERTY( RtspOverallError currentError READ currentError NOTIFY ErrorOccurred )
 		Q_PROPERTY( LastestFrameStore lastestFrameStore READ lastestFrameStore NOTIFY FrameUpdated )
 		Q_PROPERTY( bool autoReconnect READ autoReconnect WRITE setAutoReconnect NOTIFY autoReconnectChanged )
 		Q_PROPERTY( int maxReconnect READ maxReconnect WRITE setMaxReconnect NOTIFY autoReconnectChanged )
+		Q_PROPERTY( int retryCount READ retryCount NOTIFY retryCountChanged )
+		Q_PROPERTY( RtspStreamStatus streamStatus READ streamStatus NOTIFY StreamStatusChanged )
 
 		// 开始拉流
 		Q_INVOKABLE bool start();
@@ -76,6 +78,10 @@ public:
 	Q_INVOKABLE void setAutoReconnect( bool autoReconnect );
 	// 最大重连次数（只影响重连策略，不重启流）
 	int maxReconnect() const;
+	// 当前的重连次数
+	int retryCount() const;
+	// 当前的拉流统计信息
+	RtspStreamStatus streamStatus() const;
 	Q_INVOKABLE void setMaxReconnect( int maxReconnect );
 	// 获取/设置URL地址
 	QUrl getUrl()const;
@@ -95,7 +101,7 @@ signals:
 	void FrameUpdated( const QImage& newFrame );// 新帧可用
 	void StreamOpened();
 	void StreamClosed();
-	void StreamInfoChanged( const RtspDataContext& newInfo );
+	void DataContextChanged( const RtspDataContext& newInfo );
 	void Reconnecting();  // 进入了一次重连等待
 	void ReconnectAttempt( int attempt, int maxAttempts ); // 第 attempt 次重连
 	void ReconnectFailed( int attempts, const RtspOverallError& lastError ); // 重连彻底失败，终态
@@ -103,6 +109,8 @@ signals:
 	void rtspUrlChanged();
 	void inputConfigChanged();
 	void autoReconnectChanged();
+	void retryCountChanged();
+	void StreamStatusChanged();
 
 
 private:
@@ -114,7 +122,7 @@ private:
 		Failed         // 重连彻底失败（终态）
 	};
 
-	// 懒加载创建 worker 与线程（只创建一次，连接在此固化）
+	// 懒加载创建 worker 与线程（只创建一次）
 	void ensureWorkerCreated();
 	// 启动一次解码任务（重置计数、投递 startDecoding 到解码线程）
 	void launchWorker();
@@ -153,6 +161,7 @@ private:
 	RtspStatus m_currentStatus{ RtspStatus::Idle }; // 当前状态（controller 统一写入，QML 只读）
 	RtspOverallError m_currentError{}; // 当前错误
 	LastestFrameStore m_lastestFrameStore{}; // 最新帧信息,用于QML获取最新帧
+	RtspStreamStatus m_streamStatus{}; // 拉流统计信息,用于QML获取
 
 	RetryProgress m_phase{ RetryProgress::Idle }; // 控制器重连状态机
 	int m_retryCount{ 0 }; // 当前已尝试重连次数

@@ -13,6 +13,7 @@ RtspStreamController::RtspStreamController( QObject* parent )
 	qRegisterMetaType<LastestFrameStore>( "LastestFrameStore" );
 	qRegisterMetaType<RtspConfig>( "RtspConfig" );
 	qRegisterMetaType<RtspDataContext>( "RtspDataContext" );
+	qRegisterMetaType<RtspStreamStatus>( "RtspStreamStatus" );
 
 	// 重连退避定时器：单发，到期后重启worker
 	m_retryTimer.setSingleShot( true );
@@ -22,6 +23,8 @@ RtspStreamController::RtspStreamController( QObject* parent )
 	m_restartTimer.setSingleShot( true );
 	m_restartTimer.setInterval( 150 );
 	connect( &m_restartTimer, &QTimer::timeout, this, &RtspStreamController::onRestartTimeout );
+
+	
 }
 
 RtspStreamController::RtspStreamController( const RtspConfig& config, QObject* parent )
@@ -37,7 +40,7 @@ RtspStreamController::~RtspStreamController() {
 
 // ===== worker 生命周期 =====
 
-// 懒加载创建 worker + 线程，只创建一次
+// 懒加载创建 worker + 线程，只创建一次；并链接信号槽
 void RtspStreamController::ensureWorkerCreated() {
 	if (m_worker && m_thread)
 		return;
@@ -63,11 +66,26 @@ void RtspStreamController::ensureWorkerCreated() {
 			m_lastestFrameStore = newFrame;
 			emit FrameUpdated( newFrame.lastestFrame );
 			} );
+		// 流信息更新：缓存新流信息并通知QML进行更新
+		connect(m_worker.get(), &RtspDecodeWorker::dataContextChanged, this, [ this ]( const RtspDataContext& context ) {
+			m_dataContext = context;
+			emit DataContextChanged(m_dataContext);
+			} );
+		// 统计信息更新：缓存Worker上报的计数与帧率，状态和重连次数由Controller填写
+		connect( m_worker.get(), &RtspDecodeWorker::streamStatusChanged, this, [ this ]( const RtspStreamStatus& status ) {
+			const int reconnectCount = m_retryCount;
+			const RtspStatus currentStatus = m_currentStatus;
+			m_streamStatus = status;
+			m_streamStatus.reconnectCount = reconnectCount;
+			m_streamStatus.currentStatus = currentStatus;
+			emit StreamStatusChanged();
+			} );
 	}
 }
 
 // 启动一次解码会话：设置worker配置 + 解码线程
 void RtspStreamController::launchWorker() {
+	// 懒加载创建worker + 线程
 	ensureWorkerCreated();
 
 	if (!m_thread->isRunning())
@@ -122,7 +140,9 @@ void RtspStreamController::scheduleRetry() {
 	}
 	++m_retryCount;
 	m_phase = RetryProgress::WaitingRetry;
+	m_streamStatus.reconnectCount = m_retryCount;
 	setStatus( RtspStatus::Reconnecting );
+	emit retryCountChanged();
 	emit Reconnecting();
 	emit ReconnectAttempt( m_retryCount, m_inputConfig.maxReconnect );
 	m_retryTimer.start( backoffMs( m_retryCount ) );
@@ -162,6 +182,8 @@ void RtspStreamController::onWorkerStatusChanged( RtspStatus status ) {
 		break;
 	case RtspStatus::Playing:
 		m_retryCount = 0; // 成功,复位重连计数
+		m_streamStatus.reconnectCount = 0;
+		emit retryCountChanged();
 		setStatus( status );
 		break;
 	case RtspStatus::Paused:
@@ -197,7 +219,9 @@ void RtspStreamController::onWorkerFinished( bool clean, const RtspOverallError&
 	if (clean) {
 		m_phase = RetryProgress::Idle;
 		m_retryCount = 0;
+		m_streamStatus.reconnectCount = 0;
 		setStatus( RtspStatus::Stopped );
+		emit retryCountChanged();
 		emit StreamClosed();
 		return;
 	}
@@ -223,8 +247,14 @@ bool RtspStreamController::start() {
 
 	m_currentError = RtspOverallError{};
 	m_retryCount = 0;
+	m_streamStatus.reconnectCount = 0;
 	m_pendingRestart = false;
+	
+	emit retryCountChanged();
+
+	// 启动Worker
 	launchWorker();
+
 	return true;
 }
 
@@ -300,7 +330,9 @@ void RtspStreamController::setStatus( RtspStatus status ) {
 	if (m_currentStatus == status) // 防止重复发射信号
 		return;
 	m_currentStatus = status;
+	m_streamStatus.currentStatus = status;
 	emit StatusChanged( status );
+	emit StreamStatusChanged();
 }
 // 是否/设置自动重连
 bool RtspStreamController::autoReconnect() const {
@@ -327,12 +359,24 @@ int RtspStreamController::maxReconnect() const {
 	return m_inputConfig.maxReconnect;
 }
 
+
 void RtspStreamController::setMaxReconnect( int maxReconnect ) {
 	if (m_inputConfig.maxReconnect == maxReconnect)
 		return;
 	m_inputConfig.maxReconnect = qMax( 0, maxReconnect );
 	emit autoReconnectChanged();
 }
+
+// 当前的重连次数
+int RtspStreamController::retryCount() const {
+	return m_retryCount;
+}
+
+// 当前的拉流统计信息
+RtspStreamStatus RtspStreamController::streamStatus() const {
+	return m_streamStatus;
+}
+
 
 // URL
 QUrl RtspStreamController::getUrl() const {

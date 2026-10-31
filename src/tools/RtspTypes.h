@@ -117,6 +117,7 @@ public:
 };
 
 // RTSP协议的数据信息
+// 包含容器格式、编解码器名称、格式名称、像素格式、色彩空间、色彩范围、时间基、视频宽度、高度、帧率和视频流索引
 struct RtspDataContext {
 	Q_GADGET
 public:
@@ -130,6 +131,7 @@ public:
 	int width{ 0 }; // 视频宽度
 	int height{ 0 }; // 视频高度
 	int fps{ 0 }; // 帧率
+	// 名义帧率：来自流元数据，不代表实际解码速度；实测帧率见 RtspStreamStatus::decodeFps
 	int videoStreamIndex{ -1 }; // 视频流索引
 	// 是否合法
 	bool isValid()const {
@@ -153,15 +155,46 @@ public:
 	quint64 frameIndex{ 0 }; // 帧索引（用 lastestFrame 判空；原来的 -1 初始化会窄化报错）
 	qint64 pts{ -1 }; // pts（-1 = AV_NOPTS_VALUE，不能用 0 表示无效）
 	double ptsSeconds{ -1.0 }; // pts秒数（-1 表示无效）
-	quint64 receivedTime{ 0 }; // 接收时间
-	quint64 decodedTime{ 0 }; // 解码时间
+	quint64 readTime{ 0 }; // 接收压缩包的时间
+	quint64 decodedTime{ 0 }; // 解码完成的时间
 	bool isValid()const {
 		// PTS 允许为 -1（AV_NOPTS_VALUE），不能因此把一帧正常画面判为无效
-		return !lastestFrame.isNull() && receivedTime > 0 && decodedTime > 0;
+		return !lastestFrame.isNull() && readTime > 0 && decodedTime > 0;
 	}
+};
+
+// RTSP拉流过程中的统计信息
+struct RtspStreamStatus {
+	Q_GADGET
+	Q_PROPERTY( quint64 receivedPacketCount MEMBER receivedPacketCount )
+	Q_PROPERTY( quint64 videoPacketCount MEMBER videoPacketCount )
+	Q_PROPERTY( quint64 decodedFrameCount MEMBER decodedFrameCount )
+	Q_PROPERTY( quint64 displayedFrameCount MEMBER displayedFrameCount )
+	Q_PROPERTY( quint64 droppedFrameCount MEMBER droppedFrameCount )
+	Q_PROPERTY( double decodeFps MEMBER decodeFps )
+	Q_PROPERTY( double displayFps MEMBER displayFps )
+	Q_PROPERTY( qint64 lastPts MEMBER lastPts )
+	Q_PROPERTY( quint64 lastReadTime MEMBER lastReadTime )
+	Q_PROPERTY( quint64 decodeErrorCount MEMBER decodeErrorCount )
+	Q_PROPERTY( int reconnectCount MEMBER reconnectCount )
+	Q_PROPERTY( RtspStatus currentStatus MEMBER currentStatus )
+public:
+	quint64 receivedPacketCount{ 0 }; // 收到的packet数（包含非视频包）
+	quint64 videoPacketCount{ 0 }; // 视频packet数
+	quint64 decodedFrameCount{ 0 }; // 解码帧数
+	quint64 displayedFrameCount{ 0 }; // 显示帧数（成功转换并发出frameDecoded）
+	quint64 droppedFrameCount{ 0 }; // 覆盖或丢弃帧数（解码后未能显示）
+	double decodeFps{ 0.0 }; // 解码FPS（实测）
+	double displayFps{ 0.0 }; // 显示FPS（实测）
+	qint64 lastPts{ -1 }; // 最近一次PTS（-1 = AV_NOPTS_VALUE）
+	quint64 lastReadTime{ 0 }; // 最近一次成功读取视频包的时间(us)
+	quint64 decodeErrorCount{ 0 }; // 解码错误数
+	int reconnectCount{ 0 }; // 重连次数（由Controller填写）
+	RtspStatus currentStatus{ RtspStatus::Idle }; // 当前状态（由Controller填写）
 };
 
 // 跨线程队列连接需要的元类型注册
 Q_DECLARE_METATYPE( RtspStatus )
 Q_DECLARE_METATYPE( RtspOverallError )
 Q_DECLARE_METATYPE( LastestFrameStore )
+Q_DECLARE_METATYPE( RtspStreamStatus )

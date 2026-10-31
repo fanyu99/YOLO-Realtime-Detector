@@ -104,7 +104,6 @@ cv::Mat FileFrameSource::getFrame() {
 	}
 
 	cv::Mat frame;
-	QElapsedTimer timer;
 	m_cap.read(frame);	 // 读帧
 	return frame;					
 }
