@@ -1,7 +1,14 @@
 #include "RtspStreamController.h"
 
+#include <QMetaEnum>
 #include <QRandomGenerator>
 #include <QtMath>
+
+namespace {
+	// 帧通知上限约 60fps：解码帧率可能高于屏幕刷新率，
+	// 逐帧通知会让 QML 的绑定和 Image 重取图压满 GUI 线程。
+	constexpr int kFrameNotifyIntervalMs = 16;
+}
 
 // ===== 构造 / 析构 =====
 
@@ -61,9 +68,13 @@ void RtspStreamController::ensureWorkerCreated() {
 		// 会话结束：重连
 		connect( m_worker.get(), &RtspDecodeWorker::Finished,
 			this, &RtspStreamController::onWorkerFinished );
-		// 帧转发并缓存
+		// 帧转发并缓存：信号通知 QML 限流到60fps
 		connect( m_worker.get(), &RtspDecodeWorker::FrameDecoded, this, [ this ]( const LastestFrameStore& newFrame ) {
 			m_lastestFrameStore = newFrame;
+			if (m_frameNotifyClock.isValid() && m_frameNotifyClock.elapsed() < kFrameNotifyIntervalMs)
+				return;
+			m_frameNotifyClock.restart();
+			++m_frameRevision;
 			emit FrameUpdated( newFrame );
 			} );
 		// 流信息更新：缓存新流信息并通知QML进行更新
@@ -264,6 +275,10 @@ bool RtspStreamController::start() {
 		return false;
 	}
 
+	// 直接 start 时取消 setUrl/setInputConfig 留下的防抖重启，
+	// 否则 150ms 后会把刚启动的会话再停一次
+	m_restartTimer.stop();
+
 	// 复位状态信息
 
 	m_currentError = RtspOverallError{};
@@ -313,7 +328,7 @@ bool RtspStreamController::resume() {
 		m_worker->resumeDecoding();
 		return true;
 	}
-	onWorkerError( RtspOverallError{ QStringLiteral( "恢复拉流失败！" ), RtspOverallError::Other } );
+	onWorkerError( RtspOverallError{ QStringLiteral( "恢复拉流失败！当前状态:" ) + EnumText::toString( m_currentStatus ), RtspOverallError::Other } );
 	return false;
 }
 
@@ -452,6 +467,14 @@ RtspDataContext RtspStreamController::dataContext() const {
 
 LastestFrameStore RtspStreamController::lastestFrameStore() const {
 	return m_lastestFrameStore;
+}
+
+int RtspStreamController::frameRevision() const {
+	return m_frameRevision;
+}
+
+QString RtspStreamController::statusText() const {
+	return EnumText::toString(m_currentStatus);
 }
 
 // 配置变更防抖到期：只重启流

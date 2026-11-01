@@ -5,6 +5,7 @@
 #include <QImage>
 #include <QMetaType>
 #include <optional>
+#include <QMetaEnum>
 
 // 统一状态：
 /*
@@ -28,7 +29,6 @@ public:
 	Q_ENUM( Status )
 };
 using RtspStatus = RtspOverallStatus::Status;
-
 // 统一错误类型
 struct RtspOverallError {
 	Q_GADGET
@@ -106,7 +106,7 @@ public:
 	bool autoReconnect{ false }; // 是否自动重连
 
 	// 判断是否相等
-	bool operator == (const RtspConfig& other) const {
+	bool operator == ( const RtspConfig& other ) const {
 		return username == other.username
 			&& password == other.password
 			&& url == other.url
@@ -185,18 +185,18 @@ public:
 // RTSP拉流过程中的统计信息
 struct RtspStreamStatus {
 	Q_GADGET
-	Q_PROPERTY( quint64 receivedPacketCount MEMBER receivedPacketCount )
-	Q_PROPERTY( quint64 videoPacketCount MEMBER videoPacketCount )
-	Q_PROPERTY( quint64 decodedFrameCount MEMBER decodedFrameCount )
-	Q_PROPERTY( quint64 displayedFrameCount MEMBER displayedFrameCount )
-	Q_PROPERTY( quint64 droppedFrameCount MEMBER droppedFrameCount )
-	Q_PROPERTY( double decodeFps MEMBER decodeFps )
-	Q_PROPERTY( double displayFps MEMBER displayFps )
-	Q_PROPERTY( qint64 lastPts MEMBER lastPts )
-	Q_PROPERTY( quint64 lastReadTime MEMBER lastReadTime )
-	Q_PROPERTY( quint64 decodeErrorCount MEMBER decodeErrorCount )
-	Q_PROPERTY( int reconnectCount MEMBER reconnectCount )
-	Q_PROPERTY( RtspStatus currentStatus MEMBER currentStatus )
+		Q_PROPERTY( quint64 receivedPacketCount MEMBER receivedPacketCount )
+		Q_PROPERTY( quint64 videoPacketCount MEMBER videoPacketCount )
+		Q_PROPERTY( quint64 decodedFrameCount MEMBER decodedFrameCount )
+		Q_PROPERTY( quint64 displayedFrameCount MEMBER displayedFrameCount )
+		Q_PROPERTY( quint64 droppedFrameCount MEMBER droppedFrameCount )
+		Q_PROPERTY( double decodeFps MEMBER decodeFps )
+		Q_PROPERTY( double displayFps MEMBER displayFps )
+		Q_PROPERTY( qint64 lastPts MEMBER lastPts )
+		Q_PROPERTY( quint64 lastReadTime MEMBER lastReadTime )
+		Q_PROPERTY( quint64 decodeErrorCount MEMBER decodeErrorCount )
+		Q_PROPERTY( int reconnectCount MEMBER reconnectCount )
+		Q_PROPERTY( RtspStatus currentStatus MEMBER currentStatus )
 public:
 	quint64 receivedPacketCount{ 0 }; // 收到的packet数（包含非视频包）
 	quint64 videoPacketCount{ 0 }; // 视频packet数
@@ -217,3 +217,22 @@ Q_DECLARE_METATYPE( RtspStatus )
 Q_DECLARE_METATYPE( RtspOverallError )
 Q_DECLARE_METATYPE( LastestFrameStore )
 Q_DECLARE_METATYPE( RtspStreamStatus )
+
+// 枚举信息转文本字符串
+namespace EnumText {
+	// 获取 RtspStatus 的字符串表示
+	inline QString toString( RtspStatus status ) {
+		const QMetaEnum metaEnum = QMetaEnum::fromType<RtspStatus>();
+		const char* key = metaEnum.valueToKey( static_cast<int>( status ) );
+		return key ? QString::fromLatin1( key )
+			: QStringLiteral( "Unknown(%1)" ).arg( static_cast<int>( status ) );
+	}
+
+	// 获取 RtspOverallError::ErrorCode 的字符串表示
+	inline QString toString( RtspOverallError::ErrorCode code ) {
+		const QMetaEnum metaEnum = QMetaEnum::fromType<RtspOverallError::ErrorCode>();
+		const char* key = metaEnum.valueToKey( static_cast<int>( code ) );
+		return key ? QString::fromLatin1( key )
+			: QStringLiteral( "Unknown(%1)" ).arg( static_cast<int>( code ) );
+	}
+}
