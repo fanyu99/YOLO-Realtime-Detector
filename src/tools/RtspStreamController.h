@@ -33,17 +33,30 @@ Worker(解码线程) --StatusChanged/ErrorOccurred/Finished--> Controller(缓存
 
 配置防抖策略：
 需要间隔一定时间才会应用新的流配置进行重启
-	
+
 	*/
 class RtspStreamController : public QObject {
 	Q_OBJECT
+		QML_ELEMENT
 
 public:
 	using Status = RtspStatus;
 
 public:
 
-	using ThreadPtr = std::unique_ptr<QThread>;
+	// 当前的重连失败原因
+	enum class ReconnectEndReason {
+		None,          // 无
+		NoRetryable,  // 不可重连的错误
+		OverLimit,      // 超过最大重连次数
+		CanceledByUser, // 用户主动关闭自动重连
+		AutoReconnectClosed, // 自动重连已经关闭
+		Unknown          // 未知原因
+
+	};
+	Q_ENUM( ReconnectEndReason )
+
+		using ThreadPtr = std::unique_ptr<QThread>;
 	using WorkerPtr = std::unique_ptr<RtspDecodeWorker>;
 	explicit RtspStreamController( QObject* parent = nullptr );
 	explicit RtspStreamController( const RtspConfig& config, QObject* parent = nullptr );
@@ -66,7 +79,7 @@ public:
 	Q_INVOKABLE void stop();
 	// 暂停/恢复拉流
 	Q_INVOKABLE void pause();
-	Q_INVOKABLE	bool restart();
+	Q_INVOKABLE	bool resume();
 	// 获取当前的状态
 	RtspStatus currentStatus() const;
 	// 获取当前的错误
@@ -102,7 +115,7 @@ signals:
 	void DataContextChanged( const RtspDataContext& newInfo );
 	void Reconnecting();  // 进入了一次重连等待
 	void ReconnectAttempt( int attempt, int maxAttempts ); // 第 attempt 次重连
-	void ReconnectFailed( int attempts, const RtspOverallError& lastError ); // 重连彻底失败，终态
+	void ReconnectFailed( int attempts, const RtspOverallError& lastError, ReconnectEndReason reason ); // 重连彻底失败，终态(传递错误和结束原因)
 	void ErrorOccurred( const RtspOverallError& error );
 	void RtspUrlChanged();
 	void InputConfigChanged();
@@ -122,6 +135,7 @@ private:
 		Failed         // 重连彻底失败（终态）
 	};
 
+
 	// 懒加载创建 worker 与线程（只创建一次）
 	void ensureWorkerCreated();
 	// 启动一次解码任务（重置计数、投递 startDecoding 到解码线程）
@@ -129,7 +143,7 @@ private:
 	// 安排一次带退避的重连
 	void scheduleRetry();
 	// 放弃重连，进入终态并通知 QML
-	void giveUp();
+	void giveUp( ReconnectEndReason reason );
 	// 配置变更间隔结束，进行重启：流参数(URL/配置等)变了才重启
 	void onRestartTimeout();
 	// 统一写状态并发通知

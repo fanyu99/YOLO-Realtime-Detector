@@ -24,7 +24,7 @@ RtspStreamController::RtspStreamController( QObject* parent )
 	m_restartTimer.setInterval( 150 );
 	connect( &m_restartTimer, &QTimer::timeout, this, &RtspStreamController::onRestartTimeout );
 
-	
+
 }
 
 RtspStreamController::RtspStreamController( const RtspConfig& config, QObject* parent )
@@ -67,9 +67,9 @@ void RtspStreamController::ensureWorkerCreated() {
 			emit FrameUpdated( newFrame );
 			} );
 		// 流信息更新：缓存新流信息并通知QML进行更新
-		connect(m_worker.get(), &RtspDecodeWorker::DataContextChanged, this, [ this ]( const RtspDataContext& context ) {
+		connect( m_worker.get(), &RtspDecodeWorker::DataContextChanged, this, [ this ]( const RtspDataContext& context ) {
 			m_dataContext = context;
-			emit DataContextChanged(m_dataContext);
+			emit DataContextChanged( m_dataContext );
 			} );
 		// 统计信息更新：缓存Worker上报的计数与帧率，状态和重连次数由Controller填写
 		connect( m_worker.get(), &RtspDecodeWorker::StreamStatusChanged, this, [ this ]( const RtspStreamStatus& status ) {
@@ -97,7 +97,7 @@ void RtspStreamController::launchWorker() {
 	setStatus( RtspStatus::Opening );
 
 	// 先应用配置，再启动
-	const RtspConfig config = m_inputConfig; 
+	const RtspConfig config = m_inputConfig;
 	QMetaObject::invokeMethod( m_worker.get(), [ worker = m_worker.get(), config ] {
 		worker->setRtspConfig( config );
 		}, Qt::QueuedConnection );
@@ -113,7 +113,7 @@ bool RtspStreamController::isRetryable( RtspOverallError::ErrorCode code ) {
 	case RtspOverallError::ConnectionFailed:
 	case RtspOverallError::ReadTimeout:
 	case RtspOverallError::StreamFailed:
-	case RtspOverallError::Other:              
+	case RtspOverallError::Other:
 		return true;
 		// 配置/URL等错误，不重连
 	default:
@@ -134,8 +134,9 @@ int RtspStreamController::backoffMs( int attempt ) {
 // 如果超过最大次数，放弃重连
 // 否则等待重连，更新退避计时和重连次数
 void RtspStreamController::scheduleRetry() {
+	// 重连超限
 	if (m_retryCount >= m_inputConfig.maxReconnect) {
-		giveUp();
+		giveUp( ReconnectEndReason::OverLimit );
 		return;
 	}
 	++m_retryCount;
@@ -156,15 +157,30 @@ void RtspStreamController::onRetryTimeout() {
 	launchWorker();
 }
 
-// 重连超限，放弃重连
-// 再进行转发最后的错误
-void RtspStreamController::giveUp() {
+// 重连出现问题，放弃重连
+// 再进行转发最后的错误以及结束原因
+void RtspStreamController::giveUp( ReconnectEndReason reason ) {
 	m_phase = RetryProgress::Failed;
 	m_retryTimer.stop();
-	m_currentError = RtspOverallError( QStringLiteral( "重连失败：已超过最大重连次数" ),
-		RtspOverallError::ReconnectFailed );
+	auto reasonStr = [ reason ]() {
+		switch (reason) {
+		case ReconnectEndReason::None:
+			return QStringLiteral( "无" );
+		case ReconnectEndReason::NoRetryable:
+			return QStringLiteral( "不可重连的错误" );
+		case ReconnectEndReason::OverLimit:
+			return QStringLiteral( "超过最大重连次数" );
+		case ReconnectEndReason::CanceledByUser:
+			return QStringLiteral( "用户主动关闭自动重连" );
+		case ReconnectEndReason::AutoReconnectClosed:
+			return QStringLiteral( "未开启自动重连" );
+		default:
+			return QStringLiteral( "未知原因" );
+		}
+		};
+	m_currentError = RtspOverallError( QStringLiteral( "%1 %2" ).arg( reasonStr(), m_currentError.errorMessage ), RtspOverallError::ReconnectFailed );
 	setStatus( RtspStatus::Error );
-	emit ReconnectFailed( m_retryCount, m_currentError );
+	emit ReconnectFailed( m_retryCount, m_currentError, reason );
 	emit ErrorOccurred( m_currentError );
 }
 
@@ -222,16 +238,23 @@ void RtspStreamController::onWorkerFinished( bool clean, const RtspOverallError&
 		return;
 	}
 	// 出错：判断是否重连
-	if (!m_inputConfig.autoReconnect || !isRetryable( error.errorCode )) {
+	if (!m_inputConfig.autoReconnect) {  // 1.没有开启自动关闭
 		m_currentError = error;
-		giveUp();
+		giveUp( ReconnectEndReason::AutoReconnectClosed );
 		return;
 	}
+	if (!isRetryable( error.errorCode )) { // 2.不可重连的错误，直接进入终态
+		m_currentError = error;
+		giveUp( ReconnectEndReason::NoRetryable );
+		return;
+	}
+	// 能够重连，安排一次重连
 	scheduleRetry();
 }
 
 // ===== 对外接口 =====
 
+// 开始拉流
 bool RtspStreamController::start() {
 	if (m_phase == RetryProgress::Streaming || m_phase == RetryProgress::WaitingRetry) {
 		return true; // 已在拉流 / 等待重连
@@ -241,13 +264,16 @@ bool RtspStreamController::start() {
 		return false;
 	}
 
+	// 复位状态信息
+
 	m_currentError = RtspOverallError{};
 	m_retryCount = 0;
 	m_streamStatus.reconnectCount = 0;
 	m_pendingRestart = false;
-	
-	emit RetryCountChanged();
 
+
+	emit RetryCountChanged();
+	emit ErrorOccurred( m_currentError ); // 通知刷新错误信息为空
 	// 启动Worker
 	launchWorker();
 
@@ -257,15 +283,17 @@ bool RtspStreamController::start() {
 // 主动停止
 void RtspStreamController::stop() {
 	const bool wasWaitingRetry = (m_phase == RetryProgress::WaitingRetry);
+	const bool retryFailed = (m_phase == RetryProgress::Failed);
 
 	m_retryTimer.stop();
 	m_pendingRestart = false;
 	m_phase = RetryProgress::Idle;
 
 	if (m_worker && m_worker->isRunning()) {
+		setStatus( RtspStatus::Stopping );
 		m_worker->requestStop(); // 直接调用而不是采用信号机制，避免阻塞
 	}
-	else if (wasWaitingRetry || !m_worker) {
+	else if (wasWaitingRetry || !m_worker || retryFailed) {
 		setStatus( RtspStatus::Stopped );
 	}
 }
@@ -279,8 +307,8 @@ void RtspStreamController::pause() {
 }
 
 // 恢复取流
-bool RtspStreamController::restart() {
-	if (m_worker && m_currentStatus == RtspStatus::Paused ) {
+bool RtspStreamController::resume() {
+	if (m_worker && m_currentStatus == RtspStatus::Paused) {
 		// 直接内联调用，避免队列调用在解码线程阻塞
 		m_worker->resumeDecoding();
 		return true;
@@ -340,13 +368,10 @@ void RtspStreamController::setAutoReconnect( bool autoReconnect ) {
 	if (m_inputConfig.autoReconnect == autoReconnect)
 		return;
 	m_inputConfig.autoReconnect = autoReconnect;
-	if (!autoReconnect)   // 如果自动重连关闭，取消正在等待的重连进度
+	if (!autoReconnect && m_phase == RetryProgress::WaitingRetry)   // 如果自动重连关闭，取消正在等待的重连进度
 	{
-		if (m_phase == RetryProgress::WaitingRetry) {
-			m_retryTimer.stop();
-			m_phase = RetryProgress::Failed;
-			setStatus( RtspStatus::Error );
-		}
+		// 如果正在等待重连，直接放弃重连，进入终态
+		giveUp( ReconnectEndReason::CanceledByUser );
 	}
 	emit AutoReconnectChanged();
 }
@@ -395,22 +420,30 @@ RtspConfig RtspStreamController::inputConfig() const {
 }
 
 void RtspStreamController::setInputConfig( const RtspConfig& config ) {
-	const bool streamChanged = (config.url != m_inputConfig.url
-		|| config.username != m_inputConfig.username
-		|| config.password != m_inputConfig.password
-		|| config.connectTimeoutMs != m_inputConfig.connectTimeoutMs
-		|| config.readTimeoutMs != m_inputConfig.readTimeoutMs);
-	const bool policyChanged = (config.autoReconnect != m_inputConfig.autoReconnect
-		|| config.maxReconnect != m_inputConfig.maxReconnect);
-
-	m_inputConfig = config;
-	m_rtspUrl = config.url;
-	emit InputConfigChanged();
-
-	if (policyChanged)
+	const bool urlChanged = (config.url != m_inputConfig.url);
+	const bool streamChanged = m_inputConfig.isStreamConfigEqual( config ) == false;
+	const bool autoReconnectChanged = (config.autoReconnect != m_inputConfig.autoReconnect);
+	const bool maxReconnectChanged = (config.maxReconnect != m_inputConfig.maxReconnect);
+	if (urlChanged || streamChanged || autoReconnectChanged || maxReconnectChanged)
+	{
+		m_inputConfig = config;
+		m_rtspUrl = config.url;
+	}
+	// 只有变更时才发送信号
+	if (urlChanged)
+		emit RtspUrlChanged();
+	if (streamChanged || maxReconnectChanged || autoReconnectChanged)
+		emit InputConfigChanged();
+	// 自动重连变更才进行更改和发送信号
+	if (autoReconnectChanged || maxReconnectChanged) {
+		// 关闭自动重连，停掉重连
+		if (autoReconnectChanged && !config.autoReconnect && m_phase == RetryProgress::WaitingRetry)
+			giveUp( ReconnectEndReason::CanceledByUser );
 		emit AutoReconnectChanged();
+	}
+
 	if (streamChanged)	  // 流更改，需要重新启动拉流
-		m_restartTimer.start(); 
+		m_restartTimer.start();
 }
 
 RtspDataContext RtspStreamController::dataContext() const {
@@ -434,6 +467,8 @@ void RtspStreamController::onRestartTimeout() {
 	}
 	// 正在拉流：标记待重启并请求停止，等 worker 退出后由 onWorkerFinished 重启
 	m_pendingRestart = true;
-	if (m_worker)
+	if (m_worker) {
+		setStatus( RtspStatus::Stopping );
 		m_worker->requestStop();
+	}
 }

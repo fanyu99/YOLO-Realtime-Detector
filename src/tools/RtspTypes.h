@@ -104,6 +104,25 @@ public:
 	int readTimeoutMs{ DEFAULT_RTSP_READ_TIMEOUT_MS }; // 读取超时时间（毫秒）
 
 	bool autoReconnect{ false }; // 是否自动重连
+
+	// 判断是否相等
+	bool operator == (const RtspConfig& other) const {
+		return username == other.username
+			&& password == other.password
+			&& url == other.url
+			&& maxReconnect == other.maxReconnect
+			&& connectTimeoutMs == other.connectTimeoutMs
+			&& readTimeoutMs == other.readTimeoutMs
+			&& autoReconnect == other.autoReconnect;
+	}
+	// 判断是否流配置相等
+	bool isStreamConfigEqual( const RtspConfig& other ) const {
+		return url == other.url
+			&& username == other.username
+			&& password == other.password
+			&& connectTimeoutMs == other.connectTimeoutMs
+			&& readTimeoutMs == other.readTimeoutMs;
+	}
 	// 判断配置是否有效
 	bool isValid()const {
 		return !url.isEmpty() && url.isValid() && !url.scheme().isEmpty()

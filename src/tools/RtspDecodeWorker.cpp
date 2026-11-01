@@ -357,7 +357,7 @@ void RtspDecodeWorker::recordStreamInfo( const AVStream* stream, const AVCodec* 
 		emit DataContextChanged( m_dataContext );
 	else
 	{
-		reportError(RtspOverallError(QStringLiteral("读取的流信息无效!"),RtspOverallError::Other));
+		reportError( RtspOverallError( QStringLiteral( "读取的流信息无效!" ), RtspOverallError::Other ) );
 		m_dataContext.reset();
 	}
 }
@@ -435,7 +435,7 @@ bool RtspDecodeWorker::readAndDecodeLoop() {
 		if (sendRet == AVERROR( EAGAIN )) {
 			// 解码器输入队列满
 			// 先把输出帧收完（receive），再重发同一个 packet
-			if (!receiveFrames(readTimeUs)) {
+			if (!receiveFrames( readTimeUs )) {
 				av_packet_unref( m_packet.get() );
 				failed = true;
 				break;
@@ -591,8 +591,8 @@ void RtspDecodeWorker::reportStreamStatus() {
 
 	const quint64 decodedDelta = m_streamStatus.decodedFrameCount - m_lastStatusDecodedFrames;
 	const quint64 displayedDelta = m_streamStatus.displayedFrameCount - m_lastStatusDisplayedFrames;
-	m_streamStatus.decodeFps = decodedDelta * 1000.0 / static_cast<double>(elapsedMs);
-	m_streamStatus.displayFps = displayedDelta * 1000.0 / static_cast<double>(elapsedMs);
+	m_streamStatus.decodeFps = decodedDelta * 1000.0 / static_cast<double>( elapsedMs );
+	m_streamStatus.displayFps = displayedDelta * 1000.0 / static_cast<double>( elapsedMs );
 	m_lastStatusDecodedFrames = m_streamStatus.decodedFrameCount;
 	m_lastStatusDisplayedFrames = m_streamStatus.displayedFrameCount;
 	m_statusClock.restart();
