@@ -2,6 +2,11 @@
 
 #include <cmath>
 
+namespace {
+	// 统计信息的上报间隔(ms)
+	constexpr qint64 STATUS_REPORT_INTERVAL_MS = 1000;
+}
+
 // ===== RtspDecodeWorker =====
 RtspDecodeWorker::RtspDecodeWorker( QObject* parent )
 	: QObject( parent )
@@ -9,31 +14,28 @@ RtspDecodeWorker::RtspDecodeWorker( QObject* parent )
 	qRegisterMetaType<RtspStatus>( "RtspStatus" );
 	qRegisterMetaType<RtspOverallError>( "RtspOverallError" );
 	qRegisterMetaType<LastestFrameStore>( "LastestFrameStore" );
+	qRegisterMetaType<RtspStreamStatus>( "RtspStreamStatus" );
 }
 
 RtspDecodeWorker::RtspDecodeWorker( const RtspConfig& config, QObject* parent )
-	: QObject( parent )
-	, m_config( config )
-	, m_rtspUrl( config.url )
+	: RtspDecodeWorker( parent )
 {
-	qRegisterMetaType<RtspStatus>( "RtspStatus" );
-	qRegisterMetaType<RtspOverallError>( "RtspOverallError" );
-	qRegisterMetaType<LastestFrameStore>( "LastestFrameStore" );
+	m_config = config;
+	m_rtspUrl = config.url;
 }
 
 RtspDecodeWorker::~RtspDecodeWorker() {
 	this->reset();
 }
 
-// 统一上报错误：发送 errorOccurred + statusChanged(Error)，
-//  controller 连接两处信号同步错误和状态
+// 统一上报错误：只发 errorOccurred 并记录最后一次错误，
 void RtspDecodeWorker::reportError( const RtspOverallError& error ) {
-	emit errorOccurred( error );
-	emit statusChanged( RtspStatus::Error );
+	m_lastError = error;
+	emit ErrorOccurred( error );
 }
 
 // 清理所有资源
-// 顺序：先释放只属于解码过程的 frame/packet，再释放解码器，最后关闭输入。
+// 顺序：先释放只属于解码过程的 frame/packet，再释放解码器，最后关闭输入
 void RtspDecodeWorker::releaseResources() {
 	if (m_swsContext) {
 		sws_freeContext( m_swsContext );
@@ -64,8 +66,9 @@ void RtspDecodeWorker::setRtspUrl( const QString& url ) {
 QUrl RtspDecodeWorker::getRtspUrl() const {
 	return m_rtspUrl;
 }
-// 设置RTSP配置
+// 设置RTSP配置(仅在未解码时可用，正在解码触发错误，不静默更新)
 // 无效由解码时进行发出错误
+// 设置后会使用新配置启动解码
 void RtspDecodeWorker::setRtspConfig( const RtspConfig& config ) {
 	m_config = config;
 	m_rtspUrl = config.url;
@@ -74,76 +77,99 @@ void RtspDecodeWorker::setRtspConfig( const RtspConfig& config ) {
 void RtspDecodeWorker::setRtspDataContext( const RtspDataContext& context ) {
 	m_dataContext = context;
 }
-// 获取数据上下文
-RtspDataContext RtspDecodeWorker::getRtspDataContext() const {
-	return m_dataContext;
-}
 
-// 检查是否正在解码
+// 检查是否正在工作（只要不停止就为true）
 bool RtspDecodeWorker::isRunning() const {
 	return m_running.load( std::memory_order_relaxed );
 }
 
-// 检查是否其他线程请求了停止
+// 检查是否其他线程请求了停止 / 中断上下文的stop是否true
 bool RtspDecodeWorker::isStopRequested() const {
 	return m_stopRequested.load( std::memory_order_relaxed )
-		|| m_interruptContext.abort.load( std::memory_order_relaxed );
+		|| m_interruptContext.stop.load( std::memory_order_relaxed );
 }
 
-// 线程安全：只写原子变量，不碰 Qt 对象和 FFmpeg 对象。
-// 必须在 GUI/控制线程里直接调用（或 Qt::DirectConnection），
-// 否则 queued 调用会一直排在正在阻塞的解码线程的事件队列里。
+// 请求停止
+// 必须在 GUI/控制线程里直接调用（或 Qt::DirectConnection）
+// 每轮的读取循环readAndDecodeLoop()中 / 接收一帧receiveFrames中进行检查是否停止，停止直接退出循环
 void RtspDecodeWorker::requestStop() {
-	m_stopRequested.store( true, std::memory_order_relaxed );
-	m_interruptContext.abort.store( true, std::memory_order_relaxed );
+	{
+		std::lock_guard<std::mutex> lock( m_pauseMutex );
+		m_stopRequested.store( true, std::memory_order_relaxed );
+		m_interruptContext.stop.store( true, std::memory_order_relaxed );
+	}
+	m_pauseCV.notify_all(); // 唤醒阻塞进程，防止因为中断而不能够进行停止
+}
+
+// 检查是否其他线程请求了中断 / 中断上下文的pause是否为true
+bool RtspDecodeWorker::isPaused()const {
+	return m_interruptContext.pause.load( std::memory_order_relaxed );
 }
 
 // 开始解码
+// 一次调用即一次会话：open -> 解码循环 -> 释放资源 -> finished(...)
 void RtspDecodeWorker::startDecoding() {
 	// 校验是否正在解码中，如果是则直接返回错误
 	// 防止重复 start 在同一对象上并发执行
 	bool expected = false;
 	if (!m_running.compare_exchange_strong( expected, true, std::memory_order_acq_rel )) {
-		reportError( RtspOverallError( QStringLiteral( "解码已在运行" ), RtspOverallError::InvalidConfig ) );
+		reportError( RtspOverallError( QStringLiteral( "解码已在运行" ), RtspOverallError::AlreadyRunning ) );
 		return;
 	}
-
-	// 每次启动都重置停止标志；否则上一次 stop 的 abort 会让这次立即退出
+	// 复位所有标志位
+	// 每次启动都重置中断/停止标志
+	// 否则上一次pause / stop 的 pause / stop会让这次立即退出
 	m_stopRequested.store( false, std::memory_order_relaxed );
-	m_interruptContext.abort.store( false, std::memory_order_relaxed );
+	m_interruptContext.pause.store( false, std::memory_order_relaxed );
+	m_interruptContext.stop.store( false, std::memory_order_relaxed );
 	m_decodedFrameIndex = 0;
+	m_lastError = RtspOverallError{};
+	// 复位本次会话的统计信息
+	m_streamStatus = RtspStreamStatus{};
+	m_lastStatusDecodedFrames = 0;
+	m_lastStatusDisplayedFrames = 0;
+	m_lastReadTimeUs = 0;
+	m_statusClock.start();
+
+	// 执行统一结束：无论成功、失败还是被停止，最后都发一次 finished 并复位 m_running
+	// 如果clean为true,设置无错误；clean为false,设置最后一次错误
+	const auto finish = [ this ]( bool clean ) {
+		releaseResources();	   // 清理资源
+		// 复位并发出结束信号（错误信息在错误信号发出时就保存在m_lastError）
+		m_running.store( false, std::memory_order_relaxed );
+		emit Finished( clean && m_lastError.errorCode == RtspOverallError::NoError, m_lastError );
+		};
 
 	// 校验URL
 	if (m_rtspUrl.isEmpty() || !m_rtspUrl.isValid() || m_rtspUrl.scheme().isEmpty()) {
 		reportError( RtspOverallError::InvalidUrlError( QStringLiteral( "无效的URL: " ) + m_rtspUrl.toString() ) );
-		m_running.store( false, std::memory_order_relaxed );
+		finish( false );
 		return;
 	}
 	// 校验配置
 	if (!m_config.isValid()) {
 		reportError( RtspOverallError::InvalidConfigError( QStringLiteral( "无效配置" ) ) );
-		m_running.store( false, std::memory_order_relaxed );
+		finish( false );
 		return;
 	}
+
 	// 初始化网络模块（只初始化一次）
 	static std::once_flag networkInitOnce;
 	std::call_once( networkInitOnce, [ ] {
 		avformat_network_init(); // 初始化网络模块
 		} );
-
-	emit statusChanged( RtspStatus::Opening );
+	// 设置为打开状态
+	emit StatusChanged( RtspStatus::Opening );
 	// 打开输入并初始化解码器，进入读取和解码循环
 	const bool ok = openInput() && initDecoder() && readAndDecodeLoop();
-	Q_UNUSED( ok );
 
-	// 统一释放所有资源
-	releaseResources();
-	m_running.store( false, std::memory_order_relaxed );
-	// 解码循环退出（正常 EOF / 被请求停止 / 失败已另行上报 Error）后，回到 Stopped
-	emit statusChanged( RtspStatus::Stopped );
+	// 真正的错误通过reportError发送并缓存在m_lastError中
+	const bool clean = ok || isStopRequested() || m_lastError.errorCode == RtspOverallError::NoError;
+	finish( clean );
 }
 
 // 打开输入并初始化
+// 设置回调函数和超时时间等
 bool RtspDecodeWorker::openInput() {
 	// 如果 URL 里没有用户名/密码，而配置里提供了，则补进去
 	QUrl openUrl = m_rtspUrl;
@@ -210,7 +236,7 @@ bool RtspDecodeWorker::openInput() {
 	m_interruptContext.timeoutMs = m_config.readTimeoutMs;
 	m_interruptContext.restart();
 
-	// 3.查找视频流
+	// 3.查找流信息并记录到上下文
 	const int infoRet = avformat_find_stream_info( m_formatContext.get(), nullptr );
 	if (infoRet < 0) {
 		if (isStopRequested())
@@ -227,7 +253,7 @@ bool RtspDecodeWorker::openInput() {
 	}
 
 	// 输入已打开且流信息可用，上报 Opened
-	emit statusChanged( RtspStatus::Opened );
+	emit StatusChanged( RtspStatus::Opened );
 	return true;
 }
 
@@ -250,7 +276,6 @@ bool RtspDecodeWorker::initDecoder() {
 	}
 
 	// 5.根据视频流创建解码器上下文
-	// 分配后立刻交给 unique_ptr，避免后续任何失败分支泄漏
 	m_codecContext.reset( avcodec_alloc_context3( codec ) );
 	if (!m_codecContext) {
 		reportError( RtspOverallError( QStringLiteral( "无法创建解码器上下文" ), RtspOverallError::Other ) );
@@ -259,13 +284,13 @@ bool RtspDecodeWorker::initDecoder() {
 
 	// 6.获取视频流
 	AVStream* stream = m_formatContext->streams[m_videoStreamIndex];
-	if (const int ret = avcodec_parameters_to_context( m_codecContext.get(), stream->codecpar ); ret < 0) {
+	if (int ret = avcodec_parameters_to_context( m_codecContext.get(), stream->codecpar ); ret < 0) {
 		reportError( RtspOverallError( QStringLiteral( "无法初始化解码器上下文: " ) + Decode::ffmpegError( ret ), RtspOverallError::Other ) );
 		return false;
 	}
 
 	// 开启解码器
-	if (const int ret = avcodec_open2( m_codecContext.get(), codec, nullptr ); ret < 0) {
+	if (int ret = avcodec_open2( m_codecContext.get(), codec, nullptr ); ret < 0) {
 		reportError( RtspOverallError( QStringLiteral( "无法打开解码器: " ) + Decode::ffmpegError( ret ), RtspOverallError::Other ) );
 		return false;
 	}
@@ -301,7 +326,7 @@ void RtspDecodeWorker::recordStreamInfo( const AVStream* stream, const AVCodec* 
 		m_dataContext.formatName = text( m_formatContext->iformat->long_name, m_dataContext.containerFormat );
 	}
 	m_dataContext.codecName = text( codec ? codec->name : nullptr, QStringLiteral( "unknown" ) );
-
+	// 获取流参数：像素格式、颜色空间、分辨率、帧率、timebase等
 	const AVCodecParameters* params = stream->codecpar;
 	AVPixelFormat pixelFormat = m_codecContext ? m_codecContext->pix_fmt : AV_PIX_FMT_NONE;
 	if (pixelFormat == AV_PIX_FMT_NONE && params)
@@ -327,6 +352,14 @@ void RtspDecodeWorker::recordStreamInfo( const AVStream* stream, const AVCodec* 
 	if (!std::isfinite( fps ) || fps <= 0.0)
 		fps = 0.0;
 	m_dataContext.fps = static_cast<int>(std::lround( fps ));
+	// 发送更改信号通知controller更新流信息
+	if (m_dataContext.isValid())
+		emit DataContextChanged( m_dataContext );
+	else
+	{
+		reportError( RtspOverallError( QStringLiteral( "读取的流信息无效!" ), RtspOverallError::Other ) );
+		m_dataContext.reset();
+	}
 }
 
 // 读取并解码循环(工作线程进行调用)
@@ -336,29 +369,61 @@ bool RtspDecodeWorker::readAndDecodeLoop() {
 
 	// 开始解码循环
 	while (!isStopRequested()) {
-		// 每次读取前重置超时计时，超时约束的是“单次阻塞读”，而不是整个会话
+		// 首先检查是否为中断,终端将会使用条件变量进行阻塞
+		if (isPaused()) {
+			std::unique_lock<std::mutex> lock( m_pauseMutex );
+			// 阻塞直到恢复/会话停止，会话停止不能被中断阻塞
+			m_pauseCV.wait( lock, [ this ]
+				{ return !isPaused() || isStopRequested(); } );
+			continue;   // 重新跳到顶部判断是不是停止
+		}
+		// 每次读取前重置超时计时
 		m_interruptContext.restart();
+
 		// 读取Packet压缩包
-		const int readRet = av_read_frame( m_formatContext.get(), m_packet.get() );
+		int readRet = av_read_frame( m_formatContext.get(), m_packet.get() );
+		quint64 readTimeUs = av_gettime(); // 记录读取压缩包的时间(us)
+
+		// 出现错误
+		// 检查顺序：1.EOF 2. 停止请求 3. 中断请求 4. 超时 5. 其他错误
 		if (readRet < 0) {
 			if (readRet == AVERROR_EOF) {
 				cleanEof = true;
+				break;
 			}
+			// 如果是因为停止返回：
+			// 停止请求通过 interrupt_callback 让 av_read_frame 返回 AVERROR_EXIT,这时候直接退出循环
 			else if (isStopRequested()) {
-				// 停止请求通过 interrupt_callback 让 av_read_frame 返回 AVERROR_EXIT
+				break;
 			}
-			// 如果超时返回，av_read_frame 会返回 AVERROR_EXIT，表示中断回调触发了退出
+			// 如果是因为中断返回:
+			// 跳到顶部的条件变量阻塞
+			else if (isPaused()) {
+				continue;
+			}
+			// 如果超时返回，av_read_frame 也会返回 AVERROR_EXIT
 			else if (readRet == AVERROR_EXIT) {
 				reportError( RtspOverallError::ReadTimeoutError(
 					QStringLiteral( "读取数据包超时" ) ) );
 				failed = true;
 			}
+			// 其他错误
 			else {
 				reportError( RtspOverallError( QStringLiteral( "读取数据包失败: " ) + Decode::ffmpegError( readRet ), RtspOverallError::Other ) );
 				failed = true;
 			}
 			break;
 		}
+
+		// 记录读取统计
+		// 收到的packet计数
+		++m_streamStatus.receivedPacketCount;
+		m_lastReadTimeUs = readTimeUs;
+		if (m_packet->stream_index == m_videoStreamIndex) {	   // 收到的是视频包，计数
+			++m_streamStatus.videoPacketCount;
+			m_streamStatus.lastReadTime = readTimeUs;
+		}
+		reportStreamStatus();
 
 		// 非视频 packet 必须及时 unref，不能继续往下送进视频解码器
 		if (m_packet->stream_index != m_videoStreamIndex) {
@@ -367,10 +432,10 @@ bool RtspDecodeWorker::readAndDecodeLoop() {
 		}
 		// 发送给解码器进行解码
 		int sendRet = avcodec_send_packet( m_codecContext.get(), m_packet.get() );
-		if (sendRet == AVERROR(EAGAIN)) {
+		if (sendRet == AVERROR( EAGAIN )) {
 			// 解码器输入队列满
 			// 先把输出帧收完（receive），再重发同一个 packet
-			if (!receiveFrames()) {
+			if (!receiveFrames( readTimeUs )) {
 				av_packet_unref( m_packet.get() );
 				failed = true;
 				break;
@@ -381,50 +446,57 @@ bool RtspDecodeWorker::readAndDecodeLoop() {
 		av_packet_unref( m_packet.get() );	// 释放计数
 		// 出现错误，返回错误
 		if (sendRet < 0 && sendRet != AVERROR_EOF) {
+			++m_streamStatus.decodeErrorCount; // 解码错误计数
 			reportError( RtspOverallError( QStringLiteral( "发送数据包失败: " ) + Decode::ffmpegError( sendRet ), RtspOverallError::Other ) );
 			failed = true;
 			break;
 		}
+
 		// 发送后在接收解码器的输出帧
-		if (!receiveFrames()) {
+		if (!receiveFrames( readTimeUs )) {
 			failed = true;
 			break;
 		}
 	}
 
-	// 只有正常 EOF 才需要 flush 解码器内部缓存的帧；主动 stop 时跳过，保证能快速退出
+	// 只有正常 EOF 才需要 flush 解码器内部缓存的帧
 	if (cleanEof && !isStopRequested()) {
 		avcodec_send_packet( m_codecContext.get(), nullptr );
-		receiveFrames();
-		emit streamFinished();
+		receiveFrames( m_lastReadTimeUs );
 	}
 
 	return !failed;
 }
 
-// 循环接收帧
-bool RtspDecodeWorker::receiveFrames() {
+// 循环接收压缩包packet解码后的帧（一个压缩包packet对应一个或多个帧）
+bool RtspDecodeWorker::receiveFrames( quint64 readTime ) {
 	while (true) {
-		// 如果暂停，取消
+		// 如果停止，取消
 		if (isStopRequested())
 			return true;
-		 // 接收帧
+		// 接收帧
 		const int ret = avcodec_receive_frame( m_codecContext.get(), m_frame.get() );
+		quint64 decodedTimeUs = av_gettime(); // 记录解码帧的时间(us)
 		// 如果等待后续的packet或者冲刷完，返回true
-		if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+		if (ret == AVERROR( EAGAIN ) || ret == AVERROR_EOF) {
 			// EAGAIN: 当前 packet 暂时没有更多帧，等下一个 packet
 			// EOF: 解码器已经冲刷完
 			return true;
 		}
 		// 解码失败
 		if (ret < 0) {
+			++m_streamStatus.decodeErrorCount;
 			reportError( RtspOverallError( QStringLiteral( "解码帧失败: " ) + Decode::ffmpegError( ret ), RtspOverallError::Other ) );
 			av_frame_unref( m_frame.get() );
 			return false;
 		}
-
-		emitDecodedFrame();
-		av_frame_unref( m_frame.get() );
+		// 记录解码统计
+		++m_streamStatus.decodedFrameCount;
+		const int64_t pts = m_frame->best_effort_timestamp;
+		m_streamStatus.lastPts = (pts == AV_NOPTS_VALUE) ? -1 : pts;
+		// 发送解码后转换成为QImage的帧frame,发送frameDecoded信号
+		emitDecodedFrame( readTime, decodedTimeUs );
+		av_frame_unref( m_frame.get() ); // 处理完后进行释放引用计数
 	}
 }
 
@@ -435,7 +507,7 @@ QImage RtspDecodeWorker::convertFrame( const AVFrame* frame ) {
 
 	const AVPixelFormat sourceFormat = static_cast<AVPixelFormat>(frame->format);
 	if (sourceFormat == AV_PIX_FMT_NONE) {
-		emit errorOccurred( RtspOverallError( QStringLiteral( "不支持的像素格式" ), RtspOverallError::Other ) );
+		emit ErrorOccurred( RtspOverallError( QStringLiteral( "不支持的像素格式" ), RtspOverallError::Other ) );
 		return {};
 	}
 
@@ -447,14 +519,14 @@ QImage RtspDecodeWorker::convertFrame( const AVFrame* frame ) {
 		frame->width, frame->height, AV_PIX_FMT_RGB32,
 		SWS_BILINEAR, nullptr, nullptr, nullptr );
 	if (!m_swsContext) {
-		emit errorOccurred( RtspOverallError( QStringLiteral( "无法创建像素格式转换上下文" ), RtspOverallError::Other ) );
+		emit ErrorOccurred( RtspOverallError( QStringLiteral( "无法创建像素格式转换上下文" ), RtspOverallError::Other ) );
 		return {};
 	}
 
 	// Format_RGB32 在内存中的布局与 AV_PIX_FMT_RGB32 一致（小端：B,G,R,A）
 	QImage image( frame->width, frame->height, QImage::Format_RGB32 );
 	if (image.isNull()) {
-		emit errorOccurred( RtspOverallError( QStringLiteral( "无法分配QImage" ), RtspOverallError::Other ) );
+		emit ErrorOccurred( RtspOverallError( QStringLiteral( "无法分配QImage" ), RtspOverallError::Other ) );
 		return {};
 	}
 
@@ -466,7 +538,7 @@ QImage RtspDecodeWorker::convertFrame( const AVFrame* frame ) {
 		frame->data, frame->linesize, 0, frame->height,
 		destinationData, destinationLinesize );
 	if (scaled <= 0) {
-		emit errorOccurred( RtspOverallError( QStringLiteral( "像素转换失败" ), RtspOverallError::Other ) );
+		emit ErrorOccurred( RtspOverallError( QStringLiteral( "像素转换失败" ), RtspOverallError::Other ) );
 		return {};
 	}
 
@@ -474,12 +546,13 @@ QImage RtspDecodeWorker::convertFrame( const AVFrame* frame ) {
 }
 
 // 发送解码后的帧（QImage）
-void RtspDecodeWorker::emitDecodedFrame() {
+void RtspDecodeWorker::emitDecodedFrame( quint64 readTime, quint64 decodedTime ) {
 	QImage image = convertFrame( m_frame.get() );
-	if (image.isNull())
+	if (image.isNull()) {
+		++m_streamStatus.droppedFrameCount;
 		return;
+	}
 
-	const quint64 nowMs = static_cast<quint64>(av_gettime_relative() / 1000);
 	// 填写最新帧的信息(帧、索引、pts等)
 	LastestFrameStore store;
 	store.lastestFrame = std::move( image );
@@ -494,15 +567,37 @@ void RtspDecodeWorker::emitDecodedFrame() {
 		store.ptsSeconds = pts * av_q2d( m_formatContext->streams[m_videoStreamIndex]->time_base );
 	}
 
-	// 第一版还没拆出“读取时间/解码时间”，先都填当前单调时钟，后续再细化
-	store.receivedTime = nowMs;
-	store.decodedTime = nowMs;
+	store.readTime = readTime;
+	store.decodedTime = decodedTime;
 
 	// 第一帧成功解码并发出，进入 Playing
 	if (store.frameIndex == 0) {
-		emit statusChanged( RtspStatus::Playing );
+		emit StatusChanged( RtspStatus::Playing );
 	}
-	emit frameDecoded( store );
+	// 发送frameDecoded
+	++m_streamStatus.displayedFrameCount;
+	emit FrameDecoded( store );
+}
+
+// 按固定间隔（1s）汇总并上报统计信息
+void RtspDecodeWorker::reportStreamStatus() {
+	if (!m_statusClock.isValid())
+		m_statusClock.start();
+
+	const qint64 elapsedMs = m_statusClock.elapsed();
+	// 未到上报间隔，不发信号
+	if (elapsedMs < STATUS_REPORT_INTERVAL_MS)
+		return;
+
+	const quint64 decodedDelta = m_streamStatus.decodedFrameCount - m_lastStatusDecodedFrames;
+	const quint64 displayedDelta = m_streamStatus.displayedFrameCount - m_lastStatusDisplayedFrames;
+	m_streamStatus.decodeFps = decodedDelta * 1000.0 / static_cast<double>( elapsedMs );
+	m_streamStatus.displayFps = displayedDelta * 1000.0 / static_cast<double>( elapsedMs );
+	m_lastStatusDecodedFrames = m_streamStatus.decodedFrameCount;
+	m_lastStatusDisplayedFrames = m_streamStatus.displayedFrameCount;
+	m_statusClock.restart();
+
+	emit StreamStatusChanged( m_streamStatus );
 }
 
 // 停止解码
@@ -512,14 +607,20 @@ void RtspDecodeWorker::stopDecoding() {
 
 // 暂停解码
 void RtspDecodeWorker::pauseDecoding() {
-	m_running.store(false,std::memory_order_relaxed);
-	m_interruptContext.abort.store( true, std::memory_order_relaxed );
-	emit statusChanged( RtspStatus::Paused );
+	m_interruptContext.pause.store( true, std::memory_order_relaxed );	// 设置中断，ffmpeg的av_read_frame内部的周期性调用回调函数interrupt_cb(详见Worker::Decode中的中断回调函数)触发中断
+	emit StatusChanged( RtspStatus::Paused );
 }
 
 // 恢复解码
+// 将中断上下文中的pause置为false,阻塞的工作循环会进行定期检查pause是否为true
 void RtspDecodeWorker::resumeDecoding() {
-	m_running.store(true,std::memory_order_relaxed);
-	m_interruptContext.abort.store( false, std::memory_order_relaxed );
-	emit statusChanged( RtspStatus::Playing );
+	// 唤醒者与被唤醒者需要使用同一个锁进行修改标志位谓词，防止丢失唤醒
+	{
+		std::lock_guard<std::mutex> lock( m_pauseMutex );
+		m_interruptContext.pause.store( false, std::memory_order_relaxed );
+	}
+	m_pauseCV.notify_all(); // 唤醒阻塞的readAndDecodeLoop（）循环
+	emit StatusChanged( RtspStatus::Playing );
+
 }
+
