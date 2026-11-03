@@ -124,8 +124,11 @@ void RtspDecodeWorker::startDecoding() {
 	m_interruptContext.stop.store( false, std::memory_order_relaxed );
 	m_decodedFrameIndex = 0;
 	m_lastError = RtspOverallError{};
+	emit ErrorOccurred( m_lastError ); // 通知刷新错误
 	// 复位本次会话的统计信息
 	m_streamStatus = RtspStreamStatus{};
+	// 立即刷新一次统计信息（清空）
+	emit StreamStatusChanged(m_streamStatus);
 	m_lastStatusDecodedFrames = 0;
 	m_lastStatusDisplayedFrames = 0;
 	m_lastReadTimeUs = 0;

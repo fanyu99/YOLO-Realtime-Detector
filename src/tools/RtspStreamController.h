@@ -5,6 +5,7 @@
 #include <QSharedPointer>
 #include <QThread>
 #include <QImage>
+#include <QElapsedTimer>
 #include <QTimer>
 
 #include <memory>
@@ -68,6 +69,8 @@ public:
 		Q_PROPERTY( RtspDataContext dataContext READ dataContext NOTIFY DataContextChanged )
 		Q_PROPERTY( RtspOverallError currentError READ currentError NOTIFY ErrorOccurred )
 		Q_PROPERTY( LastestFrameStore lastestFrameStore READ lastestFrameStore NOTIFY FrameUpdated )
+		Q_PROPERTY( int frameRevision READ frameRevision NOTIFY FrameUpdated )
+		Q_PROPERTY( QString statusText READ statusText NOTIFY StatusChanged )
 		Q_PROPERTY( bool autoReconnect READ autoReconnect WRITE setAutoReconnect NOTIFY AutoReconnectChanged )
 		Q_PROPERTY( int maxReconnect READ maxReconnect WRITE setMaxReconnect NOTIFY AutoReconnectChanged )
 		Q_PROPERTY( int retryCount READ retryCount NOTIFY RetryCountChanged )
@@ -108,6 +111,10 @@ public:
 	LastestFrameStore lastestFrameStore() const;
 	// 回收所有资源
 	void releaseResources();
+	// 获取最新帧的修订号，每次向 QML 发出帧通知时+1
+	int frameRevision() const;
+	// 当前状态的文本名（供 QML 直接展示）
+	QString statusText() const;
 
 signals:
 	void StatusChanged( RtspStatus status );  // 状态改变，QML进行更新UI
@@ -179,6 +186,8 @@ private:
 
 	RetryProgress m_phase{ RetryProgress::Idle }; // 控制器重连状态机
 	int m_retryCount{ 0 }; // 当前已尝试重连次数
+	int m_frameRevision{ 0 }; // 最新帧的修订号，每次通知 QML 时+1
+	QElapsedTimer m_frameNotifyClock; // 帧通知限流计时
 	bool m_pendingRestart{ false }; // 如果正在working，配置变更，等 worker 退出再重启
 	QTimer m_retryTimer; // 单发：退避后重启
 	QTimer m_restartTimer; // 单发：配置变更防抖
