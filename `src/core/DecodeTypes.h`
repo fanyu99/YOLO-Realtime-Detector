@@ -1,0 +1,45 @@
+struct DecodeError {
+	QString errorMessage{ QString() };
+	DecodeErrorCode errorCode{ DecodeErrorCode::NoError };
+
+	// 工厂函数：
+	[[nodiscard]] static DecodeError OpenFailedError(
+		const QString& message = QStringLiteral( "打开失败" ) ) {
+		return DecodeError{ message, DecodeErrorCode::OpenFailed };
+	}
+
+	[[nodiscard]] static DecodeError InvalidConfigError(
+		const QString& message = QStringLiteral( "无效配置" ) ) {
+		return DecodeError{ message, DecodeErrorCode::InvalidConfig };
+	}
+
+	[[nodiscard]] static DecodeError CodecNotFoundError(
+		const QString& message = QStringLiteral( "解码器未找到" ) ) {
+		return DecodeError{ message, DecodeErrorCode::CodecNotFound };
+	}
+
+	[[nodiscard]] static DecodeError InvalidUrlError(
+		const QString& message = QStringLiteral( "无效的URL" ) ) {
+		return DecodeError{ message, DecodeErrorCode::InvalidUrl };
+	}
+
+	[[nodiscard]] static DecodeError StreamNotFoundError(
+		const QString& message = QStringLiteral( "流未找到" ) ) {
+		return DecodeError{ message, DecodeErrorCode::StreamNotFound };
+	}
+
+	[[nodiscard]] static DecodeError StreamFailedError(
+		const QString& message = QStringLiteral( "打开流失败" ) ) {
+		return DecodeError{ message, DecodeErrorCode::StreamFailed };
+	}
+
+	[[nodiscard]] static DecodeError ReadTimeoutError(
+		const QString& message = QStringLiteral( "读取超时" ) ) {
+		return DecodeError{ message, DecodeErrorCode::ReadTimeout };
+	}
+
+	[[nodiscard]] static DecodeError OtherError(
+		const QString& message = QStringLiteral( "未知错误" ) ) {
+		return DecodeError{ message, DecodeErrorCode::Other };
+	}
+};

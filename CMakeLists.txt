@@ -202,6 +202,12 @@ qt_add_library(Detector STATIC
     src/core/Detector.cpp
     src/core/Detector.h
 )
+# ffmpeg解码器，单独解码线程，将帧传给推理线程
+qt_add_library(FfmpegDecoder STATIC
+    src/core/FfmpegDecoder.cpp
+    src/core/FfmpegDecoder.h
+    src/core/DecodeTypes.h
+)
 # OpenCV 预览工具（独立于主界面的调试用 imshow 封装）
 qt_add_library(ImageShower STATIC
     src/tools/ImageShower.cpp
@@ -284,6 +290,7 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             src/app/DetectionImageProvider.cpp  src/app/DetectionImageProvider.h
             src/app/Logger.cpp                  src/app/Logger.h
             src/core/DetectionTypes.h
+            src/core/DecodeTypes.h
             src/core/Box.h
             src/core/AppError.h
     )      
@@ -301,6 +308,17 @@ PRIVATE ${YOLO_SOURCE_DIRS})
 # 链接
 # -----------------------------------------------------------------------------
 target_link_libraries(Detector PUBLIC onnxruntime ${OpenCV_LIBS} Qt::Core)
+target_link_libraries(FfmpegDecoder PUBLIC 
+Qt::Core
+FFmpeg::avcodec
+    FFmpeg::avformat
+    FFmpeg::avutil
+    FFmpeg::swscale
+    FFmpeg::swresample
+    FFmpeg::avfilter
+    FFmpeg::avdevice
+    FFmpeg::postproc
+)
 target_link_libraries(ImageShower PUBLIC ${OpenCV_LIBS} Qt::Core)
 target_include_directories(FrameSource INTERFACE
 ${YOLO_SOURCE_DIRS}
