@@ -257,6 +257,29 @@ void FfmpegDecoder::recordStreamInfo(  AVStream* stream, const AVCodec* codec ) 
 	m_streamInfo.frameRate = frameRate;
 	m_streamInfo.width = (m_codecContext && m_codecContext->width > 0) ? m_codecContext->width : stream->codecpar->width;
 	m_streamInfo.height = (m_codecContext && m_codecContext->height > 0) ? m_codecContext->height : stream->codecpar->height;
+	// 总帧数：流头记录的 nb_frames 最可靠；缺失时用时长×帧率估算并标记为估算值。
+	// 直播流通常两者都没有，保持 0 表示未知（FrameSource::totalFrames 的约定）。
+	m_streamInfo.totalFrames = 0;
+	m_streamInfo.totalFramesEstimated = false;
+	if (stream->nb_frames > 0) {
+		m_streamInfo.totalFrames = stream->nb_frames;
+	}
+	else if (frameRate.num > 0 && frameRate.den > 0) {
+		int64_t duration = stream->duration;
+		AVRational durationTimeBase = stream->time_base;
+		if (duration <= 0) {
+			// 流级时长缺失时退回容器时长（单位为 AV_TIME_BASE）
+			duration = m_formatContext->duration;
+			durationTimeBase = AV_TIME_BASE_Q;
+		}
+		if (duration > 0) {
+			const int64_t estimated = av_rescale_q( duration, durationTimeBase, av_inv_q( frameRate ) );
+			if (estimated > 0) {
+				m_streamInfo.totalFrames = estimated;
+				m_streamInfo.totalFramesEstimated = true;
+			}
+		}
+	}
 	m_streamInfo.videoStreamIndex = stream->index;
 }
 // 设置回调函数

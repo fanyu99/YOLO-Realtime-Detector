@@ -222,9 +222,13 @@ qt_add_library(FrameSource INTERFACE
 # 1.摄像头/视频文件/图片文件帧来源
 qt_add_library(FileFrameSource STATIC 
 src/core/FileFrameSource.h  src/core/FileFrameSource.cpp)
-# 2.其他相机帧来源
+# 2.ffmpeg 解码帧源
+qt_add_library(FfmpegFrameSource STATIC 
+src/core/FfmpegFrameSource.h src/core/FfmpegFrameSource.cpp)
+# 3.其他相机帧来源
 qt_add_library(HikCameraFrameSource STATIC 
 src/core/HikCameraFrameSource.h src/core/HikCameraFrameSource.cpp)
+
 
 # 执行单元：worker 线程循环 + 结果渲染 + 结果落盘
 qt_add_library(DetectionWorker STATIC
@@ -325,6 +329,7 @@ ${YOLO_SOURCE_DIRS}
 ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(FileFrameSource PUBLIC FrameSource)
+target_link_libraries(FfmpegFrameSource PUBLIC FrameSource FfmpegDecoder)
 target_link_libraries(HikCameraFrameSource 
 PUBLIC FrameSource 
 PRIVATE ${MVS_CAMERA_CONTROL_LIB})
@@ -347,6 +352,7 @@ target_link_libraries(${PROJECT_NAME}
         FrameSource
         HikCameraFrameSource
         FileFrameSource
+        FfmpegFrameSource
         ImageShower
 )
 

@@ -1,0 +1,222 @@
+#include "FfmpegFrameSource.h"
+
+extern "C" {
+#include <libavutil/error.h>
+#include <libavutil/frame.h>
+#include <libavutil/pixdesc.h>
+#include <libswscale/swscale.h>
+}
+
+// 工具
+namespace {
+	// 解码错误码 -> 可读字符串
+	QString decodeErrorCodeToString( DecodeErrorCode code ) {
+		switch (code) {
+		case DecodeErrorCode::NoError:			 return QStringLiteral( "NoError" );
+		case DecodeErrorCode::InvalidUrl:		 return QStringLiteral( "InvalidUrl" );
+		case DecodeErrorCode::InvalidConfig:	 return QStringLiteral( "InvalidConfig" );
+		case DecodeErrorCode::OpenFailed:		 return QStringLiteral( "OpenFailed" );
+		case DecodeErrorCode::CodecNotFound:	 return QStringLiteral( "CodecNotFound" );
+		case DecodeErrorCode::StreamNotFound:	 return QStringLiteral( "StreamNotFound" );
+		case DecodeErrorCode::StreamFailed:		 return QStringLiteral( "StreamFailed" );
+		case DecodeErrorCode::DecoderInitFailed: return QStringLiteral( "DecoderInitFailed" );
+		case DecodeErrorCode::DecodeFailed:		 return QStringLiteral( "DecodeFailed" );
+		case DecodeErrorCode::ReadFailed:		 return QStringLiteral( "ReadFailed" );
+		case DecodeErrorCode::ReadTimeout:		 return QStringLiteral( "ReadTimeout" );
+		case DecodeErrorCode::Other:			 return QStringLiteral( "Other" );
+		}
+		return QStringLiteral( "Unknown" );
+	}
+
+	// 解码错误 -> 字符串
+	QString fromDecodeError( const DecodeError& error ) {
+		return QStringLiteral( "[FfmpegFrameSource]: %1 (ErrorCode= %2)" )
+			.arg( error.errorMessage, decodeErrorCodeToString( error.errorCode ) );
+	}
+
+	// 读取状态 -> 字符串
+	QString readStatusToString( ReadStatus status ) {
+		switch (status) {
+		case ReadStatus::FrameReady: return QStringLiteral( "FrameReady" );
+		case ReadStatus::EndOfFile:	 return QStringLiteral( "EndOfFile" );
+		case ReadStatus::Paused:	 return QStringLiteral( "Paused" );
+		case ReadStatus::Stopped:	 return QStringLiteral( "Stopped" );
+		case ReadStatus::Error:		 return QStringLiteral( "Error" );
+		}
+		return QStringLiteral( "Unknown" );
+	}
+
+	// FFmpeg 像素格式 -> 字符串
+	QString pixelFormatToString( int format ) {
+		if (const char* name = av_get_pix_fmt_name( static_cast<AVPixelFormat>(format) ))
+			return QString::fromUtf8( name );
+		return QStringLiteral( "unknown(%1)" ).arg( format );
+	}
+
+	// 复用的像素格式转换上下文：分辨率或像素格式变化时自动重建
+	class SwsContextCache {
+	public:
+		SwsContextCache() = default;
+		~SwsContextCache() {
+			if (m_context)
+				sws_freeContext( m_context );
+		}
+		SwsContextCache( const SwsContextCache& ) = delete;
+		SwsContextCache& operator=( const SwsContextCache& ) = delete;
+
+		SwsContext* get( int width, int height, AVPixelFormat srcFormat, AVPixelFormat dstFormat ) {
+			m_context = sws_getCachedContext(
+				m_context,
+				width, height, srcFormat,
+				width, height, dstFormat,
+				SWS_BILINEAR, nullptr, nullptr, nullptr );
+			return m_context;
+		}
+
+	private:
+		SwsContext* m_context{ nullptr };
+	};
+
+	// 解码出的 AVFrame -> cv::Mat（BGR 三通道）；失败返回空 Mat
+	cv::Mat avFrameToMat( const AVFrame* frame ) {
+		if (!frame || frame->width <= 0 || frame->height <= 0 || !frame->data[0])
+			return cv::Mat();
+
+		const auto sourceFormat = static_cast<AVPixelFormat>(frame->format);
+		const AVPixFmtDescriptor* descriptor = av_pix_fmt_desc_get( sourceFormat );
+		// 硬解帧（CUDA / D3D11 等）没有可直接读取的像素数据，需先 av_hwframe_transfer_data
+		if (!descriptor || (descriptor->flags & AV_PIX_FMT_FLAG_HWACCEL))
+			return cv::Mat();
+
+		thread_local SwsContextCache swsCache;
+		SwsContext* sws = swsCache.get( frame->width, frame->height, sourceFormat, AV_PIX_FMT_BGR24 );
+		if (!sws)
+			return cv::Mat();
+
+		cv::Mat mat( frame->height, frame->width, CV_8UC3 );
+		if (mat.empty())
+			return mat;
+
+		uint8_t* destinationData[4]{ mat.data, nullptr, nullptr, nullptr };
+		const int destinationLinesize[4]{ static_cast<int>(mat.step), 0, 0, 0 };
+		const int scaled = sws_scale(
+			sws,
+			frame->data, frame->linesize, 0, frame->height,
+			destinationData, destinationLinesize );
+		if (scaled <= 0)
+			return cv::Mat();
+
+		return mat;
+	}
+};
+
+FfmpegFrameSource::~FfmpegFrameSource() {
+	close();
+}
+
+FrameSourceType FfmpegFrameSource::type() const {
+	return FrameSourceType::VideoFile;
+}
+
+bool FfmpegFrameSource::isOpened() const {
+	return m_decoder.isOpened();
+}
+
+bool FfmpegFrameSource::isTotalFramesEstimated() const {
+	return m_decoder.getStreamInfo().totalFramesEstimated;
+}
+size_t FfmpegFrameSource::totalFrames() const {
+	const qint64 total = m_decoder.getStreamInfo().totalFrames;
+	return total > 0 ? static_cast<size_t>(total) : 0;
+}
+
+
+double FfmpegFrameSource::fps() const {
+	const StreamInfo info = m_decoder.getStreamInfo();
+	if (info.frameRate.num <= 0 || info.frameRate.den <= 0)
+		return 0.0;
+	return av_q2d( info.frameRate );
+}
+
+cv::Size FfmpegFrameSource::frameSize() const {
+	const StreamInfo info = m_decoder.getStreamInfo();
+	if (info.width <= 0 || info.height <= 0)
+		return cv::Size();
+	return cv::Size( info.width, info.height );
+}
+
+QString FfmpegFrameSource::displayName() const {
+	return m_url.isLocalFile() ? m_url.toLocalFile() : m_url.toString();
+}
+
+QString FfmpegFrameSource::lastError() const {
+	if (!m_error.isEmpty()) {
+		return m_error;
+	}
+	const DecodeError error = m_decoder.getLastError();
+	if (error.errorCode == DecodeErrorCode::NoError)
+		return QString();
+	return fromDecodeError( error );
+}
+
+// 打开
+bool FfmpegFrameSource::open() {
+	m_error.clear();
+	if (m_decoder.isOpened())
+		return true;
+	m_decoder.setConfig( m_config );
+	if (!m_decoder.open()) {
+		m_error = fromDecodeError( m_decoder.getLastError() );
+		return false;
+	}
+	return true;
+}
+
+// 获取帧
+cv::Mat FfmpegFrameSource::getFrame() {
+
+	// 没有打开，尝试打开
+	if (!isOpened()) {
+		// 打开失败返回空Mat
+		if (!open()) {
+			m_error = fromDecodeError( m_decoder.getLastError() );
+			return cv::Mat();
+		}
+	}
+	// 读取下一帧
+	ReadStatus status = m_decoder.readNextFrame();
+	// 	出现错误/EOF/停止，返回空Mat
+	if (status == ReadStatus::Error) {
+		const DecodeError error = m_decoder.getLastError();
+		if (error.errorCode != DecodeErrorCode::NoError || !error.errorMessage.isEmpty()) {
+			m_error = fromDecodeError( m_decoder.getLastError() );
+		}
+		return cv::Mat();
+	}
+	if (status != ReadStatus::FrameReady) {
+		return cv::Mat();
+	}
+	const cv::Mat mat = avFrameToMat( m_decoder.getCurrentFrame() );
+	if (mat.empty()) {
+		m_error = QStringLiteral( "[FfmpegFrameSource]: 图像格式转换失败" );
+	}
+	return mat;
+}
+// 关闭
+void FfmpegFrameSource::close() {
+	m_error.clear();
+	m_url.clear();
+	m_decoder.close();
+}
+// 构造函数
+FfmpegFrameSource::FfmpegFrameSource( const DecodeConfig& config ) : m_decoder( config ), m_config( config ), m_url( config.url ) {
+}
+// 创建本地文件帧源（视频文件）
+FrameSourcePtr FfmpegFrameSource::forLocalFile( QStringView filePath ) {
+	if (filePath.isEmpty())
+		return nullptr;
+	QUrl url = QUrl::fromLocalFile( filePath.toString() );
+	DecodeConfig config;
+	config.url = url;
+	return FrameSourcePtr( new FfmpegFrameSource( config ) );
+}

@@ -91,6 +91,8 @@ struct StreamInfo {
 	AVRational frameRate{ 0, 1 }; // 帧率（fps）
 	int width{ 0 }; // 视频宽度
 	int height{ 0 }; // 视频高度
+	qint64 totalFrames{ 0 }; // 总帧数，0 表示未知（直播流、容器未记录等）
+	bool totalFramesEstimated{ false }; // true 表示 totalFrames 由时长×帧率估算，可能不准确
 	int videoStreamIndex{ -1 }; // 视频流索引
 	// 是否合法
 	[[nodiscard]] bool isValid()const {
