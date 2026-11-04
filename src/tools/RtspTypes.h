@@ -84,8 +84,8 @@ public:
 };
 using RtspError = RtspOverallError;
 
-constexpr int DEFAULT_RTSP_CONNECT_TIMEOUT_MS = 5000; // 默认连接超时时间（毫秒）
-constexpr int DEFAULT_RTSP_READ_TIMEOUT_MS = 5000; // 默认读取超时时间（毫秒）
+constexpr int DEFAULT_CONNECT_TIMEOUT_MS = 5000; // 默认连接超时时间（毫秒）
+constexpr int DEFAULT_READ_TIMEOUT_MS = 5000; // 默认读取超时时间（毫秒）
 constexpr int DEFAULT_RTSP_MAX_RECONNECT = 5; // 默认最大重连次数
 
 // RTSP协议配置
@@ -100,8 +100,8 @@ public:
 	QUrl url; // RTSP流的URL
 
 	int maxReconnect{ DEFAULT_RTSP_MAX_RECONNECT }; // 最大重连次数
-	int connectTimeoutMs{ DEFAULT_RTSP_CONNECT_TIMEOUT_MS }; // 连接超时时间（毫秒）
-	int readTimeoutMs{ DEFAULT_RTSP_READ_TIMEOUT_MS }; // 读取超时时间（毫秒）
+	int connectTimeoutMs{ DEFAULT_CONNECT_TIMEOUT_MS }; // 连接超时时间（毫秒）
+	int readTimeoutMs{ DEFAULT_READ_TIMEOUT_MS }; // 读取超时时间（毫秒）
 
 	bool autoReconnect{ false }; // 是否自动重连
 

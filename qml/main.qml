@@ -289,9 +289,10 @@ Window {
 
 					// 开始检测(推理接入 UI 后生效)
 					Button {
+						id:detectBtn
 						text: "开始检测"
 						Layout.fillWidth: true
-						onClicked: app.onDetectClicked()
+						onClicked: detectionOptionMenu.open()
 					}
 				}
 			}
@@ -318,7 +319,6 @@ Window {
 							enabled: !app.busy
 							onClicked: fileMenu.open()
 						}
-
 						// 已选文件名
 						Label {
 							Layout.fillWidth: true
@@ -381,7 +381,25 @@ Window {
 							onTriggered: { window.videoMode = true; fileDialog.open() }
 						}
 					}
+
+					// 检测选项：默认或Ffmpeg
+					Menu{
+					id:detectionOptionMenu
+					parent:detectBtn
+					y: detectBtn.height
+					MenuItem{
+						text:"默认解码(OpenCV)"
+						onTriggered:app.onDetectClicked()
+					 }
+					 MenuItem{
+					 	text:"Ffmpeg解码"
+							onTriggered:app.onDetectFfmpegClicked()
+					 }
+					}
 				}
+
+					
+			
 
 				// ---------- 显示区 + 日志区 ----------
 				SplitView {

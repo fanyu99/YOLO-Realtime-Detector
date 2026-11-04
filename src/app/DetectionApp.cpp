@@ -9,6 +9,7 @@
 #include "DetectionResultSaver.h"
 #include "FileFrameSource.h"
 #include "HikCameraFrameSource.h"
+#include "FfmpegFrameSource.h"
 #include "Logger.h"
 
 // 匿名工具函数: 帧信号通知限流
@@ -85,6 +86,7 @@ FrameSourcePtr DetectionApp::makeCameraSource(int cameraId) const {
 	return FileFrameSource::forCamera(cameraId);
 }
 
+// 2. 海康相机帧源
 FrameSourcePtr DetectionApp::makeHikCameraSource(QStringView serial,QStringView triggerMode) const {
 	if (triggerMode == "off") {
 		return HikCameraFrameSource::forDevices(serial, HikCameraFrameSource::TriggerMode::Off);
@@ -110,9 +112,12 @@ FrameSourcePtr DetectionApp::makeHikCameraSource(QStringView serial,QStringView 
 
 }
 
-// 枚举在线海康相机，供 HikCameraDialog 填列表。
-// 这是一次阻塞的 SDK 调用，只在对话框打开 / 点"刷新"时触发，
-// 不要放进 QML 的属性绑定里（否则每次求值都会问一遍 SDK）。
+// 3. Ffmpeg帧源
+FrameSourcePtr DetectionApp::makeFfmpegSource( QStringView filePath ) const {
+	return FfmpegFrameSource::forLocalFile( filePath );
+}
+
+// 枚举在线海康相机，供 HikCameraDialog 填列表(为阻塞操作)
 QVariantList DetectionApp::hikDevices() const {
 	QVariantList list;
 	const QVector<HikCameraFrameSource::DeviceInfo> devices = HikCameraFrameSource::enumerateDevices();
@@ -261,6 +266,40 @@ void DetectionApp::onDetectHikCameraClicked(const QString& serial,const QString&
 
 	m_progress = 0.0f;
 	setState(m_currentJobId, true, true);
+}
+// qml侧调用: Ffmpeg检测
+void DetectionApp::onDetectFfmpegClicked() {
+	if (m_busy) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: 已有检测在进行中，请先停止!"), AppErrorCode::DetectionFailed));
+		return;
+	}
+	if (m_filePath.empty()) {
+		reportError(AppError(QStringLiteral("[Detector]: 文件路径为空!"), AppErrorCode::InvalidFilePath));
+		return;
+	}
+	if (!std::filesystem::exists(m_filePath)) {
+		reportError(AppError(QStringLiteral("[Detector]: 文件路径无效!"), AppErrorCode::InvalidFilePath));
+		return;
+	}
+	if (!m_config.isValid()) {
+		reportError(AppError(QStringLiteral("[Detector]: 配置无效!"), AppErrorCode::InvalidConfig));
+		return;
+	}
+	if (!m_config.model_exists()) {
+		reportError(AppError(QStringLiteral("[Detector]: 模型路径无效!"), AppErrorCode::InvalidModelPath));
+		return;
+	}
+	if (!m_manager->start()) {
+		reportError(AppError(QStringLiteral("[Detector]: 检测器未就绪!"), AppErrorCode::DetectorError));
+		return;
+	}
+	const QString path = QString::fromStdWString(m_filePath.wstring());
+	Logger::instance()->info(QStringLiteral("[DetectionApp]: 提交 Ffmpeg 检测: ") + path);
+	m_currentJobId = m_manager->submitSource(makeFfmpegSource(path), effectiveResultsDir());
+	if (m_currentJobId == 0)
+		return;						// 提交失败，Manager 已经 emit jobFailed
+	m_progress = 0.0f;
+	setState(m_currentJobId, false, true);
 }
 
 // qml侧调用: 批量检测（图片/视频可混排，一个 Job 含多个 Task）

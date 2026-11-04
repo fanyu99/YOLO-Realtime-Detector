@@ -202,6 +202,12 @@ qt_add_library(Detector STATIC
     src/core/Detector.cpp
     src/core/Detector.h
 )
+# ffmpeg解码器，单独解码线程，将帧传给推理线程
+qt_add_library(FfmpegDecoder STATIC
+    src/core/FfmpegDecoder.cpp
+    src/core/FfmpegDecoder.h
+    src/core/DecodeTypes.h
+)
 # OpenCV 预览工具（独立于主界面的调试用 imshow 封装）
 qt_add_library(ImageShower STATIC
     src/tools/ImageShower.cpp
@@ -216,9 +222,13 @@ qt_add_library(FrameSource INTERFACE
 # 1.摄像头/视频文件/图片文件帧来源
 qt_add_library(FileFrameSource STATIC 
 src/core/FileFrameSource.h  src/core/FileFrameSource.cpp)
-# 2.其他相机帧来源
+# 2.ffmpeg 解码帧源
+qt_add_library(FfmpegFrameSource STATIC 
+src/core/FfmpegFrameSource.h src/core/FfmpegFrameSource.cpp)
+# 3.其他相机帧来源
 qt_add_library(HikCameraFrameSource STATIC 
 src/core/HikCameraFrameSource.h src/core/HikCameraFrameSource.cpp)
+
 
 # 执行单元：worker 线程循环 + 结果渲染 + 结果落盘
 qt_add_library(DetectionWorker STATIC
@@ -284,6 +294,7 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             src/app/DetectionImageProvider.cpp  src/app/DetectionImageProvider.h
             src/app/Logger.cpp                  src/app/Logger.h
             src/core/DetectionTypes.h
+            src/core/DecodeTypes.h
             src/core/Box.h
             src/core/AppError.h
     )      
@@ -301,12 +312,24 @@ PRIVATE ${YOLO_SOURCE_DIRS})
 # 链接
 # -----------------------------------------------------------------------------
 target_link_libraries(Detector PUBLIC onnxruntime ${OpenCV_LIBS} Qt::Core)
+target_link_libraries(FfmpegDecoder PUBLIC 
+Qt::Core
+FFmpeg::avcodec
+    FFmpeg::avformat
+    FFmpeg::avutil
+    FFmpeg::swscale
+    FFmpeg::swresample
+    FFmpeg::avfilter
+    FFmpeg::avdevice
+    FFmpeg::postproc
+)
 target_link_libraries(ImageShower PUBLIC ${OpenCV_LIBS} Qt::Core)
 target_include_directories(FrameSource INTERFACE
 ${YOLO_SOURCE_DIRS}
 ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(FileFrameSource PUBLIC FrameSource)
+target_link_libraries(FfmpegFrameSource PUBLIC FrameSource FfmpegDecoder)
 target_link_libraries(HikCameraFrameSource 
 PUBLIC FrameSource 
 PRIVATE ${MVS_CAMERA_CONTROL_LIB})
@@ -329,6 +352,7 @@ target_link_libraries(${PROJECT_NAME}
         FrameSource
         HikCameraFrameSource
         FileFrameSource
+        FfmpegFrameSource
         ImageShower
 )
 

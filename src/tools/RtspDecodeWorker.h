@@ -8,102 +8,8 @@
 #include <mutex>
 #include <condition_variable>
 #include "RtspTypes.h"
-extern "C" {
-#include <libavdevice/avdevice.h>
-#include <libavcodec/avcodec.h>
-#include <libavfilter/avfilter.h>
-#include <libavformat/avformat.h>
-#include <libavutil/time.h>
-#include <libavutil/opt.h>
-#include <libavutil/error.h>
-#include <libavutil/pixdesc.h>
-#include <libavutil/avconfig.h>
-#include <libswscale/swscale.h>
-}
+#include "FfmpegDecoder.h"
 
-// 相关工具
-namespace Decode {
-	// 将ffmpeg错误转为QString
-	inline QString ffmpegError( int errorCode ) {
-		char errorBuffer[AV_ERROR_MAX_STRING_SIZE]{};
-		av_strerror( errorCode, errorBuffer, sizeof( errorBuffer ) );
-		return QString::fromUtf8( errorBuffer );
-	}
-	// ====== 智能指针保护ffmpeg资源========
-	// 在离开作用域时自动释放资源
-	// 对于存在引用计数的资源，注意需要自行调用相关的unref
-	struct AVFormatContextDeleter {
-		void operator()( AVFormatContext* ctx ) const noexcept {
-			if (ctx)
-				avformat_close_input( &ctx );
-		}
-	};
-	struct AVCodecContextDeleter {
-		void operator()( AVCodecContext* ctx ) const noexcept {
-			if (ctx)
-				avcodec_free_context( &ctx );
-		}
-	};
-	struct AVFrameDeleter {
-		void operator()( AVFrame* frame ) const noexcept {
-			if (frame)
-				av_frame_free( &frame );
-		}
-	};
-	struct AVPacketDeleter {
-		void operator()( AVPacket* packet ) const noexcept {
-			if (packet)
-				av_packet_free( &packet );
-		}
-	};
-	using AVFormatContextPtr = std::unique_ptr<AVFormatContext, AVFormatContextDeleter>;
-	using AVFramePtr = std::unique_ptr<AVFrame, AVFrameDeleter>;
-	using AVPacketPtr = std::unique_ptr<AVPacket, AVPacketDeleter>;
-	using AVCodecContextPtr = std::unique_ptr<AVCodecContext, AVCodecContextDeleter>;
-	// ======================================
-
-	// 中断上下文，用于在读取RTSP流时设置超时和中断标志
-	struct InterruptContext {
-		int timeoutMs{ DEFAULT_RTSP_READ_TIMEOUT_MS }; // 超时时间
-		// 原子变量用于中断回调函数
-		std::atomic<bool> pause{ false }; // 外部的中断标志
-		std::atomic<bool>stop{false}; // 外部的停止标志，用于解码会话的停止（直接退出循环）
-		QElapsedTimer timer; // 计时器
-
-		explicit InterruptContext( int timeout = DEFAULT_RTSP_READ_TIMEOUT_MS )
-			: timeoutMs( timeout ) {
-			timer.start();  // 开始计时
-		}
-
-		// 每次开始一个新的阻塞操作（open / 单次 read）前调用，
-		// 让超时以“本次操作”为基准，而不是整个连接期间累计。
-		void restart() {
-			timer.start();
-		}
-
-		// 是否超时
-		bool isTimeout() const {
-			return timer.isValid() && timer.elapsed() > timeoutMs;
-		}
-	};
-
-	// 中断回调函数，用于在读取RTSP流时检查是否超时或中断
-	// ffmpeg内部会进行周期性的调用回调函数，0就继续，1就中断
-	inline int interrupt_cb( void* opaque ) {
-		auto* ctx = static_cast<InterruptContext*>(opaque);
-		if (!ctx)
-			return 0;
-		// 检查是否终止/停止
-		if (ctx->pause.load( std::memory_order_relaxed ) || ctx->stop.load( std::memory_order_relaxed ))
-			return 1;
-		// 检查是否超时
-		if (ctx->isTimeout())
-			return 1;
-		return 0;
-	}
-
-
-}
 /*
 Worker解码线程工作流程：
 1. controller 调用startDecoding()
@@ -120,10 +26,6 @@ Worker解码线程工作流程：
 class RtspDecodeWorker : public QObject {
 	Q_OBJECT
 public:
-	using AVFormatContextPtr = Decode::AVFormatContextPtr;
-	using AVFramePtr = Decode::AVFramePtr;
-	using AVPacketPtr = Decode::AVPacketPtr;
-	using AVCodecContextPtr = Decode::AVCodecContextPtr;
 	explicit RtspDecodeWorker( QObject* parent = nullptr );
 	explicit RtspDecodeWorker( const RtspConfig& config, QObject* parent = nullptr );
 	~RtspDecodeWorker();
@@ -173,27 +75,23 @@ signals:
 private:
 	// 统一上报错误：只发 errorOccurred，并记录本次执行出错
 	void reportError( const RtspOverallError& error );
-	// 打开输入（avformat_open_input + find_stream_info + 查找视频流）
-	bool openInput();
-	// 根据视频流初始化解码器和 packet/frame
-	bool initDecoder();
 	// 读取 packet 并解码，阻塞直到停止、EOF 或出错
 	bool readAndDecodeLoop();
-	// 循环接收解码器解码packet后输出的帧
-	bool receiveFrames(quint64 readTime);
 	// AVFrame -> 独立所有权的 QImage
 	QImage convertFrame( const AVFrame* frame );
 	// 填充 RtspDataContext
-	void recordStreamInfo( const AVStream* stream, const AVCodec* codec );
+	void recordStreamInfo( const StreamInfo& info );
 	// 检查停止请求
 	bool isStopRequested() const;
 	// 把当前 m_frame 转换成 QImage 并发出信号
 	// 检查中断请求
 	bool isPaused() const;
 	// 包装LastestFrameStore并发出frameDecoded信号
-	void emitDecodedFrame(quint64 readTime,quint64 decodedTime);
+	void emitDecodedFrame(const AVFrame* frame,quint64 readTime,quint64 decodedTime);
 	// 按固定间隔（1s）汇总并上报统计信息
 	void reportStreamStatus();
+	// 解码错误 -> Rtsp错误码
+	RtspOverallError toRtspError( const DecodeError& error ) const;
 
 	RtspDataContext m_dataContext{}; // 数据上下文
 	RtspStreamStatus m_streamStatus{}; // 拉流统计信息
@@ -210,17 +108,8 @@ private:
 	quint64 m_decodedFrameIndex{ 0 };	 // 当前的解码index
 	RtspOverallError m_lastError{}; // 用于finished上报错误
 
-	// 中断上下文必须声明在 m_formatContext 之前：
-	// 成员按声明逆序析构，这样可以保证 format context 先销毁，
-	// interrupt_callback.opaque 不会变成悬空指针。
-	Decode::InterruptContext m_interruptContext;
-
 	// SwsContext 不放进 unique_ptr：sws_getCachedContext 会自行释放并重建
 	SwsContext* m_swsContext{ nullptr };  // 图像格式转换上下文
-	int m_videoStreamIndex{ -1 };
 
-	AVFormatContextPtr m_formatContext{ nullptr };
-	AVCodecContextPtr m_codecContext{ nullptr };
-	AVPacketPtr m_packet{ nullptr };   // 存储最新的压缩包
-	AVFramePtr m_frame{ nullptr };	// 存储最新的帧
+	FfmpegDecoder m_decoder; // 通用ffmpeg解码器
 };
