@@ -181,7 +181,6 @@ set(YOLO_SOURCE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/tools"
 )
 
 # -----------------------------------------------------------------------------
@@ -192,8 +191,6 @@ set(PROJECT_SOURCES
 )
 # 应用内嵌资源：默认示例图片与示例模型（rcc 按 .qrc 所在目录解析相对路径）
 qt_add_resources(PROJECT_SOURCES resources/images.qrc)
-# 添加工具目录：RTSP拉流工具以及ImageShower
-add_subdirectory(src/tools)
 # -----------------------------------------------------------------------------
 # 静态库
 # -----------------------------------------------------------------------------
@@ -207,11 +204,6 @@ qt_add_library(FfmpegDecoder STATIC
     src/core/FfmpegDecoder.cpp
     src/core/FfmpegDecoder.h
     src/core/DecodeTypes.h
-)
-# OpenCV 预览工具（独立于主界面的调试用 imshow 封装）
-qt_add_library(ImageShower STATIC
-    src/tools/ImageShower.cpp
-    src/tools/ImageShower.h
 )
 # 帧来源单元: 1.摄像头/视频文件/图片文件 2.其他相机
 # 策略模式：FrameSource 作为接口，
@@ -237,7 +229,7 @@ qt_add_library(DetectionWorker STATIC
     src/app/DetectionResultSaver.cpp  src/app/DetectionResultSaver.h
 )
 
-foreach(_lib Detector ImageShower DetectionWorker)
+foreach(_lib Detector DetectionWorker)
     target_include_directories(${_lib} PUBLIC ${YOLO_SOURCE_DIRS})
 endforeach()
 
@@ -323,7 +315,6 @@ FFmpeg::avcodec
     FFmpeg::avdevice
     FFmpeg::postproc
 )
-target_link_libraries(ImageShower PUBLIC ${OpenCV_LIBS} Qt::Core)
 target_include_directories(FrameSource INTERFACE
 ${YOLO_SOURCE_DIRS}
 ${OpenCV_INCLUDE_DIRS}
@@ -353,7 +344,6 @@ target_link_libraries(${PROJECT_NAME}
         HikCameraFrameSource
         FileFrameSource
         FfmpegFrameSource
-        ImageShower
 )
 
 if(Qt6_FOUND)

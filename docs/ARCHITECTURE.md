@@ -2,10 +2,6 @@
 
 本文档记录各模块的职责、线程模型与关键设计取舍。英文 README 的架构小节是这里的摘要版。
 
-## 当前更新: 
-- 使用`FrameSource`抽象接口统一帧源
-- 当前支持`FileFrameSource`(图片/视频/摄像头)和`HikCameraFrameSource`(海康相机)
-
 ---
 
 ## 1. 分层
@@ -14,8 +10,10 @@
 QML (qml/)  →  应用层 (src/app/)  →  核心层 (src/core/)  →  ONNX Runtime / OpenCV
 ```
 
-依赖方向严格单向：`core` 不认识 `app`，`app` 不认识 QML 的具体控件。QML 只通过
-`DetectionApp` 暴露的属性与 `Q_INVOKABLE` 方法与后端交互。
+这里使用三层架构： 
+1. 核心层负责将输入帧进行检测并返回结果，不依赖于QML；
+2. 应用层负责管理核心层的任务调度、任务提交、配置设置、结果回传给QML等，同时提供上层接口给QML；起到连接核心层和UI层的作用
+3. 界面层负责将检测结果进行展示 
 
 | 层 | 目录 | 是否依赖 Qt GUI | 是否 `QObject` |
 |---|---|---|---|
@@ -23,17 +21,18 @@ QML (qml/)  →  应用层 (src/app/)  →  核心层 (src/core/)  →  ONNX Run
 | 应用层 | `src/app/` | 是 | 是 |
 | 界面层 | `qml/` | 是 | — |
 
+
 ---
 
 ## 2. 线程模型
 
-整个程序只有两条长期存在的线程：
+整个程序目前只有两条长期存在的线程（后续将拓展为采集线程-> 工作线程 ->  UI 线程）：
 
 1. **GUI 线程** —— 运行 QML 场景图、`DetectionApp`、`DetectionManager`。
-2. **worker 线程** —— `DetectionWorker::work()` 循环，串行消费任务队列。
+2. **worker 线程** —— `DetectionWorker::work()` 循环，**串行**消费任务队列。
 
-`Detector` 对象**在 worker 线程内构造并析构**，因此它内部持有的 ONNX 会话、CUDA
-context 等资源从不跨线程。
+`Detector` 对象**在 worker 线程内构造并析构**，内部持有的 ONNX 会话、CUDA
+context 等资源。
 
 跨线程数据流只有两个方向，且都遵守「不共享可变状态」的原则：
 
@@ -43,97 +42,74 @@ context 等资源从不跨线程。
 - **worker → GUI**：Qt 信号（`taskResult` / `taskProgress` / `taskCompleted` …），
   由 Qt 自动排队到 GUI 线程。携带的 `QImage` 是隐式共享的，跨线程只是加一次引用计数。
 
-`DetectionImageProvider::requestImage()` 可能被场景图渲染线程调用，所以其内部用
-`QMutex` 保护帧数据；帧一旦生成就不再修改，因此共享是安全的。
-
 ---
 
 ## 3. 作业（Job）与任务（Task）
 
 ```
-DetectionJob   一个 UI 进度条 = 一个 Job
- ├─ TaskShared        Job 内所有 Task 共享的可变状态（原子量）
+DetectionJob   一个 Job作业
+ ├─ TaskShared        Job 内所有 Task 共享的可变状态（原子量），例如总体进度等
  └─ DetectionTask*    真正被 worker 执行的最小单元（unique_ptr 独占）
 ```
 
 - 单图 / 单视频 / 摄像头：Job 只含 1 个 Task。
-- 批量：Job 含 N 个 Task，图片与视频可混排。
+- 批量：Job 含 N 个 Task，图片与视频可混合。
 
-**进度公式**统一为：
+**作业整体进度公式**为：
 
 ```
 progress = (已结束 Task 数 + 当前 Task 内部单元比例) / Task 总数
 ```
 
-- 批量：处理完 2 个、第 3 个到一半 → `(2 + 0.5) / 4 = 62.5%`
-- 单视频：跑到第 450 / 1000 帧 → `(0 + 0.45) / 1 = 45%`
-
-公式单调：当前 Task 完成时 `completedTasks++` 且单元比例归零，总和仍然上升。
-
-**帧源类型与作业种类是互补的，不是重复：**
+任务类型以及作业类型如下：
 
 | 类型 | 层级 | 用途 |
 |---|---|---|
-| `FrameSourceType` | 任务级 / 执行层 | worker 据此决定走 `runImage` 还是 `runStream`，并据此准备进度与编码器参数 |
-| `DetectionJobType` | 作业级 / 展示层 | UI 据此决定如何呈现结果、完成时发哪个信号 |
-
-`FrameSourceType` 表达不了「批量」（一个 Job 里各 Task 的类型可以不同）。因此单 Task 作业的
-`job.type` 由 `jobTypeOf(task)` 从 `task.source->type()` **单向派生**，
-保证「什么算视频 / 什么算摄像头」只在 `FrameSource::type()` 一处定义。
+| `FrameSourceType` | 任务级，真正的执行原子单元 | worker 据此决定走 `runImage` 还是 `runStream`，并据此准备进度与编码器参数 |
+| `DetectionJobType` | 作业级，上层的总体作业，一次作业可以分为多个任务| UI 据此决定如何呈现结果、完成时发哪个信号 |
 
 ---
 
 ## 4. 核心层模块
 
-### `Detector`（`Detector.h` / `Detector.cpp`）
+### 推理头 `Detector`（`Detector.h` / `Detector.cpp`）
 
 ONNX 会话的封装，负责预处理、推理与后处理。
 
-- **非 `QObject`**：错误通过 `lastError()` 上抛，警告通过 `warnings()`，结果只走返回值。
-  因此可在任意线程使用，无需 `moveToThread`。
+- 通用的C++类型，非`QObject`：错误通过 `lastError()` 上抛，警告通过 `warnings()`，结果只走返回值。
+非`QObject`，无线程亲和性，不使用信号槽机制，可在任意线程使用，无需 `moveToThread`。
 - `CreateSessionOptions()` 尝试启用 CUDA EP；失败时把 `cuda_ok` 置 false 并回退 CPU，
   `device()` / `usingCUDA()` 反映**实际**生效的设备。
 - `alignInputSizeToModel()` 读取模型真实输入 shape 校正配置；模型为动态维（`-1`）时以
   配置尺寸为准，并生成 `DynamicInputUsed` 警告。
-- `letterbox()` → `preprocess()`（BGR→RGB、归一化、HWC→NCHW）→ `runInference()` →
-  `parse_yolo_ouput()` → `map_boxes_to_original_image()`。
-- `parse_yolo_ouput()` 的 `num_anchors` **必须由输出张量形状反推**，不能写死 8400：
-  8400 只在 640×640 下成立（320 → 2100，1280 → 33600）。
-- `runInference()` 内部 try/catch，任何异常都转成错误结果返回，**绝不让异常逃出
-  `Detector`**（否则会穿到线程入口触发 `std::terminate`）。
-- `warmup()` 用假输入跑若干次 `Run`，提前烧掉 CUDA context、cuDNN handle、内存 arena
-  首次分配等一次性开销；失败只记日志，不影响后续检测。
+- `letterbox()` → `preprocess()`（BGR→RGB、归一化、HWC→NCHW）→ `runInference()`统一推理接口 →
+  `parse_yolo_ouput()`解析推理输出，内部进行NMS等后处理 → `map_boxes_to_original_image()`将最后处理的检测框坐标映射回原始图像。
+- `parse_yolo_ouput()` 的 `num_anchors` **由输出张量形状反推**。
+- `runInference()` 内部 try/catch，在内部进行异常处理。
+- 预热`warmup()` 用假输入跑几次ONNX的 `Run`，提前烧掉ONNX初始化的开销（其ONNX的Run为懒加载，在进行调用时才会进行初始化）。
 
-### `DetectionTypes.h`
+### 推理所需要的各种类型 `DetectionTypes.h`
 
 类型中枢：`LetterboxInfo`、`DetectorConfig`、`DetectorError`、`DetectorWarning`、
 `DetectionResult`、`TaskShared`、`FpsCounter`、`DetectionTask`、`DetectionJob`、
 `DetectionJobType`，以及 `jobTypeOf()` / `makeSingleTaskJob()` / `makeBatchJob()`。
 
-`DetectionTask` 只持有一个 `FrameSourcePtr`，不再有「图片/视频/摄像头」的标志位 ——
-执行路径、展示种类、是否累积结果，全部从 `source->type()` 派生。
+`DetectionTask` 只持有一个 抽象类`FrameSourcePtr`指针，其中Task的执行方式、展示种类、是否累积结果（摄像头等不进行累积），全部由`source->type()`决定 。
 
-### `FrameSource.h` / `FileFrameSource.h`
+### 策略模式帧源`FrameSource.h` / `FileFrameSource.h`
 
-帧源的抽象与唯一实现。`FileFrameSource` 覆盖「图片文件 / 视频文件 / 摄像头」三种输入，
-把 `cv::imread`、`cv::VideoCapture`、摄像头缓冲调优、总帧数/帧率/尺寸的读取都收在这里。
+使用策略模式将帧源进行抽象。`FileFrameSource` 覆盖图片文件、视频文件、摄像头、HikCamera、Ffmpeg解码视频文件等帧源，提供统一的接口`getFrame()`获取帧。
 
-- 构造只记参数、不做 I/O，因此可以在 GUI 线程构造后交给 worker；`open()` / `getFrame()` /
-  `close()` 只在 worker 线程调用 —— 打开摄像头可能阻塞约 1s，放 GUI 线程会直接卡住界面。
-- 单图源只产一帧（`getFrame()` 第二次返回空 Mat），因此 `runImage()` 与 `runStream()`
-  的取帧循环形状一致。
-- `isVideoPath()` / `isImagePath()` 定义在这里（只按后缀判断、不访问磁盘），
-  供 `FileFrameSource` 判定类型、`DetectionApp` 做提交前的合法性检查共用。
+- 构造时仅传入路径等，不进行阻塞操作，`open()`、`getFrame()`、`close()` 等操作在 worker 线程中进行，因此在GUI线程（`DetectionApp`）创建没有问题。
+- 帧源内部可能不可拷贝的类型成员，例如FfmpegFrameSource内部存在FfmpegDecoder，其内部存在`std::mutex`、`std::atomic`等不可拷贝的对象，因此使用`std::unique_ptr<FrameSource>`智能指针作为统一的返回结果。
 
-### `Box.h` / `AppError.h`
+### 检测框`Box.h` / 统一的App错误 `AppError.h`
 
-QML 可见的值类型（`Q_GADGET` + `QML_ELEMENT`），提供 `Box2Rect` / `Rect2Box` 坐标互转。
+检测框`Box`为QML 可见的值类型（`Q_GADGET` + `QML_ELEMENT`），提供 `Box2Rect` / `Rect2Box` 坐标互转。
 
-### `ImageShower`（`src/tools/`）
+统一的App错误，`AppError`注册进QML可见类型(`Q_GADGET` + `QML_ELEMENT`)中，支持QML直接读取并且能够直接获取错误码字符串。
 
-基于 `cv::imshow` 的独立预览工具，与主界面无关，供 `main.cpp` 中已注释的演示函数使用。
-
-### 帧源`FrameSource`将图片/视频/摄像头/其他(例如海康相机等)转换为cv::Mat
+### 帧源`FrameSource`将图片/视频/摄像头/其他(例如海康相机、Ffmpeg解码视频帧等)转换为cv::Mat
 
 用于替换原来的分散的文件路径/摄像头ID的获取帧的方式
 
@@ -141,11 +117,13 @@ QML 可见的值类型（`Q_GADGET` + `QML_ELEMENT`），提供 `Box2Rect` / `Re
 
 `open()`打开帧源,`getFrame()`获取帧,`close()`关闭帧源
 
-目前完成的有`FileFrameSource`和`HikCameraFrameSource`
+目前完成的有`FileFrameSource`和`HikCameraFrameSource`、FfmpegFrameSource
 
 `FileFrameSource`用于为单图/视频帧/摄像头帧提供统一的接口
 
 `HikCameraFrameSource`作为海康相机帧源,QML为其添加一个Dialog用于选择当前可用的相机设备以及选择触发模式(默认关闭并使用连续采集模式)
+
+`FfmpegFrameSource`用于ffmpeg解码视频文件帧，目前将得到的`AVFrame*`转为`cv::Mat`，后续使用`GpuFrameSourceHandle`针对于GPU硬解进行封装，作为兼容性更强的帧源
 
 ---
 
@@ -153,75 +131,70 @@ QML 可见的值类型（`Q_GADGET` + `QML_ELEMENT`），提供 `Box2Rect` / `Re
 
 ### `DetectionApp` —— QML 门面
 
-把 QML 的交互翻译成对 `DetectionManager` 的调用，并把进度 / 结果 / 错误 / 日志回传 QML。
+把 QML 的交互转为对 `DetectionManager` 的调用，并把进度 / 结果 / 错误 / 状态 / 日志回传 QML。
 
-- 实现 `QQmlParserStatus`：构造函数里对象尚未与 engine 关联，必须等 `componentComplete()`
+- 实现 `QQmlParserStatus`：必须等 `componentComplete()`
   才能拿到 engine 注册 image provider。
-- 只认不透明的 `jobId`，不接触 `DetectionTask` / `TaskShared`。
-- 刻意**不保存**「当前作业是什么种类」：种类随 `jobFinished` 一起回来，因此不存在需要跨
-  事件同步维护的字段（早期版本用 `JobType` + `IsBatch` 两个字段，实测有 12 个维护点且漏清
-  过一处）。
-- 横幅（banner）只有一个槽位，避免多条堆叠；`BannerWarning` 用于「输入尺寸已自动对齐」这类
-  非致命提示，`BannerSuccess` 用于「结果已保存」。
-- 回看只推进 UI 侧索引，**完全不碰 worker**。
+- 内部只接触作业的JobId，不接触具体的`DetectionTask`、`DetectionJob`等Worker核心层的对象。
+- 内部记录回看条目（`ReviewItem`）,内部保存序列号以及文件名等基础信息，降低内存使用。
 
 ### `DetectionManager` —— 作业调度
 
-对上提供「提交 / 取消 / 查进度」与作业级信号；对下把 Job 拆成 Task 投递给 worker，并把
+对上层的App提供「提交 / 取消 / 查进度」与作业级信号；对下把 Job 拆成 Task 投递给 worker，并把
 worker 的上报汇总成 job 级事件。
 
-- `applyConfig()` 内部完成「停旧 worker + 用新配置建新 worker」。ONNX 会话一旦建立就无法
-  替换模型，改阈值也得重建，所以「改配置」必然等于「重建」。
+- `applyConfig()` 内部完成「停旧 worker + 用新配置建新 worker」。注意到这里的ONNX会话创建后不能进行更改配置，因此只能停掉之前的会话`Session`后重新创建`Session`。
 - `jobSaved` 在 `jobFinished` / `jobFailed` / `jobCancelled` **之前**发出 —— 因为 `App` 在
   终态里会清掉 `currentJobId`，晚发就可能被丢掉。
-- `m_startedJobs` 保证一个 Job 只发一次 `jobStarted`。
+- 使用`QSet`集合`m_startedJobs` 存储当前的任务，保证一个 Job 只发一次 `jobStarted`。
+- 根据Worker上报的`taskProgress`、`taskResult`、`taskCompleted`等信号，汇总成Job级别的进度`jobProgress`和完成信号`JobFinished`。
+- 当前内部价仅保留一个Worker作为单线程处理+推理，后续可以进行拓展为多线程Worker进行处理。
 
 ### `DetectionWorker` —— 执行单元
 
-在一条独立线程里跑 `work()` 循环，从队列取 Task 执行。
+在一条独立的工作线程里执行 `work()` 循环，从原子执行单元`m_queue`任务队列取 Task 执行。
+内部管理`Detector`以及`QThread`线程，统一管理其生命周期。
 
-- `setConfig()` 必须在 `start()` 之前调用（会话不可替换）。
-- `stop()` 会丢弃队列中尚未开始的 Task。
-- 区分 `runImage()` 与 `runStream()`；`finishUnit()` 负责单帧的「渲染 → 计数 → 推送」。
-- `failTaskIfUnfinished()` 在任务抛异常时补发失败信号，避免重复发。
+设计：
+- `setConfig()` 在 `start()` 之前调用（会话不可替换）。
+- 优雅关闭设计： `stop()` 会丢弃队列中尚未开始的 Task。
+-  `runImage()` 与 `runStream()`；`finishUnit()` 负责单帧的「渲染 → 计数 → 推送」。
+- `failTaskIfUnfinished()` 在任务抛异常时进行统一的补发失败信号，避免重复发错误信号导致覆盖。
 
-### `DetectionRenderer`
+### 渲染器`DetectionRenderer`
 
 把「帧 + 检测框」渲染成可直接给 QML 的 `QImage`。
 
-渲染**必须**放在 worker 线程：`cv::Mat` 浅拷贝共享像素，跨线程传 `Mat` 等于传一块会被下一帧
-覆写的内存。在 worker 线程内一次性画好框并转成 `QImage`，上层拿到的就是一份独立、可安全
-显示的画面。
+渲染**必须**放在 worker 线程：`cv::Mat` **浅拷贝**共享像素，跨线程传 `Mat` 等于传一块会被下一帧
+覆写的内存。在 worker 线程内一次性画好框并转成 `QImage`，上层拿到的是一份独立、可安全
+显示的内存数据。
 
-- `renderMat()` 返回 `cv::Mat`（保存视频时必须用这个，`VideoWriter` 吃 `Mat`）；
+- `renderMat()` 返回 `cv::Mat`（保存视频时必须用这个）；
 - `render()` 在 `renderMat()` 基础上转 `QImage`（显示路径用这个）。
 
-### `DetectionResultSaver`
+### 检测结果保存器`DetectionResultSaver`
 
-目录约定：`<用户选的根目录>/detection_results/`，图片写 `<原文件名>.jpg`，视频/摄像头写
-`<原文件名>.mp4`。只保存画了框的画面，不写 labels。
+保存目录设置：`选择的根目录/detection_results/`，图片写 `原文件名.jpg`，视频/摄像头写
+`原文件名.mp4`。仅保留最后的检测结果（画框的图片、视频）。
 
-只在 worker 线程内使用，不跨线程，因此不需要锁。保存失败不抛异常、也不中断检测：错误记在
-`lastError()` 里，由调用方上报一次。
+无锁：只在 worker 线程内使用，不跨线程。
+保存失败不会中断，但会记录错误信息：记录在`lastError()` 里，向调用方上报一次。
 
-### `DetectionImageProvider`
+### QML图像提供器`DetectionImageProvider`
 
 既服务「实时画面」（`image://detection/latest?rev=N`），也服务「结果回看」
 （`image://detection/frame/<seq>`）。
 
-回看缓冲是**有界环形**（`kMaxReviewFrames = 60`）。关键设计：推理线程不会因为 UI 看得慢而
-被阻塞，UI 只按自己的节奏推进索引 —— 两边彻底解耦，也就不需要任何跨线程的「等待 / 放行」
-标志位。回看副本按需缩小（1920×1080 × 60 帧约 370 MB，缩到 1280 宽后约 165 MB）。
+回看缓冲是**有界环形**（`kMaxReviewFrames = 60`）。
 
-### `Logger`
+### 日志`Logger`
 
-Qt 风格日志器：通过 `qInstallMessageHandler` 接管 Qt 自身的 `qDebug` / `qInfo` /
+Qt 日志器：通过 `qInstallMessageHandler` 接管 Qt 自身的 `qDebug` / `qInfo` /
 `qWarning` / `qCritical`，统一汇入本日志器，再以 `messageLogged` 信号推给 QML 日志面板。
-`main()` 里尽早调用 `Logger::instance()`，保证启动阶段的日志也能进面板。
 
 ---
 
-## 6. 界面层
+## 6. 界面层QML
 
 | 文件 | 职责 |
 |---|---|
@@ -241,24 +214,17 @@ Qt 风格日志器：通过 `qInstallMessageHandler` 接管 Qt 自身的 `qDebug
 
 ---
 
-## 7. 构建系统
+## 7. 扩展点
 
-- 三个静态库：`Detector`（核心）、`ImageShower`（工具）、`DetectionWorker`（执行单元 +
-  渲染 + 落盘），加上主可执行程序 `YOLO`。
-- QML 模块 `URI yolo`，`RESOURCE_PREFIX "/qt/qml/"`。QML 源文件位于 `qml/`，通过
-  `QT_RESOURCE_ALIAS` 把资源路径压平为 `/qt/qml/yolo/<文件名>.qml`，从而与文件物理位置解耦，
-  `engine.load("qrc:/qt/qml/yolo/main.qml")` 不受目录调整影响。
-- `src`、`src/core`、`src/app`、`src/tools` 统一加入 include 搜索路径，各模块之间以裸文件名
-  互相 `#include`，源文件在 `src/` 内挪动时无需改写 include。
-- Windows 下构建后自动把依赖目录中的 DLL 复制到 exe 旁（用 glob，新增依赖无需改脚本）；
-  CUDA/cuDNN 运行库由 `DEPLOY_CUDA_RUNTIME` 选项控制。
-
----
-
-## 8. 扩展点
-
+- **GPU 预处理**：`CudaPreprocessor` 仅做必要的 tensor 布局转换，尽量调用 FFmpeg CUDA filter、CUDA/NPP 等 API；
+- **FrameHandle**统一的帧句柄，`CpuFrameHandle`持有独立的`cv::Mat`，`GpuFrameHandle`持有`AVFrame*`和CUDA硬件帧上下文；
+- **Processor**预处理，`CpuPreprocessor`和`CudaPreprocessor`分别处理CPU和GPU的预处理，统一接口为`preprocess()`，返回对应的tensor；
+- 分离流程设计：使用CUDA时：
+GPU预处理+GPU推理， 推理输出检测框在CPU NMS，最后将NMS后的检测框使用QT的Overlay叠加在GPU的内存图像上，最后使用QT的GPU显示；
+使用CPU时：CPU预处理+CPU推理+CPU解析+CPU NMS；
+提供fallback机制，设计为：在GPU预处理或GPU推理失败时，释放GPU资源，整体切换到CPU预处理+CPU推理+CPU解析+CPU NMS流程；
+- 设置采集线程->工作线程->UI线程的多线程处理模式，采集线程负责获取帧源，内部使用有界队列进行缓存帧（防止解码过快无限增长内存），
+工作线程负责预处理+推理+解析+NMS，UI线程负责显示和交互；
 - **多 worker 并行**：`DetectionManager::m_worker` 目前是单个 `unique_ptr`，注释已注明
   「单路输入先用 1 个 worker」。改为 `std::vector` 并在 `dispatch()` 中轮询/按负载分配即可，
   两级 Job/Task 模型本身已支持多 worker 消费同一个 Job 的多个 Task。
-- **新增后处理**：`Detector::parse_yolo_ouput()` 目前针对 YOLO 检测头，分割/姿态需另加解析
-  函数并在 `runInference()` 中分支。
