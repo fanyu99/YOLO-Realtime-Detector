@@ -159,16 +159,14 @@ Key design decisions (documented in more depth in [`docs/ARCHITECTURE.md`](docs/
 │   │   ├── HikCameraFrameSource.{h,cpp} # Hikvision MVS source: enumeration, trigger modes
 │   │   ├── Box.h                   # Bounding-box value type (Q_GADGET, QML-exposed)
 │   │   └── AppError.h              # Application-level error value type
-│   ├── app/                    # Qt application layer
-│   │   ├── DetectionApp.{h,cpp}        # QML façade: properties, Q_INVOKABLE slots, banners
-│   │   ├── DetectionManager.{h,cpp}    # Job scheduler: submits/cancels, aggregates task events
-│   │   ├── DetectionWorker.{h,cpp}     # Worker thread + task queue
-│   │   ├── DetectionRenderer.{h,cpp}   # Draws boxes/labels/FPS, Mat → QImage
-│   │   ├── DetectionResultSaver.{h,cpp}# Writes annotated .jpg / .mp4 results
-│   │   ├── DetectionImageProvider.{h,cpp} # image://detection provider + review ring buffer
-│   │   └── Logger.{h,cpp}              # QML singleton log sink, bridges qDebug/qWarning
-│   └── tools/
-│       └── ImageShower.{h,cpp}     # Standalone OpenCV imshow preview helper (debug)
+│   └── app/                    # Qt application layer
+│       ├── DetectionApp.{h,cpp}        # QML façade: properties, Q_INVOKABLE slots, banners
+│       ├── DetectionManager.{h,cpp}    # Job scheduler: submits/cancels, aggregates task events
+│       ├── DetectionWorker.{h,cpp}     # Worker thread + task queue
+│       ├── DetectionRenderer.{h,cpp}   # Draws boxes/labels/FPS, Mat → QImage
+│       ├── DetectionResultSaver.{h,cpp}# Writes annotated .jpg / .mp4 results
+│       ├── DetectionImageProvider.{h,cpp} # image://detection provider + review ring buffer
+│       └── Logger.{h,cpp}              # QML singleton log sink, bridges qDebug/qWarning
 │
 ├── qml/                        # QML user interface
 │   ├── main.qml                # Main window: toolbar, sidebar, result view, log split

@@ -151,16 +151,14 @@
 │   │   ├── HikCameraFrameSource.{h,cpp} # 海康 MVS 帧源：设备枚举、触发模式
 │   │   ├── Box.h                   # 检测框值类型（Q_GADGET，可被 QML 读取）
 │   │   └── AppError.h              # 应用层错误值类型
-│   ├── app/                    # Qt 应用层
-│   │   ├── DetectionApp.{h,cpp}        # QML 门面：属性、Q_INVOKABLE 槽、横幅提示
-│   │   ├── DetectionManager.{h,cpp}    # 作业调度：提交/取消，汇总 Task 事件
-│   │   ├── DetectionWorker.{h,cpp}     # 工作线程 + 任务队列
-│   │   ├── DetectionRenderer.{h,cpp}   # 画框/标签/帧率，Mat → QImage
-│   │   ├── DetectionResultSaver.{h,cpp}# 输出标注后的 .jpg / .mp4
-│   │   ├── DetectionImageProvider.{h,cpp} # image://detection 提供器 + 回看环形缓冲
-│   │   └── Logger.{h,cpp}              # QML 单例日志器，桥接 qDebug/qWarning
-│   └── tools/
-│       └── ImageShower.{h,cpp}     # 独立的 OpenCV imshow 预览工具（调试用）
+│   └── app/                    # Qt 应用层
+│       ├── DetectionApp.{h,cpp}        # QML 门面：属性、Q_INVOKABLE 槽、横幅提示
+│       ├── DetectionManager.{h,cpp}    # 作业调度：提交/取消，汇总 Task 事件
+│       ├── DetectionWorker.{h,cpp}     # 工作线程 + 任务队列
+│       ├── DetectionRenderer.{h,cpp}   # 画框/标签/帧率，Mat → QImage
+│       ├── DetectionResultSaver.{h,cpp}# 输出标注后的 .jpg / .mp4
+│       ├── DetectionImageProvider.{h,cpp} # image://detection 提供器 + 回看环形缓冲
+│       └── Logger.{h,cpp}              # QML 单例日志器，桥接 qDebug/qWarning
 │
 ├── qml/                        # QML 界面
 │   ├── main.qml                # 主窗口：工具栏、侧边栏、结果区、日志分隔区
