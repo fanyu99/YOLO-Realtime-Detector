@@ -83,6 +83,7 @@ public:
 	Q_INVOKABLE void onDetectClicked();							// qml 检测按钮点击
 	Q_INVOKABLE void onDetectCameraClicked(int camera_id);		// qml 摄像头检测按钮点击(带设备 id)
 	Q_INVOKABLE void onDetectHikCameraClicked(const QString& serial, const QString& triggerMode);	// qml 海康相机检测(带序列号)
+	Q_INVOKABLE void onDetectFfmpegClicked();					// qml Ffmpeg检测按钮点击
 	Q_INVOKABLE QVariantList hikDevices() const;				// 枚举在线海康相机(供选择对话框填列表)
 	Q_INVOKABLE quint64 submitBatch(const QList<QUrl>& urls);	// qml 批量检测：一个 Job 含多个 Task
 	Q_INVOKABLE void cancelCurrentJob();						// qml 停止按钮
@@ -115,6 +116,8 @@ private:
 	FrameSourcePtr makeFileSource(QStringView path) const;
 	FrameSourcePtr makeCameraSource(int cameraId) const;
 	FrameSourcePtr makeHikCameraSource( QStringView serial, QStringView triggerMode = QString("Off") ) const;
+	FrameSourcePtr makeFfmpegSource( QStringView filePath )const;
+
 	QString configSummary() const;											// 生成配置摘要文本(用于日志)
 	// 实际生效的保存目录：开关关掉时为空（worker 见到空目录就不保存）
 	// 实际生效的结果目录：开关关掉时为空（worker 见到空目录就不保存）。
@@ -141,8 +144,8 @@ private:
 	std::unique_ptr<DetectionManager> m_manager;
 	DetectionImageProvider* m_frameProvider = nullptr;		// 帧提供器,所有权归 QML engine
 
-	// 结果回看条目。帧本身存在 DetectionImageProvider 的有界缓冲里（按 seq 索引），
-	// 这里只留元信息 —— 避免同一份像素在两个地方各存一份。
+	// 结果回看条目。帧本身存在 DetectionImageProvider 的有界缓冲里（按 seq 索引）
+	// 回看只存序列号、目标数、耗时等元信息
 	struct ReviewItem {
 		quint64 seq = 0;
 		QString name;
