@@ -4,6 +4,8 @@
 #include <QElapsedTimer>
 #include <atomic>
 #include <condition_variable>
+#include <functional>
+#include <memory>
 #include <mutex>
 extern "C" {
 #include <libavdevice/avdevice.h>
@@ -62,13 +64,13 @@ namespace FfmpegDecode {
 
 	// 中断上下文
 	struct InterruptContext {
-		int timeoutMs{ DEFAULT_READ_TIMEOUT_MS }; // 超时时间
+		int timeoutMs{ DEFAULT_DECODE_READ_TIMEOUT_MS }; // 超时时间
 		// 原子变量用于中断回调函数
 		std::atomic<bool> pause{ false }; // 外部的中断标志
 		std::atomic<bool>stop{ false }; // 外部的停止标志，用于解码会话的停止（直接退出循环）
 		QElapsedTimer timer; // 计时器
 
-		explicit InterruptContext( int timeout = DEFAULT_READ_TIMEOUT_MS )
+		explicit InterruptContext( int timeout = DEFAULT_DECODE_READ_TIMEOUT_MS )
 			: timeoutMs( timeout ) {
 			timer.start();  // 开始计时
 		}
@@ -125,6 +127,7 @@ public:
 	using AVFramePtr = FfmpegDecode::AVFramePtr;
 	using AVCodecContextPtr = FfmpegDecode::AVCodecContextPtr;
 	using AVFormatContextPtr = FfmpegDecode::AVFormatContextPtr;
+	using frameCallback = std::function<void( const AVFrame*, quint64 readTimeUs, quint64 decodedTimeUs )>;
 	explicit FfmpegDecoder() = default;
 	explicit FfmpegDecoder( const DecodeConfig& config );
 	~FfmpegDecoder();
@@ -137,8 +140,12 @@ public:
 	[[nodiscard]] bool isOpened()const;
 	// 关闭
 	void close();
+	// 开启读取循环
+	[[nodiscard]] bool startDecodingLoop();
 	// 设置配置
 	void setConfig( const DecodeConfig& config );
+	// 设置回调函数
+	void setFrameCallback(const frameCallback& callback);
 
 	// 读取下一帧，返回读取状态
 	[[nodiscard]] ReadStatus readNextFrame();
@@ -169,11 +176,13 @@ private:
 	// 	根据视频流初始化解码器和 packet/frame
 	[[nodiscard]] bool initDecoder();
 	// 记录当前的流信息
-	void recordStreamInfo( const AVStream* stream, const AVCodec* codec );
+	void recordStreamInfo(  AVStream* stream, const AVCodec* codec );
 	// 循环接收解码器解码packet后输出的帧
 	[[nodiscard]] bool receiveFrames();
 	// 读取packet并解码，阻塞直到停止、EOF或出错
 	[[nodiscard]] bool readAndDecodeLoop();
+	// 帧回调
+	frameCallback m_frameCallback{nullptr};
 
 	StreamInfo m_streamInfo{}; // 流信息
 	DecodeConfig m_config{}; // 配置
@@ -181,12 +190,12 @@ private:
 	DecodeError m_lastError{}; // 上次错误
 	int m_videoStreamIndex{ -1 }; // 视频流索引
 	int m_decodeIndex{ 0 }; // 解码帧索引
+	bool has_pendingPacket{ false }; // 是否有未发送的packet
 	bool flushEof{ false }; // 是否已经flush过EOF
 
 	std::mutex m_pauseMutex;  // 用来暂停的互斥锁，中断时阻塞解码
 	std::condition_variable m_pauseCV; // 用来暂停的条件变量，中断时阻塞解码
 	FfmpegDecode::InterruptContext m_interruptContex; // 中断上下文
-	std::atomic<bool > m_stopRequested{ false }; // 是否请求停止
 	std::atomic<bool>m_running{ false };   // 是否正在工作（包含暂停）
 
 	AVFormatContextPtr m_formatContext{ nullptr }; // 格式上下文

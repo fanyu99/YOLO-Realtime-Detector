@@ -3,9 +3,13 @@
 #include <QUrl>
 #include <optional>
 #include <map>
+extern "C" {
+#include <libavutil/frame.h>
+#include <libavutil/rational.h>
+}
 //  默认的读取和连接超时时间（毫秒）
-const int 	DEFAULT_READ_TIMEOUT_MS = 5000;
-const int DEFAULT_CONNECT_TIMEOUT_MS = 5000;
+constexpr int DEFAULT_DECODE_READ_TIMEOUT_MS = 5000;
+constexpr int DEFAULT_DECODE_CONNECT_TIMEOUT_MS = 5000;
 // 解码类型：读取状态、错误、流信息、解码配置、解码统计、解码结果等
 // 解码读取Packet状态
 enum class ReadStatus {
@@ -36,6 +40,12 @@ struct DecodeError {
 	DecodeErrorCode errorCode{ DecodeErrorCode::NoError };
 
 	// 工厂函数：
+	[[nodiscard]] static DecodeError DecodedrInitFailedError( const QString& message = QStringLiteral( "解码器初始化失败" ) ) {
+		return DecodeError{ message, DecodeErrorCode::DecoderInitFailed };
+	}
+	[[nodiscard]] static DecodeError DecodeFailedError( const QString& message = QStringLiteral( "解码失败" ) ) {
+		return DecodeError{ message, DecodeErrorCode::DecodeFailed };
+	}
 	[[nodiscard]] static DecodeError NoError() {
 		return DecodeError{ QString(), DecodeErrorCode::NoError };
 	}
@@ -60,30 +70,13 @@ struct DecodeError {
 	[[nodiscard]] static DecodeError OpenFailedError( const QString& message = QStringLiteral( "打开失败" ) ) {
 		return DecodeError{ message, DecodeErrorCode::OpenFailed };
 	}
-	[[nodiscard]] static DecodeError InvalidConfigError( const QString& message = QStringLiteral( "无效配置" ) ) {
-		return DecodeError{ message, DecodeErrorCode::InvalidConfig };
-	}
-	[[nodiscard]] static DecodeError CodecNotFoundError( const QString& message = QStringLiteral( "解码器未找到" ) ) {
-		return DecodeError{ message, DecodeErrorCode::CodecNotFound };
-	}
-	[[nodiscard]] static DecodeError InvalidUrlError( const QString& message = QStringLiteral( "无效的URL" ) ) {
-		return DecodeError{ message, DecodeErrorCode::InvalidUrl };
-	}
-	[[nodiscard]] static DecodeError StreamNotFoundError( const QString& message = QStringLiteral( "流未找到" ) ) {
-		return DecodeError{ message, DecodeErrorCode::StreamNotFound };
-	}
 	[[nodiscard]] static DecodeError ReadFailedError( const QString& message = QStringLiteral( "读取失败" ) ) {
 		return DecodeError{ message, DecodeErrorCode::ReadFailed };
 	}
 	[[nodiscard]] static DecodeError ReadTimeoutError( const QString& message = QStringLiteral( "读取超时" ) ) {
 		return DecodeError{ message, DecodeErrorCode::ReadTimeout };
 	}
-	[[nodiscard]] static  DecodeError InvalidConfigError( const QString& message = QStringLiteral( "无效配置" ) ) {
-		return DecodeError{ message, DecodeErrorCode::InvalidConfig };
-	}
-	[[nodiscard]] static DecodeError OtherError( const QString& message = QStringLiteral( "未知错误" ) ) {
-		return DecodeError{ message, DecodeErrorCode::Other };
-	}
+
 };
 
 // 解码流信息
@@ -93,8 +86,8 @@ struct StreamInfo {
 	QString formatName; // 格式名称
 	QString pixelFormat; // 像素格式
 	QString colorSpace; // 色彩空间
-	QString color_range; // 色彩范围
-	AVRational timeBase{ 0.0 }; // 时间基（秒/时间戳单位）
+	QString colorRange; // 色彩范围
+	AVRational timeBase{ 0,1}; // 时间基（秒/时间戳单位）
 	AVRational frameRate{ 0, 1 }; // 帧率（fps）
 	int width{ 0 }; // 视频宽度
 	int height{ 0 }; // 视频高度
@@ -104,7 +97,7 @@ struct StreamInfo {
 		return width > 0 && height > 0
 			&& !codecName.isEmpty()
 			&& !formatName.isEmpty()
-			&& videoStreamIndex >= -1;
+			&& videoStreamIndex >= 0;
 	}
 	void reset() {
 		*this = StreamInfo{};
@@ -116,8 +109,8 @@ struct DecodeConfig {
 	QUrl url; // URL，本地文件路径、rtsp://
 	std::optional<QString> inputFormat; // 输入格式，dshow等
 	std::map<QString, QString>options; // 选项，rtsp_transport、stimeout、max_delay、buffer_size
-	int connectTimeoutMs{ DEFAULT_CONNECT_TIMEOUT_MS };
-	int readTimeoutMs{ DEFAULT_READ_TIMEOUT_MS };
+	int connectTimeoutMs{ DEFAULT_DECODE_CONNECT_TIMEOUT_MS };
+	int readTimeoutMs{ DEFAULT_DECODE_READ_TIMEOUT_MS };
 	int videoStreamIndex{ -1 }; // 视频流索引，-1表示自动选择
 	// 是否合法
 	[[nodiscard]] bool isValid()const {

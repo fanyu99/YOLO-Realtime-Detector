@@ -43,9 +43,11 @@ target_link_libraries(RtspPullerApp PRIVATE
 )
 set_target_properties(RtspPullerApp PROPERTIES WIN32_EXECUTABLE TRUE)
 
+target_include_directories(RtspDecodeWorker PUBLIC ${YOLO_SOURCE_DIRS})
 target_link_libraries(RtspDecodeWorker PUBLIC
     Qt6::Core
     Qt6::Gui
+    FfmpegDecoder
     FFmpeg::avcodec
     FFmpeg::avformat
     FFmpeg::avutil
