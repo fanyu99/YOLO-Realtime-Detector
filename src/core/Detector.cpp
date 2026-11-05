@@ -131,60 +131,6 @@ void Detector::alignInputSizeToModel() {
 	input_shape = { 1, 3, config.input_height, config.input_width };
 }
 
-// letterbox预处理并返回处理信息
-cv::Mat Detector::letterbox( const cv::Mat& src, LetterboxInfo& info, int dst_w, int dst_h, cv::Scalar color, int interp ) {
-	// 检查图像是否合法
-	if (src.empty() || src.channels() != 3) {
-		m_lastError = DetectionError(
-			QStringLiteral( "[Detector]: 输入图像无效: H:" ) + QString::number( src.rows ) + QStringLiteral( ", W:" ) + QString::number( src.cols ) + QStringLiteral( ", channels: " ) + QString::number( src.channels() ),
-			DetectionErrorCategory::Image,
-			DetectionErrorCode::InvalidImage );
-		return cv::Mat();
-	}
-	// 获取缩放比例(以最小为准,防止越界)以及新图的尺寸
-	int src_w = src.cols, src_h = src.rows;
-	float scale = std::min( static_cast<float>(dst_w) / src_w, static_cast<float>(dst_h) / src_h );
-	int new_w = static_cast<int>(std::round( src_w * scale ));
-	int new_h = static_cast<int>(std::round( src_h * scale ));
-	new_w = std::max( 1, std::min( new_w, dst_w ) );
-	new_h = std::max( 1, std::min( new_h, dst_h ) );
-	// 将原图缩放到新尺寸
-	cv::Mat resized;
-	cv::resize( src, resized, cv::Size( new_w, new_h ), 0, 0, interp );
-	// 对缩放后的图像进行填充
-	float pad_x = (dst_w - new_w) / 2.0f;
-	float pad_y = (dst_h - new_h) / 2.0f;
-	cv::Mat canvas( dst_h, dst_w, src.type(), color );
-	int ix = static_cast<int>(std::round( pad_x ));
-	int iy = static_cast<int>(std::round( pad_y ));
-	resized.copyTo( canvas( cv::Rect( ix, iy, new_w, new_h ) ) );
-
-	// 回填信息
-	info.new_h = new_h;
-	info.new_w = new_w;
-	info.orig_h = src_h;
-	info.orig_w = src_w;
-	info.pad_h = static_cast<int>(std::round( pad_y ));
-	info.pad_w = static_cast<int>(std::round( pad_x ));
-	info.scale = scale;
-
-	return canvas;
-}
-
-// 颜色转换并归一化并转换为NCHW布局
-bool Detector::preprocess( const cv::Mat& src, cv::Mat& chw, int dst_w, int dst_h ) {
-	if (src.empty() || src.channels() != 3) {
-		m_lastError = DetectionError(
-			QStringLiteral( "[Detector]: 输入图像无效: H:" ) + QString::number( src.rows ) + QStringLiteral( ", W:" ) + QString::number( src.cols ) + QStringLiteral( ", channels: " ) + QString::number( src.channels() ),
-			DetectionErrorCategory::Image,
-			DetectionErrorCode::InvalidImage );
-		return false;
-	}
-	// swapRB=true 让 blobFromImage 内部完成 BGR->RGB 并归一化到 [0,1]，同时输出 NCHW。
-	cv::dnn::blobFromImage( src, chw, 1.0 / 255.0f, cv::Size( dst_w, dst_h ), cv::Scalar(), true, false, CV_32F );
-	return true;
-}
-
 // 计算IoU
 float Detector::getIoU( const Box& b1, const Box& b2 )const {
 	float x1 = b1.x - b1.w / 2,	// 左上角坐标
@@ -243,8 +189,6 @@ std::vector<Box> Detector::NMS( std::span<const Box> boxes, float iou_threshold 
 	}
 	return filtered_boxes;
 }
-
-
 
 // 解析结果
 std::vector<Box> Detector::parse_yolo_ouput( float* data, int num_classes, int num_anchors ) const {
@@ -327,38 +271,19 @@ void Detector::map_boxes_to_original_image_replace( std::span<Box> boxes, const 
 	}
 }
 
-// 推理检测目标
-DetectionResult Detector::detect( QStringView image_path ) {
-	if (image_path.isEmpty()) {
-		DetectionError error( QStringLiteral( "[Detector]: 未指定输入图片" ), DetectionErrorCategory::Image, DetectionErrorCode::InvalidImage );
+// CPU推理检测目标（输入为预处理后的图像）
+DetectionResult Detector::CpuDetect( const CpuPreprocessResult& preprocessed ) {
+	// 校验输入和配置
+	if (!preprocessed.isValid()) {
+		DetectionError error( QStringLiteral( "[Detector]: 预处理结果无效(blob 为空或 letterbox 信息不全)!" ), DetectionErrorCategory::Preprocess, DetectionErrorCode::PreprocessFailed );
 		m_lastError = error;
-		return DetectionResult{ {},error ,0 };
-	}
-	cv::Mat image = cv::imread( image_path.toString().toStdString() );
-	return detect( image );
-}
-DetectionResult Detector::detect( const cv::Mat& image ) {
-	if (image.empty()) {
-		DetectionError error( QStringLiteral( "[Detector]: 打开图片失败,图片无效!" ), DetectionErrorCategory::Image, DetectionErrorCode::InvalidImage );
-		m_lastError = error;
-		return DetectionResult{ {},error ,0 };
+		return DetectionResult{ {}, error, 0 };
 	}
 	if (!config.isValid()) {
 		DetectionError error( QStringLiteral( "[Detector]: 配置无效!" ), DetectionErrorCategory::Config, DetectionErrorCode::InvalidConfig );
 		m_lastError = error;
-		return DetectionResult{ {},error ,0 };
+		return DetectionResult{ {}, error, 0 };
 	}
-	// 预处理
-	// 1.letterbox
-	LetterboxInfo info;
-	cv::Mat blob = letterbox( image, info, config.input_width, config.input_height ); // 缩放填充到模型指定Size
-	if (blob.empty())	
-		return DetectionResult{ {}, m_lastError, 0 };
-
-	// 2. HWC -> NCHW
-	cv::Mat chw;
-	if (!preprocess( blob, chw, config.input_width, config.input_height ))
-		return DetectionResult{ {}, m_lastError, 0 };
 	if (config.input_width <= 0 || config.input_height <= 0) {
 		DetectionError error( QStringLiteral( "[Detector]: 输入尺寸非法: " )
 			+ QString::number( config.input_width ) + QStringLiteral( "×" ) + QString::number( config.input_height ),
@@ -366,33 +291,39 @@ DetectionResult Detector::detect( const cv::Mat& image ) {
 		m_lastError = error;
 		return DetectionResult{ {}, error, 0 };
 	}
-	const qint64 need = 3ll * config.input_width * config.input_height;	// NCHW: 1*3*W*H
-	if (chw.empty() || static_cast<qint64>(chw.total()) != need || !chw.isContinuous()) {
-		DetectionError error( QStringLiteral( "[Detector]: 转换为 NCHW 格式失败，当前尺寸:" ) + QString::number( config.input_width ) + "x" + QString::number( config.input_height ), DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
+	// 校验是否为NCHW: 1*3*W*H
+	const qint64 need = 3ll * config.input_width * config.input_height;
+	if (static_cast<qint64>(preprocessed.image.total()) != need) {
+		DetectionError error( QStringLiteral( "[Detector]: 预处理 blob 尺寸与模型输入不符，期望 " )
+			+ QString::number( need ) + QStringLiteral( "，实际 " ) + QString::number( preprocessed.image.total() ),
+			DetectionErrorCategory::Preprocess, DetectionErrorCode::PreprocessFailed );
 		m_lastError = error;
-		return DetectionResult{ {},error,0 };
+		return DetectionResult{ {}, error, 0 };
 	}
-
-	return runInference( chw, info );
+	// 使用CPU推理
+	return CpuRunInference(preprocessed);
 }
 
-// 推理入口
-DetectionResult Detector::runInference( cv::Mat& chw, const LetterboxInfo& info ) {
+// CPU 推理入口：接收预处理结果(NCHW blob + letterbox 信息)，只负责 ORT 推理与解析
+DetectionResult Detector::CpuRunInference( const CpuPreprocessResult& preprocessed ) {
+	const cv::Mat& chw = preprocessed.image;			// NCHW blob
+	const LetterboxInfo& info = preprocessed.letterboxInfo;
 	try {
+		// 0. 校验输入 blob
+		if (chw.empty() || !chw.isContinuous() || chw.depth() != CV_32F) {
+			m_lastError = DetectionError( QStringLiteral( "[Detector]: 预处理结果无效(NCHW blob 为空或格式不符)" ),
+				DetectionErrorCategory::Preprocess, DetectionErrorCode::PreprocessFailed );
+			return DetectionResult{ {}, m_lastError, 0 };
+		}
 		// 1. 构造输入tensor
 		Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
 			mem_info,
-			chw.ptr<float>(),
+			const_cast<float*>(chw.ptr<float>()), // 创建CPUTensor
 			chw.total(),
 			input_shape.data(),
 			static_cast<size_t>(input_shape.size())
 		);
-		// 2. 推理
-		//    必须使用 IoBinding 把输出显式绑定到 CPU 内存：
-		//    启用 CUDA EP 后，默认输出张量位于显存，直接 GetTensorMutableData<float>()
-		//    拿到的是设备指针，在 CPU 上解引用会读到垃圾数据甚至直接崩溃。
-		//    绑定到 CPU 后 ORT 会自动完成 D2H 拷贝，CPU / CUDA 两种路径代码完全一致。
-
+		// 2. 推理（使用CPU内存并CPU推理）
 		Ort::MemoryInfo cpu_out_mem =
 			Ort::MemoryInfo::CreateCpu( OrtDeviceAllocator, OrtMemTypeDefault );
 		Ort::IoBinding io_binding{ session };
@@ -472,7 +403,9 @@ bool Detector::warmup( int iterations ) {
 		// 用与真实推理完全一致的尺寸(已按模型对齐过)构造假输入
 		cv::Mat dummy( config.input_height, config.input_width, CV_8UC3, cv::Scalar( 114, 114, 114 ) );
 		cv::Mat chw;
-		if (!preprocess( dummy, chw, config.input_width, config.input_height ))
+		cv::dnn::blobFromImage( dummy, chw, 1.0 / 255.0, cv::Size( config.input_width, config.input_height ),
+			cv::Scalar(), true, false, CV_32F );
+		if (chw.empty())
 			return false;
 
 		QElapsedTimer timer;
@@ -482,7 +415,7 @@ bool Detector::warmup( int iterations ) {
 				mem_info, chw.ptr<float>(), chw.total(),
 				input_shape.data(), static_cast<size_t>( input_shape.size() ) );
 
-			// 与 runInference 保持同一条 IoBinding 路径，
+			// 与 CpuRunInference 保持同一条 IoBinding 路径，
 			Ort::MemoryInfo cpu_out_mem =
 				Ort::MemoryInfo::CreateCpu( OrtDeviceAllocator, OrtMemTypeDefault );
 			Ort::IoBinding io_binding{ session };
@@ -505,27 +438,6 @@ bool Detector::warmup( int iterations ) {
 		qWarning() << "[Detector]: 预热失败(未知异常，不影响后续检测)";
 		return false;
 	}
-}
-
-// 推理视频流
-QVector<DetectionResult> Detector::detect_video( cv::VideoCapture& cap, std::atomic<bool>* stop ) {
-	if (!cap.isOpened()) {
-		DetectionError error( QStringLiteral( "[Detector]: 视频流未打开!" ), DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
-		m_lastError = error;
-		return {};
-	}
-	QVector<DetectionResult> results;
-	cv::Mat frame;
-
-	while (cap.read( frame )) {
-		// 逐帧检查停止标志：摄像头流不会自然结束,以此进行中断
-		if (stop && stop->load( std::memory_order_relaxed ))
-			break;
-		DetectionResult result = detect( frame );
-		if (!result.error.has_error())
-			results.push_back( result );
-	}
-	return results;
 }
 
 // 创建会话选项
@@ -564,18 +476,6 @@ Ort::SessionOptions Detector::CreateSessionOptions( int threads, bool use_cuda, 
 	}
 
 	return session_options;
-}
-
-// 推理视频
-QVector<DetectionResult>Detector::detect_video( QStringView video_path, std::atomic<bool>* stop ) {
-	cv::VideoCapture cap( video_path.toString().toStdString() );
-	if (!cap.isOpened()) {
-		DetectionError error( QStringLiteral( "[Detector]: 打开视频失败!" ), DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
-		m_lastError = error;
-		return {};
-	}
-	return detect_video( cap, stop );
-
 }
 
 Detector::~Detector() {

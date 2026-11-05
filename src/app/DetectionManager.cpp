@@ -175,6 +175,7 @@ bool DetectionManager::isContained(quint64 jobId) const {
 
 // 检测器警告(非致命)
 void DetectionManager::onDetectorWarning(const DetectorWarning& warning) {
+	// 模型输入尺寸警告，App需要进行同步，向上层上报发生了尺寸更改，更新配置
 	if (warning.code == DetectorWarning::Code::InputSizeAligned) {
 		m_config.input_width = warning.to_width;
 		m_config.input_height = warning.to_height;

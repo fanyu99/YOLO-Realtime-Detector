@@ -258,11 +258,9 @@ bool DetectionWorker::runImage(DetectionTask& task) {
 		return false;
 	}
 	const cv::Mat frame = toCvMat(handle);
-	DetectionResult result = m_detector->detect(frame);
-	if (result.error.has_error()) {
-		m_lastError = result.error;
+	DetectionResult result;
+	if (!preprocessAndDetect(handle, result))
 		return false;
-	}
 	result.taskId = task.taskId;
 	result.source = task.source->displayName();	  // 设置展示名称,例如文件路径/摄像头ID等
 
@@ -300,11 +298,9 @@ bool DetectionWorker::runStream(DetectionTask& task) {
 			break;								// 取消按正常结束处理，由 execute() 发 taskCancelled
 
 		const cv::Mat frame = toCvMat(handle);
-		DetectionResult result = m_detector->detect(frame);
-		if (result.error.has_error()) {
-			m_lastError = result.error;
+		DetectionResult result;
+		if (!preprocessAndDetect(handle, result))
 			return false;
-		}
 		result.taskId = task.taskId;
 		result.source = source.displayName();
 		finishUnit(task, frame, result, saver);
@@ -318,6 +314,33 @@ bool DetectionWorker::runStream(DetectionTask& task) {
 		const double fps = static_cast<double>(processed) * 1000.0 / static_cast<double>(elapsedMs);
 		Logger::instance()->info(QStringLiteral("[DetectionWorker]: 实际处理帧率 %1 fps（%2 帧 / %3 ms）")
 			.arg(fps, 0, 'f', 1).arg(processed).arg(elapsedMs));
+	}
+	return true;
+}
+
+// 预处理 + 推理：成功返回 true 并回填 result；预处理失败时设置 m_lastError 并返回 false
+bool DetectionWorker::preprocessAndDetect(const FrameHandlePtr& handle, DetectionResult& result) {
+	if (!m_detector || !m_detector->isValid()) {
+		m_lastError = m_detector
+			? m_detector->lastError()
+			: DetectionError(QStringLiteral("[DetectionWorker]: 检测器未初始化!"),
+				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError);
+		return false;
+	}
+	// 预处理：letterbox + 颜色转换 + 归一化 + NCHW
+	auto preprocessed = m_preprocessor.preprocess(handle, m_detector->inputWidth(), m_detector->inputHeight());
+	if (!preprocessed.has_value()) {
+		m_lastError = m_preprocessor.lastError();
+		if (!m_lastError.has_error())	// 兜底错误
+			m_lastError = DetectionError(QStringLiteral("[DetectionWorker]: 预处理失败"),
+				DetectionErrorCategory::Preprocess, DetectionErrorCode::PreprocessFailed);
+		return false;
+	}
+	// 推理
+	result = m_detector->CpuDetect(*preprocessed);
+	if (result.error.has_error()) {
+		m_lastError = result.error;
+		return false;
 	}
 	return true;
 }

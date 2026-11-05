@@ -8,6 +8,7 @@
 #include <span>
 #include "Box.h"
 #include "DetectionTypes.h"
+#include "CpuPreprocessor.h"
 
 // 检测器：负责 ONNX 模型的加载与推理
 // 错误通过 lastError() 获取
@@ -31,20 +32,14 @@ public:
 	bool setConfig( const DetectorConfig& config_ );
 	// 预热：用假输入跑若干次 Run
 	bool warmup( int iterations = 3 );
-	// 检测目标
-	DetectionResult detect( QStringView image_path );	// 传路径
-	DetectionResult detect( const cv::Mat& image );		// 传图/帧
-	// 传视频路径 / 视频流；stop 非空时逐帧检查，用于取消长作业(如摄像头流)
-	QVector<DetectionResult>detect_video( QStringView video_path, std::atomic<bool>* stop = nullptr );
-	QVector<DetectionResult> detect_video( cv::VideoCapture& cap, std::atomic<bool>* stop = nullptr );
+	// 检测目标(需要将预处理的图像NCHW作为输入)
+	DetectionResult CpuDetect( const CpuPreprocessResult& preprocessed );		// 传图/帧
 	// 当前推理实际使用的设备："CUDA" 或 "CPU"
 	const char* device() const;
 	bool usingCUDA() const;
-	// letterbox预处理	(后续需要RGB和归一化以及重排布局为NCHW)
-	// 失败返回空 Mat，原因见 lastError()
-	cv::Mat letterbox( const cv::Mat& src, LetterboxInfo& info, int dst_w = 640, int dst_h = 640, cv::Scalar color = cv::Scalar( 114, 114, 114 ), int interp = cv::INTER_LINEAR );
-	// 颜色转换并归一化并转换为NCHW布局，失败返回 false
-	bool preprocess( const cv::Mat& src, cv::Mat& chw, int dst_w = 640, int dst_h = 640 );
+	// 当前推理输入尺寸(已按模型自动对齐)，供预处理使用
+	int inputWidth() const { return config.input_width; }
+	int inputHeight() const { return config.input_height; }
 	// 计算IoU
 	float getIoU( const Box& b1, const Box& b2 )const;
 	// 类别内NMS(需要保证已经有过置信度筛选)
@@ -61,8 +56,8 @@ private:
 	// 按模型真实输入 shape 校正 config 与 input_shape；不符时生成警告。
 	// 模型为动态维(-1)时以配置尺寸为准。构造期与 setConfig() 共用。
 	void alignInputSizeToModel();
-	// 推理
-	DetectionResult runInference( cv::Mat& chw, const LetterboxInfo& info );
+	// CPU 推理入口：接收预处理结果(NCHW blob + letterbox 信息)，只负责 ORT 推理与解析
+	DetectionResult CpuRunInference(const CpuPreprocessResult& preprocessed );
 	DetectorConfig config;	// 配置
 	QString input_name;					 // 模型输入名
 	QString output_name;									  // 模型输出名

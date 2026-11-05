@@ -10,6 +10,7 @@
 - 将新增的`FrameHandle`接入到强依赖于cv::Mat的`FrameSource`中，作为统一的帧句柄指针；
 - 新增`CpuPreprocessor`类，统一原本的`DetectorError`为`DetectionError`,新增PreprocessFailed错误类型；将原本的`Detector::letterbox()`和`Detector::preprocess()`统一调用为`CpuPreprocessor::preprocess()`，
 其返回值为`std::optional<CpuPreprocessResult>`，在失败时返回`std::nullopt`，并在内部设置错误`DetectionError`；
+- 将新增的`CpuPreprocessor`接入到`CpuDetect`中，实现CPU推理功能，完成了CPU推理总线。
 ---
 
 正在准备完成：
