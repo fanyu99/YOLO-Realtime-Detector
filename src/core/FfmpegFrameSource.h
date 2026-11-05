@@ -11,7 +11,7 @@ public:
 	bool isOpened()const override;
 	void close()override;
 	FrameSourceType type()const override;
-	cv::Mat getFrame()override;
+	FrameHandlePtr getFrame()override;
 	size_t totalFrames()const override;
 	double fps()const override;
 	cv::Size frameSize()const override;

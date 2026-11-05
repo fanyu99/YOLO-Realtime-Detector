@@ -1,4 +1,5 @@
 #include "FfmpegFrameSource.h"
+#include "CpuFrameHandle.h"
 
 extern "C" {
 #include <libavutil/error.h>
@@ -173,34 +174,36 @@ bool FfmpegFrameSource::open() {
 }
 
 // 获取帧
-cv::Mat FfmpegFrameSource::getFrame() {
+FrameHandlePtr FfmpegFrameSource::getFrame() {
 
 	// 没有打开，尝试打开
 	if (!isOpened()) {
-		// 打开失败返回空Mat
+		// 打开失败返回空指针
 		if (!open()) {
 			m_error = fromDecodeError( m_decoder.getLastError() );
-			return cv::Mat();
+			return nullptr;
 		}
 	}
 	// 读取下一帧
 	ReadStatus status = m_decoder.readNextFrame();
-	// 	出现错误/EOF/停止，返回空Mat
+	// 	出现错误/EOF/停止，返回空指针
 	if (status == ReadStatus::Error) {
 		const DecodeError error = m_decoder.getLastError();
 		if (error.errorCode != DecodeErrorCode::NoError || !error.errorMessage.isEmpty()) {
 			m_error = fromDecodeError( m_decoder.getLastError() );
 		}
-		return cv::Mat();
+		return nullptr;
 	}
 	if (status != ReadStatus::FrameReady) {
-		return cv::Mat();
+		return nullptr;
 	}
 	const cv::Mat mat = avFrameToMat( m_decoder.getCurrentFrame() );
 	if (mat.empty()) {
 		m_error = QStringLiteral( "[FfmpegFrameSource]: 图像格式转换失败" );
+		return nullptr;
 	}
-	return mat;
+	// 解码器计数从 1 起，句柄帧序号统一从 0 起
+	return std::make_shared<CpuFrameHandle>( mat, m_decoder.decodeIndex() - 1 );
 }
 // 关闭
 void FfmpegFrameSource::close() {

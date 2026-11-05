@@ -165,6 +165,8 @@ public:
 	[[nodiscard]] DecodeError getLastError()const;
 	// 获取统计信息
 	[[nodiscard]] DecodeStatistics getStatistics()const;
+	// 当前已解码帧数(从 1 开始)，与 getCurrentFrame() 的帧对应
+	[[nodiscard]] int decodeIndex()const { return m_decodeIndex; }
 
 	// 清理所有资源
 	void releaseResources();

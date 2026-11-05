@@ -1,6 +1,5 @@
 #pragma once
 #include "FrameSource.h"
-#include "CpuFrameHandle.h"
 #include <opencv2/videoio.hpp>
 
 // 以文件（图片/视频）作为帧源
@@ -17,7 +16,7 @@ public:
 	void close() override;
 
 	FrameSourceType type() const override { return m_type; }
-	cv::Mat getFrame() override;
+	FrameHandlePtr getFrame() override;
 	size_t totalFrames() const override { return m_totalFrames; }
 	double fps() const override { return m_fps; }
 	cv::Size frameSize() const override { return m_size; }
@@ -36,6 +35,7 @@ private:
 	bool m_imageTaken = false;	// 单图只有一帧
 
 	bool m_opened = false;
+	int m_frameIndex = 0;		// 当前已产出的帧序号
 	size_t m_totalFrames = 0;
 	double m_fps = 0.0;
 	cv::Size m_size;

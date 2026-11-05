@@ -1,4 +1,5 @@
 #include "FileFrameSource.h"
+#include "CpuFrameHandle.h"
 
 #include <opencv2/imgcodecs.hpp>
 
@@ -45,6 +46,7 @@ bool FileFrameSource::open() {
 
 	m_error.clear();
 	m_imageTaken = false;
+	m_frameIndex = 0;
 
 	switch (m_type) {
 	// 单图
@@ -92,18 +94,20 @@ void FileFrameSource::close() {
 	m_opened = false;
 }
 
-cv::Mat FileFrameSource::getFrame() {
+FrameHandlePtr FileFrameSource::getFrame() {
 	if (!m_opened)
-		return {};
+		return nullptr;
 
 	if (m_type == FrameSourceType::SingleImage) {
 		if (m_imageTaken)	//单图如果已经被取，返回空
-			return {};
+			return nullptr;
 		m_imageTaken = true;
-		return m_image;
+		return std::make_shared<CpuFrameHandle>(m_image, m_frameIndex++);
 	}
 
 	cv::Mat frame;
 	m_cap.read(frame);	 // 读帧
-	return frame;					
+	if (frame.empty())
+		return nullptr;
+	return std::make_shared<CpuFrameHandle>(frame, m_frameIndex++);
 }

@@ -1,11 +1,11 @@
 #pragma once
-#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
 #include "FrameHandle.h"
 // CPU帧句柄：内部存储cv::Mat,Mat自动管理生命周期
 class CpuFrameHandle final : public FrameHandle{
 public:
 	explicit CpuFrameHandle( const cv::Mat& mat, int index = -1 );
-	explicit CpuFrameHandle() = default;
+	CpuFrameHandle() = default;
 	~CpuFrameHandle()override;
 	void setFrameIndex( int index ) override;
 	int width() const override;
@@ -27,3 +27,10 @@ private:
 	cv::Mat m_frame; // 内部存储的帧数据
 	int m_frameIndex = -1; // 帧序号
 };
+
+// 从抽象帧句柄取出 CPU 帧(共享数据，零拷贝)；非 CPU 句柄返回空 Mat
+inline cv::Mat toCvMat( const FrameHandlePtr& handle ) {
+	if (const auto cpu = std::dynamic_pointer_cast<CpuFrameHandle>( handle ))
+		return cpu->constMat();
+	return {};
+}

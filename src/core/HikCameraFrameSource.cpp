@@ -1,5 +1,6 @@
 #include <MvCameraControl.h>
 #include "HikCameraFrameSource.h"
+#include "CpuFrameHandle.h"
 #include <opencv2/opencv.hpp>
 #include <QStringList>
 #include "Logger.h"
@@ -159,6 +160,7 @@ bool HikCameraFrameSource::open() {
 		m_lastError = QStringLiteral("初始化SDK失败");
 		return false;
 	}
+	m_frameIndex = 0;
 	// 打开相机
 	if (!m_camera || !m_camera->handle) {
 		Logger::instance()->error(QStringLiteral("相机未初始化"));
@@ -241,11 +243,11 @@ bool HikCameraFrameSource::open() {
 }
 
 // 获取帧
-cv::Mat HikCameraFrameSource::getFrame() {
+FrameHandlePtr HikCameraFrameSource::getFrame() {
 	if (!m_camera || !m_camera->handle) {
 		Logger::instance()->error(QStringLiteral("相机未初始化"));
 		m_lastError = QStringLiteral("相机未初始化");
-		return cv::Mat();
+		return nullptr;
 	}
 
 	MV_FRAME_OUT frame{};
@@ -263,7 +265,7 @@ cv::Mat HikCameraFrameSource::getFrame() {
 		if (!retryOK) {
 			Logger::instance()->error(QStringLiteral("获取帧失败: %1").arg(ret));
 			m_lastError = QStringLiteral("获取帧失败: %1").arg(ret);
-			return cv::Mat();
+			return nullptr;
 		}
 	}
 
@@ -274,7 +276,9 @@ cv::Mat HikCameraFrameSource::getFrame() {
 		Logger::instance()->error(QStringLiteral("归还SDK缓存失败: %1").arg(ret));
 		m_lastError = QStringLiteral("归还SDK缓存失败: %1").arg(ret);
 	}
-	return image;
+	if (image.empty())
+		return nullptr;
+	return std::make_shared<CpuFrameHandle>(image, m_frameIndex++);
 }
 
 // 枚举设备

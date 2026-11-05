@@ -329,9 +329,9 @@ ${YOLO_SOURCE_DIRS}
 ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(FileFrameSource PUBLIC FrameSource CpuFrameHandle)
-target_link_libraries(FfmpegFrameSource PUBLIC FrameSource FfmpegDecoder)
-target_link_libraries(HikCameraFrameSource 
-PUBLIC FrameSource 
+target_link_libraries(FfmpegFrameSource PUBLIC FrameSource FfmpegDecoder CpuFrameHandle)
+target_link_libraries(HikCameraFrameSource
+PUBLIC FrameSource CpuFrameHandle
 PRIVATE ${MVS_CAMERA_CONTROL_LIB})
 target_include_directories(HikCameraFrameSource 
 PRIVATE ${MVS_INCLUDE_DIRS})
@@ -341,7 +341,7 @@ PRIVATE  ${MVS_LIBRARY_DIRS})
 # Qt::Core 供 QString；OpenCV 供 VideoCapture/imread
 target_link_libraries(FrameSource INTERFACE 
 ${OpenCV_LIBS} Qt::Core )
-target_link_libraries(DetectionWorker PRIVATE Detector Qt::Core Qt::Gui FrameSource)
+target_link_libraries(DetectionWorker PRIVATE Detector Qt::Core Qt::Gui FrameSource CpuFrameHandle)
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
         Qt::Quick

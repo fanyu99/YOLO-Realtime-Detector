@@ -3,12 +3,13 @@
 // 目前支持两种:
 // 1. 使用摄像头/视频文件/图片文件作为帧来源
 // 2. 使用相机类获取帧源
-// 目前仅支持返回cv::Mat的帧源
+// 目前仅支持返回CpuFrameHandle的帧源
 #pragma once
 #include <opencv2/core.hpp>
 #include <QString>
 #include <QStringList>
 #include <memory>
+#include "FrameHandle.h"
 enum class FrameSourceType {
 	SingleImage,	// 单张照片
 	VideoFile,							 // 视频文件
@@ -26,7 +27,7 @@ public:
 	virtual void close() = 0;
 
 	virtual FrameSourceType type() const = 0;	// 帧源种类: worker据此选择取帧方式, 上层据此派生JobType
-	virtual cv::Mat getFrame() = 0;	   // 获取帧,出现错误返回空Mat
+	virtual FrameHandlePtr getFrame() = 0;	   // 获取帧,出现错误返回空指针
 	virtual size_t totalFrames() const { return 0; } // 返回总帧,未知返回0,例如摄像头返回0
     virtual double fps()const { return 0.0; }; // 返回帧数,图片为0,resultSaver根据为0不设置VideoWriter
 	virtual cv::Size frameSize()const { return cv::Size(); } // 返回帧大小
