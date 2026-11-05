@@ -3,24 +3,23 @@
 #include <opencv2/opencv.hpp>
 #include <QVector>
 #include <QString>
-#include <atomic>
 #include <vector>
 #include <span>
 #include "Box.h"
 #include "DetectionTypes.h"
 #include "CpuPreprocessor.h"
 
-// 检测器：负责 ONNX 模型的加载与推理
+// CPU 检测器：负责 ONNX 模型的加载与推理（仅 CPU 推理路径）
 // 错误通过 lastError() 获取
-class Detector {
+class CpuDetector {
 public:
-	Detector();
-	Detector( const DetectorConfig& config );
-	~Detector();
-	Detector& operator=( const Detector& ) = delete;
-	Detector& operator=( Detector&& ) = delete;
-	Detector( const Detector& ) = delete;
-	Detector( Detector&& ) = delete;
+	CpuDetector();
+	CpuDetector( const DetectorConfig& config );
+	~CpuDetector();
+	CpuDetector& operator=( const CpuDetector& ) = delete;
+	CpuDetector& operator=( CpuDetector&& ) = delete;
+	CpuDetector( const CpuDetector& ) = delete;
+	CpuDetector( CpuDetector&& ) = delete;
 
 	// 会话是否构造成功(构造失败时用 lastError() 取原因)
 	bool isValid() const { return m_valid; }
@@ -34,9 +33,6 @@ public:
 	bool warmup( int iterations = 3 );
 	// 检测目标(需要将预处理的图像NCHW作为输入)
 	DetectionResult CpuDetect( const CpuPreprocessResult& preprocessed );		// 传图/帧
-	// 当前推理实际使用的设备："CUDA" 或 "CPU"
-	const char* device() const;
-	bool usingCUDA() const;
 	// 当前推理输入尺寸(已按模型自动对齐)，供预处理使用
 	int inputWidth() const { return config.input_width; }
 	int inputHeight() const { return config.input_height; }
@@ -51,8 +47,8 @@ public:
 	QVector<Box> map_boxes_to_original_image( std::span<const Box> boxes, const LetterboxInfo& info ) const;
 	void map_boxes_to_original_image_replace( std::span<Box> boxes, const LetterboxInfo& info );
 private:
-	// 创建会话选项
-	static Ort::SessionOptions CreateSessionOptions( int threads, bool use_cuda, int device_id, bool& cuda_ok );
+	// 创建 CPU 会话选项
+	static Ort::SessionOptions CreateCpuSessionOptions( int threads );
 	// 按模型真实输入 shape 校正 config 与 input_shape；不符时生成警告。
 	// 模型为动态维(-1)时以配置尺寸为准。构造期与 setConfig() 共用。
 	void alignInputSizeToModel();
@@ -67,7 +63,6 @@ private:
 	Ort::Env env;
 	Ort::Session session;		// 对话,不能拷贝
 	Ort::MemoryInfo mem_info;	 // 预分配内存信息
-	bool cuda_enabled = false;	// CUDA 是否真正启用成功
 	bool m_valid = false;		// 会话是否构造成功
 	DetectionError m_lastError;	// 最近一次错误
 };

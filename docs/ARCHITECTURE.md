@@ -11,9 +11,12 @@
 - 新增`CpuPreprocessor`类，统一原本的`DetectorError`为`DetectionError`,新增PreprocessFailed错误类型；将原本的`Detector::letterbox()`和`Detector::preprocess()`统一调用为`CpuPreprocessor::preprocess()`，
 其返回值为`std::optional<CpuPreprocessResult>`，在失败时返回`std::nullopt`，并在内部设置错误`DetectionError`；
 - 将新增的`CpuPreprocessor`接入到`CpuDetect`中，实现CPU推理功能，完成了CPU推理总线。
+- 添加了`CpuDetecitonFlow`流程类骨架以及通用的后处理器`CommonPostProcessor`，统一CPU推理流程，其中进行了预处理+推理+后处理的完整流程。
 ---
 
 正在准备完成：
+- 1.更改原本的`CpuDetector`内部的各种耦合的功能，仅保留推理功能
+- 2.建立完整的统一的CPU推理流程类`CpuDetectionFlow`并将其接入到`DetectionWorker`中，完成CPU推理总线
 - 将当前的Detector内部功能模块进行分离解耦，分为cpuPreprocessor、gpuProcessor两种预处理器，并在detector中分为cpu、gpu两种推理模式；Detector内部仅作为ORT的推理；
 提供Fallback机制；
 - `GpuFrameHandle`用于封装GPU处理流程中所需要的AVFrame*和CUDA硬件帧NV12上下文。

@@ -173,7 +173,7 @@ unset(_yolo_cv_debug_implib)
 # -----------------------------------------------------------------------------
 # 源码搜索路径
 #
-# 各模块之间仍以「裸文件名」互相 include（例如 #include "Detector.h"），
+# 各模块之间仍以「裸文件名」互相 include（例如 #include "CpuDetector.h"），
 # 因此这里把 src 及其子目录统一加入搜索路径。好处是源文件在 src/ 内挪动
 # 目录时，不必逐个改写 include 语句。
 # -----------------------------------------------------------------------------
@@ -200,9 +200,9 @@ qt_add_library(CpuPreprocessor STATIC
     src/core/CpuPreprocessor.h
 )
 # 推理内核：ONNX 会话管理、letterbox 预处理、YOLO 输出解析与 NMS
-qt_add_library(Detector STATIC
-    src/core/Detector.cpp
-    src/core/Detector.h
+qt_add_library(CpuDetector STATIC
+    src/core/CpuDetector.cpp
+    src/core/CpuDetector.h
 )
 # ffmpeg解码器，单独解码线程，将帧传给推理线程
 qt_add_library(FfmpegDecoder STATIC
@@ -231,6 +231,17 @@ src/core/FfmpegFrameSource.h src/core/FfmpegFrameSource.cpp)
 qt_add_library(HikCameraFrameSource STATIC 
 src/core/HikCameraFrameSource.h src/core/HikCameraFrameSource.cpp)
 
+# 通用的后处理器
+qt_add_library(CommonPostProcessor STATIC
+    src/core/CommonPostProcessor.cpp
+    src/core/CommonPostProcessor.h
+)
+
+# 统一的CPU推理流程
+qt_add_library(CpuDetectionFlow STATIC
+    src/core/IDetectionFlow.h
+    src/core/CpuDetectionFlow.h  src/core/CpuDetectionFlow.cpp
+)
 
 # 执行单元：worker 线程循环 + 结果渲染 + 结果落盘
 qt_add_library(DetectionWorker STATIC
@@ -239,7 +250,7 @@ qt_add_library(DetectionWorker STATIC
     src/app/DetectionResultSaver.cpp  src/app/DetectionResultSaver.h
 )
 
-foreach(_lib Detector DetectionWorker)
+foreach(_lib CpuDetector DetectionWorker)
     target_include_directories(${_lib} PUBLIC ${YOLO_SOURCE_DIRS})
 endforeach()
 
@@ -314,7 +325,7 @@ PRIVATE ${YOLO_SOURCE_DIRS})
 # 链接
 # -----------------------------------------------------------------------------
 target_link_libraries(CpuPreprocessor PUBLIC ${OpenCV_LIBS} Qt::Core)
-target_link_libraries(Detector PUBLIC 
+target_link_libraries(CpuDetector PUBLIC 
 onnxruntime ${OpenCV_LIBS} Qt::Core CpuPreprocessor)
 target_link_libraries(FfmpegDecoder PUBLIC 
 Qt::Core
@@ -346,17 +357,27 @@ PRIVATE ${MVS_INCLUDE_DIRS})
 target_link_directories(HikCameraFrameSource
 PRIVATE  ${MVS_LIBRARY_DIRS})
 
+# 通用的后处理器
+# DetectionTypes.h/Box.h 需要 Qt 头文件与 OpenCV，不链接 Qt::Core 时
+# 会报 C1083 找不到 QElapsedTimer 等 Qt 头
+target_link_libraries(CommonPostProcessor PUBLIC ${OpenCV_LIBS} Qt::Core)
+
+# CPU推理流程
+target_link_libraries(CpuDetectionFlow PUBLIC 
+CpuDetector CpuPreprocessor
+CpuFrameHandle FrameSource CommonPostProcessor)
+
 # Qt::Core 供 QString；OpenCV 供 VideoCapture/imread
 target_link_libraries(FrameSource INTERFACE 
 ${OpenCV_LIBS} Qt::Core )
-target_link_libraries(DetectionWorker PRIVATE Detector Qt::Core Qt::Gui FrameSource CpuFrameHandle)
+target_link_libraries(DetectionWorker PRIVATE CpuDetector Qt::Core Qt::Gui FrameSource CpuFrameHandle)
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
         Qt::Quick
         Qt::Multimedia 
         ${OpenCV_LIBS}
         onnxruntime
-        Detector
+        CpuDetector
         DetectionWorker
         FrameSource
         HikCameraFrameSource

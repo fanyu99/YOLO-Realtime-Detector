@@ -1,4 +1,4 @@
-#include "Detector.h"
+#include "CpuDetector.h"
 #include "Logger.h"
 #include <QDebug>
 #include <QElapsedTimer>
@@ -6,22 +6,22 @@
 #include <span>
 #include <algorithm>
 #include <cmath>
-Detector::Detector()
-	: env( ORT_LOGGING_LEVEL_WARNING, "Detector" ),
+CpuDetector::CpuDetector()
+	: env( ORT_LOGGING_LEVEL_WARNING, "CpuDetector" ),
 	session{ nullptr },
 	mem_info( Ort::MemoryInfo::CreateCpu( OrtArenaAllocator, OrtMemTypeDefault ) )
 {
 }
-Detector::Detector( const DetectorConfig& config_ )
+CpuDetector::CpuDetector( const DetectorConfig& config_ )
 	: config{ config_ },
-	env( ORT_LOGGING_LEVEL_WARNING, "Detector" ),
+	env( ORT_LOGGING_LEVEL_WARNING, "CpuDetector" ),
 	session{ nullptr },
 	mem_info( Ort::MemoryInfo::CreateCpu( OrtArenaAllocator, OrtMemTypeDefault ) ),
 	input_shape( { 1, 3, config_.input_height, config_.input_width } )
 {
 	if (!std::filesystem::exists( config_.model_path )) {
 		m_lastError = DetectionError(
-			QStringLiteral( "[Detector]: 模型路径无效: " ) + QString::fromStdU16String( config_.model_path.u16string() ),
+			QStringLiteral( "[CpuDetector]: 模型路径无效: " ) + QString::fromStdU16String( config_.model_path.u16string() ),
 			DetectionErrorCategory::Model,
 			DetectionErrorCode::InvalidModelPath );
 		return;	// 路径无效就不再尝试建会话
@@ -29,7 +29,7 @@ Detector::Detector( const DetectorConfig& config_ )
 
 	try {
 		Ort::SessionOptions session_options =
-			CreateSessionOptions( config.num_threads, config.use_cuda, config.device_id, cuda_enabled );
+			CreateCpuSessionOptions( config.num_threads );
 
 		session = Ort::Session( env, config.model_path.c_str(), session_options );
 
@@ -46,30 +46,21 @@ Detector::Detector( const DetectorConfig& config_ )
 	}
 	catch (const std::exception& e) {
 		m_lastError = DetectionError(
-			QStringLiteral( "[Detector]: 初始化检测器失败: " ) + e.what(),
+			QStringLiteral( "[CpuDetector]: 初始化检测器失败: " ) + e.what(),
 			DetectionErrorCategory::Other,
 			DetectionErrorCode::UnknownError );
 	}
 }
-const char* Detector::device() const {
-	return cuda_enabled ? "CUDA" : "CPU";
-}
-bool Detector::usingCUDA() const {
-	return cuda_enabled;
-}
 // 更改配置
-bool Detector::setConfig( const DetectorConfig& config_ ) {
+bool CpuDetector::setConfig( const DetectorConfig& config_ ) {
 	if (!config_.isValid()) {
 		m_lastError = DetectionError(
-			QStringLiteral( "[Detector]: 配置无效: 模型路径: " ) + QString::fromStdString( config_.model_path.string() )
+			QStringLiteral( "[CpuDetector]: 配置无效: 模型路径: " ) + QString::fromStdString( config_.model_path.string() )
 			+ QStringLiteral( " 类别数: " ) + QString::number( config_.class_names.size() )
 			+ QStringLiteral( " 置信度阈值: " ) + QString::number( config_.conf_threshold ) + QStringLiteral( " NMS阈值: " ) + QString::number( config_.iou_threshold )
 			+ QStringLiteral( " 推理输入(W*H): " )
 			+ QString::number( config_.input_width ) + QStringLiteral( "*" ) + QString::number( config_.input_height )
-			+ QStringLiteral( " 线程数: " ) + QString::number( config_.num_threads )
-			+ QStringLiteral( " 是否启用CUDA: " )
-			+ QString( config_.use_cuda ? "是" : "否" )
-			+ QStringLiteral( " CUDA设备号: " ) + QString::number( config_.device_id ),
+			+ QStringLiteral( " 线程数: " ) + QString::number( config_.num_threads ),
 			DetectionErrorCategory::Config,
 			DetectionErrorCode::InvalidConfig );
 		return false;
@@ -89,7 +80,7 @@ bool Detector::setConfig( const DetectorConfig& config_ ) {
 // 模型输入为静态尺寸且与配置不符时：自动对齐到模型尺寸，并生成一条警告
 // (这是"成功但改了参数"，必须让用户显式知晓，所以走 warnings 通道而不是 lastError)。
 // 模型输入为动态维(-1)时：以配置尺寸为准。
-void Detector::alignInputSizeToModel() {
+void CpuDetector::alignInputSizeToModel() {
 	m_warnings.clear();
 
 	// 只处理标准的 NCHW 四维输入；其他维度交给 Run() 自己报错
@@ -104,7 +95,7 @@ void Detector::alignInputSizeToModel() {
 	// 动态维：模型不指定尺寸，采用配置值
 	if (model_h <= 0 || model_w <= 0) {
 		m_warnings.push_back( DetectorWarning(
-			QStringLiteral( "[Detector]: 模型为动态输入(H/W 含 -1)，采用配置尺寸 " )
+			QStringLiteral( "[CpuDetector]: 模型为动态输入(H/W 含 -1)，采用配置尺寸 " )
 			+ QString::number( config.input_width ) + QStringLiteral( "×" ) + QString::number( config.input_height ),
 			DetectorWarning::Code::DynamicInputUsed,
 			config.input_width, config.input_height,
@@ -118,7 +109,7 @@ void Detector::alignInputSizeToModel() {
 		const int to_w = static_cast<int>(model_w);
 		const int to_h = static_cast<int>(model_h);
 		m_warnings.push_back( DetectorWarning(
-			QStringLiteral( "[Detector]: 模型输入为 " ) + QString::number( to_w ) + QStringLiteral( "×" ) + QString::number( to_h )
+			QStringLiteral( "[CpuDetector]: 模型输入为 " ) + QString::number( to_w ) + QStringLiteral( "×" ) + QString::number( to_h )
 			+ QStringLiteral( "，与配置的 " ) + QString::number( config.input_width ) + QStringLiteral( "×" ) + QString::number( config.input_height )
 			+ QStringLiteral( " 不一致，已自动按模型尺寸对齐" ),
 			DetectorWarning::Code::InputSizeAligned,
@@ -132,7 +123,7 @@ void Detector::alignInputSizeToModel() {
 }
 
 // 计算IoU
-float Detector::getIoU( const Box& b1, const Box& b2 )const {
+float CpuDetector::getIoU( const Box& b1, const Box& b2 )const {
 	float x1 = b1.x - b1.w / 2,	// 左上角坐标
 		x2 = b2.x - b2.w / 2,
 		y1 = b1.y - b1.h / 2,
@@ -153,7 +144,7 @@ float Detector::getIoU( const Box& b1, const Box& b2 )const {
 
 
 // 类别内NMS(需要保证已经有过置信度筛选)
-std::vector<Box> Detector::NMS( std::span<const Box> boxes, float iou_threshold ) const {
+std::vector<Box> CpuDetector::NMS( std::span<const Box> boxes, float iou_threshold ) const {
 	std::vector<Box> sorted_boxes( boxes.begin(), boxes.end() );
 	// 按照类别和置信度排序，先按类别升序，再按置信度降序
 	std::sort( sorted_boxes.begin(), sorted_boxes.end(),
@@ -191,7 +182,7 @@ std::vector<Box> Detector::NMS( std::span<const Box> boxes, float iou_threshold 
 }
 
 // 解析结果
-std::vector<Box> Detector::parse_yolo_ouput( float* data, int num_classes, int num_anchors ) const {
+std::vector<Box> CpuDetector::parse_yolo_ouput( float* data, int num_classes, int num_anchors ) const {
 	// 筛选目标
 	// 找出一个目标的检测中置信度最大的类别，如果大于置信度阈值就保留这个目标
 	std::vector<Box> boxes;
@@ -224,7 +215,7 @@ std::vector<Box> Detector::parse_yolo_ouput( float* data, int num_classes, int n
 }
 
 // 将预测框映射回原图
-QVector<Box>Detector::map_boxes_to_original_image( std::span<const Box> boxes, const LetterboxInfo& info ) const {
+QVector<Box>CpuDetector::map_boxes_to_original_image( std::span<const Box> boxes, const LetterboxInfo& info ) const {
 	QVector<Box>mapped_boxes;
 	mapped_boxes.reserve( static_cast<qsizetype>(boxes.size()) );
 	const float inv_scale = 1.0f / info.scale;
@@ -249,7 +240,7 @@ QVector<Box>Detector::map_boxes_to_original_image( std::span<const Box> boxes, c
 	return mapped_boxes;
 }
 // 替换
-void Detector::map_boxes_to_original_image_replace( std::span<Box> boxes, const LetterboxInfo& info ) {
+void CpuDetector::map_boxes_to_original_image_replace( std::span<Box> boxes, const LetterboxInfo& info ) {
 	const float inv_scale = 1.0f / info.scale;
 	const float max_x = static_cast<float>(info.orig_w);
 	const float max_y = static_cast<float>(info.orig_h);
@@ -272,20 +263,20 @@ void Detector::map_boxes_to_original_image_replace( std::span<Box> boxes, const 
 }
 
 // CPU推理检测目标（输入为预处理后的图像）
-DetectionResult Detector::CpuDetect( const CpuPreprocessResult& preprocessed ) {
+DetectionResult CpuDetector::CpuDetect( const CpuPreprocessResult& preprocessed ) {
 	// 校验输入和配置
 	if (!preprocessed.isValid()) {
-		DetectionError error( QStringLiteral( "[Detector]: 预处理结果无效(blob 为空或 letterbox 信息不全)!" ), DetectionErrorCategory::Preprocess, DetectionErrorCode::PreprocessFailed );
+		DetectionError error( QStringLiteral( "[CpuDetector]: 预处理结果无效(blob 为空或 letterbox 信息不全)!" ), DetectionErrorCategory::Preprocess, DetectionErrorCode::PreprocessFailed );
 		m_lastError = error;
 		return DetectionResult{ {}, error, 0 };
 	}
 	if (!config.isValid()) {
-		DetectionError error( QStringLiteral( "[Detector]: 配置无效!" ), DetectionErrorCategory::Config, DetectionErrorCode::InvalidConfig );
+		DetectionError error( QStringLiteral( "[CpuDetector]: 配置无效!" ), DetectionErrorCategory::Config, DetectionErrorCode::InvalidConfig );
 		m_lastError = error;
 		return DetectionResult{ {}, error, 0 };
 	}
 	if (config.input_width <= 0 || config.input_height <= 0) {
-		DetectionError error( QStringLiteral( "[Detector]: 输入尺寸非法: " )
+		DetectionError error( QStringLiteral( "[CpuDetector]: 输入尺寸非法: " )
 			+ QString::number( config.input_width ) + QStringLiteral( "×" ) + QString::number( config.input_height ),
 			DetectionErrorCategory::Config, DetectionErrorCode::InvalidConfig );
 		m_lastError = error;
@@ -294,7 +285,7 @@ DetectionResult Detector::CpuDetect( const CpuPreprocessResult& preprocessed ) {
 	// 校验是否为NCHW: 1*3*W*H
 	const qint64 need = 3ll * config.input_width * config.input_height;
 	if (static_cast<qint64>(preprocessed.image.total()) != need) {
-		DetectionError error( QStringLiteral( "[Detector]: 预处理 blob 尺寸与模型输入不符，期望 " )
+		DetectionError error( QStringLiteral( "[CpuDetector]: 预处理 blob 尺寸与模型输入不符，期望 " )
 			+ QString::number( need ) + QStringLiteral( "，实际 " ) + QString::number( preprocessed.image.total() ),
 			DetectionErrorCategory::Preprocess, DetectionErrorCode::PreprocessFailed );
 		m_lastError = error;
@@ -305,13 +296,13 @@ DetectionResult Detector::CpuDetect( const CpuPreprocessResult& preprocessed ) {
 }
 
 // CPU 推理入口：接收预处理结果(NCHW blob + letterbox 信息)，只负责 ORT 推理与解析
-DetectionResult Detector::CpuRunInference( const CpuPreprocessResult& preprocessed ) {
+DetectionResult CpuDetector::CpuRunInference( const CpuPreprocessResult& preprocessed ) {
 	const cv::Mat& chw = preprocessed.image;			// NCHW blob
 	const LetterboxInfo& info = preprocessed.letterboxInfo;
 	try {
 		// 0. 校验输入 blob
 		if (chw.empty() || !chw.isContinuous() || chw.depth() != CV_32F) {
-			m_lastError = DetectionError( QStringLiteral( "[Detector]: 预处理结果无效(NCHW blob 为空或格式不符)" ),
+			m_lastError = DetectionError( QStringLiteral( "[CpuDetector]: 预处理结果无效(NCHW blob 为空或格式不符)" ),
 				DetectionErrorCategory::Preprocess, DetectionErrorCode::PreprocessFailed );
 			return DetectionResult{ {}, m_lastError, 0 };
 		}
@@ -337,7 +328,7 @@ DetectionResult Detector::CpuRunInference( const CpuPreprocessResult& preprocess
 
 		std::vector<Ort::Value> output_tensors = io_binding.GetOutputValues();
 		if (output_tensors.empty()) {
-			DetectionError error( QStringLiteral( "[Detector]: 未返回输出张量" ), DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
+			DetectionError error( QStringLiteral( "[CpuDetector]: 未返回输出张量" ), DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 			m_lastError = error;
 			return { {},error,0 };
 		}
@@ -348,7 +339,7 @@ DetectionResult Detector::CpuRunInference( const CpuPreprocessResult& preprocess
 
 		// 输出布局为 [1, 4+num_classes, num_anchors]。
 		if (output_shape.size() < 3) {
-			DetectionError error( QStringLiteral( "[Detector]: 输出张量维度异常，期望 3 维，实际 " )
+			DetectionError error( QStringLiteral( "[CpuDetector]: 输出张量维度异常，期望 3 维，实际 " )
 				+ QString::number( output_shape.size() ), DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
 			m_lastError = error;
 			return { {},error,0 };
@@ -356,7 +347,7 @@ DetectionResult Detector::CpuRunInference( const CpuPreprocessResult& preprocess
 		const int num_classes = static_cast<int>(output_shape[1]) - 4;
 		const int num_anchors = static_cast<int>(output_shape[2]);
 		if (num_classes <= 0 || num_anchors <= 0) {
-			DetectionError error( QStringLiteral( "[Detector]: 输出张量形状异常: [" )
+			DetectionError error( QStringLiteral( "[CpuDetector]: 输出张量形状异常: [" )
 				+ QString::number( output_shape[1] ) + QStringLiteral( ", " ) + QString::number( output_shape[2] )
 				+ QStringLiteral( "]，无法解析类别数与锚点数" ), DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
 			m_lastError = error;
@@ -366,36 +357,36 @@ DetectionResult Detector::CpuRunInference( const CpuPreprocessResult& preprocess
 		std::vector<Box>boxes = parse_yolo_ouput( output_data, num_classes, num_anchors );
 		map_boxes_to_original_image_replace( boxes, info );
 		// 逐帧推理日志：按 setInfoInterval 的间隔输出
-		Logger::instance()->infoWithInterval(QStringLiteral("[Detector]: 检测到%1个目标，推理耗时: %2ms")
+		Logger::instance()->infoWithInterval(QStringLiteral("[CpuDetector]: 检测到%1个目标，推理耗时: %2ms")
 			.arg(boxes.size()).arg(duration));
 		return DetectionResult{ QVector<Box>( boxes.begin(), boxes.end() ),
 								DetectionError{ QStringLiteral( "" ),DetectionErrorCategory::None,DetectionErrorCode::None },
 								duration };
 	}
 	catch (const Ort::Exception& e) {
-		m_lastError = DetectionError( QStringLiteral( "[Detector]: ONNX 推理失败: " ) + QString::fromUtf8( e.what() ),
+		m_lastError = DetectionError( QStringLiteral( "[CpuDetector]: ONNX 推理失败: " ) + QString::fromUtf8( e.what() ),
 			DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
 		return DetectionResult{ {}, m_lastError, 0 };
 	}
 	catch (const cv::Exception& e) {
-		m_lastError = DetectionError( QStringLiteral( "[Detector]: OpenCV 异常: " ) + QString::fromUtf8( e.what() ),
+		m_lastError = DetectionError( QStringLiteral( "[CpuDetector]: OpenCV 异常: " ) + QString::fromUtf8( e.what() ),
 			DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
 		return DetectionResult{ {}, m_lastError, 0 };
 	}
 	catch (const std::exception& e) {
-		m_lastError = DetectionError( QStringLiteral( "[Detector]: 推理异常: " ) + QString::fromUtf8( e.what() ),
+		m_lastError = DetectionError( QStringLiteral( "[CpuDetector]: 推理异常: " ) + QString::fromUtf8( e.what() ),
 			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 		return DetectionResult{ {}, m_lastError, 0 };
 	}
 	catch (...) {
-		m_lastError = DetectionError( QStringLiteral( "[Detector]: 推理时发生未知异常" ),
+		m_lastError = DetectionError( QStringLiteral( "[CpuDetector]: 推理时发生未知异常" ),
 			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 		return DetectionResult{ {}, m_lastError, 0 };
 	}
 }
 
 // 预热
-bool Detector::warmup( int iterations ) {
+bool CpuDetector::warmup( int iterations ) {
 	if (!m_valid || !session || iterations <= 0)
 		return false;
 
@@ -425,60 +416,29 @@ bool Detector::warmup( int iterations ) {
 			session.Run( Ort::RunOptions{ nullptr }, io_binding );
 			io_binding.GetOutputValues();	// 必须取走输出，否则输出缓冲不参与热机
 
-			qInfo() << "[Detector]: 预热" << (i + 1) << "/" << iterations
+			qInfo() << "[CpuDetector]: 预热" << (i + 1) << "/" << iterations
 				<< "耗时" << timer.elapsed() << "ms";
 		}
 		return true;
 	}
 	catch (const std::exception& e) {
-		qWarning() << "[Detector]: 预热失败(不影响后续检测):" << e.what();
+		qWarning() << "[CpuDetector]: 预热失败(不影响后续检测):" << e.what();
 		return false;
 	}
 	catch (...) {
-		qWarning() << "[Detector]: 预热失败(未知异常，不影响后续检测)";
+		qWarning() << "[CpuDetector]: 预热失败(未知异常，不影响后续检测)";
 		return false;
 	}
 }
 
-// 创建会话选项
-// 只有真正设置成功才置ok为 true
-Ort::SessionOptions Detector::CreateSessionOptions( int threads, bool use_cuda, int device_id, bool& cuda_ok ) {
+// 创建 CPU 会话选项
+Ort::SessionOptions CpuDetector::CreateCpuSessionOptions( int threads ) {
 	Ort::SessionOptions session_options;
 	session_options.SetIntraOpNumThreads( threads );
-	cuda_ok = false;
-
-	if (!use_cuda) {
-		return session_options;
-	}
-
-	try {
-		auto providers = Ort::GetAvailableProviders();
-
-		if (std::find( providers.begin(), providers.end(),
-			std::string( "CUDAExecutionProvider" ) ) == providers.end()) {
-			qWarning() << "[Detector]: 未检测到 CUDAExecutionProvider，已回退到 CPU";
-			qWarning() << "[Detector]: 常见原因：未安装 CUDA Toolkit / cuDNN，或其 bin 目录不在 PATH 中";
-			return session_options;
-		}
-
-		OrtCUDAProviderOptions cuda_opts{};
-		cuda_opts.device_id = device_id;
-		// Heuristic 更适合在线推理
-		cuda_opts.cudnn_conv_algo_search = OrtCudnnConvAlgoSearchHeuristic;
-		cuda_opts.gpu_mem_limit = SIZE_MAX;
-		cuda_opts.arena_extend_strategy = 0;
-		session_options.AppendExecutionProvider_CUDA( cuda_opts );
-
-		cuda_ok = true;
-	}
-	catch (const std::exception& e) {
-		qWarning() << "[Detector]: CUDA provider 加载失败，已回退到 CPU:" << e.what();
-	}
-
 	return session_options;
 }
 
-Detector::~Detector() {
+CpuDetector::~CpuDetector() {
 }
 
 

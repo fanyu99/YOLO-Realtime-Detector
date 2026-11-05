@@ -10,7 +10,7 @@
 #include <QThread>
 
 #include "DetectionTypes.h"
-#include "Detector.h"
+#include "CpuDetector.h"
 #include "FrameSource.h"
 
 class DetectionResultSaver;
@@ -59,7 +59,7 @@ private:
 	bool preprocessAndDetect(const FrameHandlePtr& handle, DetectionResult& result);
 
 	std::unique_ptr<QThread> m_thread;		// 工作线程
-	std::unique_ptr<Detector> m_detector;		// 在 worker 线程内构造
+	std::unique_ptr<CpuDetector> m_detector;		// 在 worker 线程内构造
 	CpuPreprocessor m_preprocessor;			// CPU 预处理器(在 worker 线程内使用)
 	DetectorConfig m_config;					   // 保存内部的Detector配置
 	DetectionError m_lastError;					// 只在 worker 线程内写

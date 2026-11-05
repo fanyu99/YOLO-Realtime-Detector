@@ -110,7 +110,7 @@ bool DetectionWorker::submit(std::unique_ptr<DetectionTask> task) {
 // 工作循环
 void DetectionWorker::work() {
 	// 在 worker 线程内加载模型：ONNX 会话构造较重,在worker线程进行构造
-	m_detector = std::make_unique<Detector>(m_config);
+	m_detector = std::make_unique<CpuDetector>(m_config);
 	if (!m_detector->isValid()) {
 		Logger::instance()->error(QStringLiteral("[DetectionWorker]: 检测器初始化失败: ")
 			+ m_detector->lastError().errorMessage);
@@ -122,8 +122,7 @@ void DetectionWorker::work() {
 			Logger::instance()->warning(warning.message);
 			emit detectorWarning(warning);
 		}
-		Logger::instance()->info(QStringLiteral("[DetectionWorker]: 检测器就绪，运行设备: ")
-			+ QString::fromUtf8(m_detector->device()));
+		Logger::instance()->info(QStringLiteral("[DetectionWorker]: 检测器就绪（CPU 推理）"));
 
 		// 预热
 		m_detector->warmup(3);

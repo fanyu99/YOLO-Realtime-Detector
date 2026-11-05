@@ -102,6 +102,7 @@ public:
 		Image,
 		Preprocess,
 		Detection,
+		Postprocess,
 		Other,
 		None
 	};
@@ -113,6 +114,7 @@ public:
 		InvalidImage,		  // 图像无效
 		PreprocessFailed,	  // 预处理失败
 		DetectionFailed,	  // 检测失败
+		PostprocessFailed,	  // 后处理失败
 		UnknownError,		  // 未知错误
 		None				  // 无错误
 	};
