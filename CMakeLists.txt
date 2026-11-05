@@ -205,11 +205,16 @@ qt_add_library(FfmpegDecoder STATIC
     src/core/FfmpegDecoder.h
     src/core/DecodeTypes.h
 )
+
+# 帧句柄： FrameHandle，分为cpuFrameHandle和gpuFrameHandle
+qt_add_library(CpuFrameHandle STATIC 
+    src/core/FrameHandle.h  src/core/CpuFrameHandle.h src/core/CpuFrameHandle.cpp
+)
 # 帧来源单元: 1.摄像头/视频文件/图片文件 2.其他相机
 # 策略模式：FrameSource 作为接口，
 # FileFrameSource/HikCameraFrameSource 作为具体实现
 qt_add_library(FrameSource INTERFACE
-    src/core/FrameSource.h
+    src/core/FrameSource.h 
 )
 # 1.摄像头/视频文件/图片文件帧来源
 qt_add_library(FileFrameSource STATIC 
@@ -315,11 +320,15 @@ FFmpeg::avcodec
     FFmpeg::avdevice
     FFmpeg::postproc
 )
+# 帧句柄
+target_link_libraries(CpuFrameHandle PUBLIC 
+   ${OpenCV_LIBS} Qt::Core
+)
 target_include_directories(FrameSource INTERFACE
 ${YOLO_SOURCE_DIRS}
 ${OpenCV_INCLUDE_DIRS}
 )
-target_link_libraries(FileFrameSource PUBLIC FrameSource)
+target_link_libraries(FileFrameSource PUBLIC FrameSource CpuFrameHandle)
 target_link_libraries(FfmpegFrameSource PUBLIC FrameSource FfmpegDecoder)
 target_link_libraries(HikCameraFrameSource 
 PUBLIC FrameSource 
@@ -328,6 +337,7 @@ target_include_directories(HikCameraFrameSource
 PRIVATE ${MVS_INCLUDE_DIRS})
 target_link_directories(HikCameraFrameSource
 PRIVATE  ${MVS_LIBRARY_DIRS})
+
 # Qt::Core 供 QString；OpenCV 供 VideoCapture/imread
 target_link_libraries(FrameSource INTERFACE 
 ${OpenCV_LIBS} Qt::Core )

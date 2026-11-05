@@ -2,6 +2,18 @@
 
 本文档记录各模块的职责、线程模型与关键设计取舍。英文 README 的架构小节是这里的摘要版。
 
+
+---
+
+当前完成： 
+- 新增`FrameHandle`抽象类以及`CpuFrameHandle`；
+
+正在更新： 
+- 先将`FrameSource`内部持有的cv::Mat等变为统一的抽象的`FrameHandlePtr`指针，减少依赖oencv、ffmpeg。
+- 将 `FrameSource` 的 `getFrame()` 返回类型从 `cv::Mat` 改为 `FrameHandlePtr`，以便支持CPU、 GPU 帧两种句柄。
+- `CpuFrameHandle`用于封装CPU处理流程中所需要的cv::Mat
+- `GpuFrameHandle`用于封装GPU处理流程中所需要的AVFrame*和CUDA硬件帧NV12上下文。
+
 ---
 
 ## 1. 分层

@@ -9,7 +9,7 @@
 // 帧提供器：既服务"实时画面"，也服务"结果回看"。
 //
 //   image://detection/latest?rev=N     实时最新帧（rev 变化才重新取图）
-//   image://detection/frame/<seq>      回看用的某一帧（seq 由 appendResultFrame 返回）
+//   image://detection/m_frame/<seq>      回看用的某一帧（seq 由 appendResultFrame 返回）
 //
 // 回看缓冲是**有界的环形**。关键设计：推理线程不会因为 UI 看得慢而被阻塞，
 // UI 只按自己的节奏推进索引 —— 两边彻底解耦，也就不需要任何跨线程的"等待/放行"标志位。
