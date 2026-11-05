@@ -1,6 +1,6 @@
 #pragma once
 #include "FrameSource.h"
-
+#include "CpuFrameHandle.h"
 #include <opencv2/videoio.hpp>
 
 // 以文件（图片/视频）作为帧源
