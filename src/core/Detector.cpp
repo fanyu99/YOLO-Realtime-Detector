@@ -20,10 +20,10 @@ Detector::Detector( const DetectorConfig& config_ )
 	input_shape( { 1, 3, config_.input_height, config_.input_width } )
 {
 	if (!std::filesystem::exists( config_.model_path )) {
-		m_lastError = DetectorError(
+		m_lastError = DetectionError(
 			QStringLiteral( "[Detector]: 模型路径无效: " ) + QString::fromStdU16String( config_.model_path.u16string() ),
-			DetectorErrorCategory::Model,
-			DetectorErrorCode::InvalidModelPath );
+			DetectionErrorCategory::Model,
+			DetectionErrorCode::InvalidModelPath );
 		return;	// 路径无效就不再尝试建会话
 	}
 
@@ -45,10 +45,10 @@ Detector::Detector( const DetectorConfig& config_ )
 		m_valid = true;		// 建立成功
 	}
 	catch (const std::exception& e) {
-		m_lastError = DetectorError(
+		m_lastError = DetectionError(
 			QStringLiteral( "[Detector]: 初始化检测器失败: " ) + e.what(),
-			DetectorErrorCategory::Other,
-			DetectorErrorCode::UnknownError );
+			DetectionErrorCategory::Other,
+			DetectionErrorCode::UnknownError );
 	}
 }
 const char* Detector::device() const {
@@ -60,7 +60,7 @@ bool Detector::usingCUDA() const {
 // 更改配置
 bool Detector::setConfig( const DetectorConfig& config_ ) {
 	if (!config_.isValid()) {
-		m_lastError = DetectorError(
+		m_lastError = DetectionError(
 			QStringLiteral( "[Detector]: 配置无效: 模型路径: " ) + QString::fromStdString( config_.model_path.string() )
 			+ QStringLiteral( " 类别数: " ) + QString::number( config_.class_names.size() )
 			+ QStringLiteral( " 置信度阈值: " ) + QString::number( config_.conf_threshold ) + QStringLiteral( " NMS阈值: " ) + QString::number( config_.iou_threshold )
@@ -70,8 +70,8 @@ bool Detector::setConfig( const DetectorConfig& config_ ) {
 			+ QStringLiteral( " 是否启用CUDA: " )
 			+ QString( config_.use_cuda ? "是" : "否" )
 			+ QStringLiteral( " CUDA设备号: " ) + QString::number( config_.device_id ),
-			DetectorErrorCategory::Config,
-			DetectorErrorCode::InvalidConfig );
+			DetectionErrorCategory::Config,
+			DetectionErrorCode::InvalidConfig );
 		return false;
 	}
 	config = config_;
@@ -135,10 +135,10 @@ void Detector::alignInputSizeToModel() {
 cv::Mat Detector::letterbox( const cv::Mat& src, LetterboxInfo& info, int dst_w, int dst_h, cv::Scalar color, int interp ) {
 	// 检查图像是否合法
 	if (src.empty() || src.channels() != 3) {
-		m_lastError = DetectorError(
+		m_lastError = DetectionError(
 			QStringLiteral( "[Detector]: 输入图像无效: H:" ) + QString::number( src.rows ) + QStringLiteral( ", W:" ) + QString::number( src.cols ) + QStringLiteral( ", channels: " ) + QString::number( src.channels() ),
-			DetectorErrorCategory::Image,
-			DetectorErrorCode::InvalidImage );
+			DetectionErrorCategory::Image,
+			DetectionErrorCode::InvalidImage );
 		return cv::Mat();
 	}
 	// 获取缩放比例(以最小为准,防止越界)以及新图的尺寸
@@ -154,7 +154,6 @@ cv::Mat Detector::letterbox( const cv::Mat& src, LetterboxInfo& info, int dst_w,
 	// 对缩放后的图像进行填充
 	float pad_x = (dst_w - new_w) / 2.0f;
 	float pad_y = (dst_h - new_h) / 2.0f;
-	cv::Mat padded;
 	cv::Mat canvas( dst_h, dst_w, src.type(), color );
 	int ix = static_cast<int>(std::round( pad_x ));
 	int iy = static_cast<int>(std::round( pad_y ));
@@ -175,10 +174,10 @@ cv::Mat Detector::letterbox( const cv::Mat& src, LetterboxInfo& info, int dst_w,
 // 颜色转换并归一化并转换为NCHW布局
 bool Detector::preprocess( const cv::Mat& src, cv::Mat& chw, int dst_w, int dst_h ) {
 	if (src.empty() || src.channels() != 3) {
-		m_lastError = DetectorError(
+		m_lastError = DetectionError(
 			QStringLiteral( "[Detector]: 输入图像无效: H:" ) + QString::number( src.rows ) + QStringLiteral( ", W:" ) + QString::number( src.cols ) + QStringLiteral( ", channels: " ) + QString::number( src.channels() ),
-			DetectorErrorCategory::Image,
-			DetectorErrorCode::InvalidImage );
+			DetectionErrorCategory::Image,
+			DetectionErrorCode::InvalidImage );
 		return false;
 	}
 	// swapRB=true 让 blobFromImage 内部完成 BGR->RGB 并归一化到 [0,1]，同时输出 NCHW。
@@ -331,7 +330,7 @@ void Detector::map_boxes_to_original_image_replace( std::span<Box> boxes, const 
 // 推理检测目标
 DetectionResult Detector::detect( QStringView image_path ) {
 	if (image_path.isEmpty()) {
-		DetectorError error( QStringLiteral( "[Detector]: 未指定输入图片" ), DetectorErrorCategory::Image, DetectorErrorCode::InvalidImage );
+		DetectionError error( QStringLiteral( "[Detector]: 未指定输入图片" ), DetectionErrorCategory::Image, DetectionErrorCode::InvalidImage );
 		m_lastError = error;
 		return DetectionResult{ {},error ,0 };
 	}
@@ -340,12 +339,12 @@ DetectionResult Detector::detect( QStringView image_path ) {
 }
 DetectionResult Detector::detect( const cv::Mat& image ) {
 	if (image.empty()) {
-		DetectorError error( QStringLiteral( "[Detector]: 打开图片失败,图片无效!" ), DetectorErrorCategory::Image, DetectorErrorCode::InvalidImage );
+		DetectionError error( QStringLiteral( "[Detector]: 打开图片失败,图片无效!" ), DetectionErrorCategory::Image, DetectionErrorCode::InvalidImage );
 		m_lastError = error;
 		return DetectionResult{ {},error ,0 };
 	}
 	if (!config.isValid()) {
-		DetectorError error( QStringLiteral( "[Detector]: 配置无效!" ), DetectorErrorCategory::Config, DetectorErrorCode::InvalidConfig );
+		DetectionError error( QStringLiteral( "[Detector]: 配置无效!" ), DetectionErrorCategory::Config, DetectionErrorCode::InvalidConfig );
 		m_lastError = error;
 		return DetectionResult{ {},error ,0 };
 	}
@@ -361,15 +360,15 @@ DetectionResult Detector::detect( const cv::Mat& image ) {
 	if (!preprocess( blob, chw, config.input_width, config.input_height ))
 		return DetectionResult{ {}, m_lastError, 0 };
 	if (config.input_width <= 0 || config.input_height <= 0) {
-		DetectorError error( QStringLiteral( "[Detector]: 输入尺寸非法: " )
+		DetectionError error( QStringLiteral( "[Detector]: 输入尺寸非法: " )
 			+ QString::number( config.input_width ) + QStringLiteral( "×" ) + QString::number( config.input_height ),
-			DetectorErrorCategory::Config, DetectorErrorCode::InvalidConfig );
+			DetectionErrorCategory::Config, DetectionErrorCode::InvalidConfig );
 		m_lastError = error;
 		return DetectionResult{ {}, error, 0 };
 	}
 	const qint64 need = 3ll * config.input_width * config.input_height;	// NCHW: 1*3*W*H
 	if (chw.empty() || static_cast<qint64>(chw.total()) != need || !chw.isContinuous()) {
-		DetectorError error( QStringLiteral( "[Detector]: 转换为 NCHW 格式失败，当前尺寸:" ) + QString::number( config.input_width ) + "x" + QString::number( config.input_height ), DetectorErrorCategory::Other, DetectorErrorCode::UnknownError );
+		DetectionError error( QStringLiteral( "[Detector]: 转换为 NCHW 格式失败，当前尺寸:" ) + QString::number( config.input_width ) + "x" + QString::number( config.input_height ), DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 		m_lastError = error;
 		return DetectionResult{ {},error,0 };
 	}
@@ -407,7 +406,7 @@ DetectionResult Detector::runInference( cv::Mat& chw, const LetterboxInfo& info 
 
 		std::vector<Ort::Value> output_tensors = io_binding.GetOutputValues();
 		if (output_tensors.empty()) {
-			DetectorError error( QStringLiteral( "[Detector]: 未返回输出张量" ), DetectorErrorCategory::Other, DetectorErrorCode::UnknownError );
+			DetectionError error( QStringLiteral( "[Detector]: 未返回输出张量" ), DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 			m_lastError = error;
 			return { {},error,0 };
 		}
@@ -418,17 +417,17 @@ DetectionResult Detector::runInference( cv::Mat& chw, const LetterboxInfo& info 
 
 		// 输出布局为 [1, 4+num_classes, num_anchors]。
 		if (output_shape.size() < 3) {
-			DetectorError error( QStringLiteral( "[Detector]: 输出张量维度异常，期望 3 维，实际 " )
-				+ QString::number( output_shape.size() ), DetectorErrorCategory::Detection, DetectorErrorCode::DetectionFailed );
+			DetectionError error( QStringLiteral( "[Detector]: 输出张量维度异常，期望 3 维，实际 " )
+				+ QString::number( output_shape.size() ), DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
 			m_lastError = error;
 			return { {},error,0 };
 		}
 		const int num_classes = static_cast<int>(output_shape[1]) - 4;
 		const int num_anchors = static_cast<int>(output_shape[2]);
 		if (num_classes <= 0 || num_anchors <= 0) {
-			DetectorError error( QStringLiteral( "[Detector]: 输出张量形状异常: [" )
+			DetectionError error( QStringLiteral( "[Detector]: 输出张量形状异常: [" )
 				+ QString::number( output_shape[1] ) + QStringLiteral( ", " ) + QString::number( output_shape[2] )
-				+ QStringLiteral( "]，无法解析类别数与锚点数" ), DetectorErrorCategory::Detection, DetectorErrorCode::DetectionFailed );
+				+ QStringLiteral( "]，无法解析类别数与锚点数" ), DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
 			m_lastError = error;
 			return { {},error,0 };
 		}
@@ -439,27 +438,27 @@ DetectionResult Detector::runInference( cv::Mat& chw, const LetterboxInfo& info 
 		Logger::instance()->infoWithInterval(QStringLiteral("[Detector]: 检测到%1个目标，推理耗时: %2ms")
 			.arg(boxes.size()).arg(duration));
 		return DetectionResult{ QVector<Box>( boxes.begin(), boxes.end() ),
-								DetectorError{ QStringLiteral( "" ),DetectorErrorCategory::None,DetectorErrorCode::None },
+								DetectionError{ QStringLiteral( "" ),DetectionErrorCategory::None,DetectionErrorCode::None },
 								duration };
 	}
 	catch (const Ort::Exception& e) {
-		m_lastError = DetectorError( QStringLiteral( "[Detector]: ONNX 推理失败: " ) + QString::fromUtf8( e.what() ),
-			DetectorErrorCategory::Detection, DetectorErrorCode::DetectionFailed );
+		m_lastError = DetectionError( QStringLiteral( "[Detector]: ONNX 推理失败: " ) + QString::fromUtf8( e.what() ),
+			DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
 		return DetectionResult{ {}, m_lastError, 0 };
 	}
 	catch (const cv::Exception& e) {
-		m_lastError = DetectorError( QStringLiteral( "[Detector]: OpenCV 异常: " ) + QString::fromUtf8( e.what() ),
-			DetectorErrorCategory::Detection, DetectorErrorCode::DetectionFailed );
+		m_lastError = DetectionError( QStringLiteral( "[Detector]: OpenCV 异常: " ) + QString::fromUtf8( e.what() ),
+			DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
 		return DetectionResult{ {}, m_lastError, 0 };
 	}
 	catch (const std::exception& e) {
-		m_lastError = DetectorError( QStringLiteral( "[Detector]: 推理异常: " ) + QString::fromUtf8( e.what() ),
-			DetectorErrorCategory::Other, DetectorErrorCode::UnknownError );
+		m_lastError = DetectionError( QStringLiteral( "[Detector]: 推理异常: " ) + QString::fromUtf8( e.what() ),
+			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 		return DetectionResult{ {}, m_lastError, 0 };
 	}
 	catch (...) {
-		m_lastError = DetectorError( QStringLiteral( "[Detector]: 推理时发生未知异常" ),
-			DetectorErrorCategory::Other, DetectorErrorCode::UnknownError );
+		m_lastError = DetectionError( QStringLiteral( "[Detector]: 推理时发生未知异常" ),
+			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 		return DetectionResult{ {}, m_lastError, 0 };
 	}
 }
@@ -511,7 +510,7 @@ bool Detector::warmup( int iterations ) {
 // 推理视频流
 QVector<DetectionResult> Detector::detect_video( cv::VideoCapture& cap, std::atomic<bool>* stop ) {
 	if (!cap.isOpened()) {
-		DetectorError error( QStringLiteral( "[Detector]: 视频流未打开!" ), DetectorErrorCategory::Detection, DetectorErrorCode::DetectionFailed );
+		DetectionError error( QStringLiteral( "[Detector]: 视频流未打开!" ), DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
 		m_lastError = error;
 		return {};
 	}
@@ -571,7 +570,7 @@ Ort::SessionOptions Detector::CreateSessionOptions( int threads, bool use_cuda, 
 QVector<DetectionResult>Detector::detect_video( QStringView video_path, std::atomic<bool>* stop ) {
 	cv::VideoCapture cap( video_path.toString().toStdString() );
 	if (!cap.isOpened()) {
-		DetectorError error( QStringLiteral( "[Detector]: 打开视频失败!" ), DetectorErrorCategory::Other, DetectorErrorCode::UnknownError );
+		DetectionError error( QStringLiteral( "[Detector]: 打开视频失败!" ), DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 		m_lastError = error;
 		return {};
 	}

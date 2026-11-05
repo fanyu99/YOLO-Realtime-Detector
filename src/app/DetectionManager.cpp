@@ -5,7 +5,7 @@
 DetectionManager::DetectionManager(QObject* parent) : QObject(parent) {
 	// 跨线程的 queued 连接要求参数类型能被元系统识别。
 	qRegisterMetaType<DetectionResult>();
-	qRegisterMetaType<DetectorError>();
+	qRegisterMetaType<DetectionError>();
 	qRegisterMetaType<DetectorWarning>();
 	qRegisterMetaType<QVector<DetectionResult>>();
 }
@@ -69,8 +69,8 @@ void DetectionManager::shutdown() {
 
 quint64 DetectionManager::submitSource(FrameSourcePtr source, const QString& saveDir) {
 	if (!source) {
-		emit jobFailed(0, DetectorError(QStringLiteral("[DetectionManager]: 帧源为空!"),
-										DetectorErrorCategory::Other, DetectorErrorCode::UnknownError));
+		emit jobFailed(0, DetectionError(QStringLiteral("[DetectionManager]: 帧源为空!"),
+										DetectionErrorCategory::Other, DetectionErrorCode::UnknownError));
 		return 0;
 	}
 	return submit(makeSingleTaskJob(nextJobId(), nextTaskId(), std::move(source), saveDir));
@@ -78,8 +78,8 @@ quint64 DetectionManager::submitSource(FrameSourcePtr source, const QString& sav
 
 quint64 DetectionManager::submitBatch(QVector<FrameSourcePtr> sources, const QString& saveDir) {
 	if (sources.isEmpty()) {
-		emit jobFailed(0, DetectorError(QStringLiteral("[DetectionManager]: 批量输入为空!"),
-										DetectorErrorCategory::Image, DetectorErrorCode::InvalidImage));
+		emit jobFailed(0, DetectionError(QStringLiteral("[DetectionManager]: 批量输入为空!"),
+										DetectionErrorCategory::Image, DetectionErrorCode::InvalidImage));
 		return 0;
 	}
 	return submit(makeBatchJob(nextJobId(), std::move(sources), saveDir));
@@ -92,8 +92,8 @@ quint64 DetectionManager::submit(DetectionJob job) {
 		job.shared = std::make_shared<TaskShared>(job.jobId, job.type);
 
 	if (job.tasks.empty()) {
-		emit jobFailed(job.jobId, DetectorError(QStringLiteral("[DetectionManager]: 作业不含任何任务!"),
-												DetectorErrorCategory::Other, DetectorErrorCode::UnknownError));
+		emit jobFailed(job.jobId, DetectionError(QStringLiteral("[DetectionManager]: 作业不含任何任务!"),
+												DetectionErrorCategory::Other, DetectionErrorCode::UnknownError));
 		return 0;
 	}
 
@@ -110,8 +110,8 @@ quint64 DetectionManager::submit(DetectionJob job) {
 
 quint64 DetectionManager::dispatch(DetectionJob job) {
 	if (!m_worker || !m_worker->isRunning()) {
-		emit jobFailed(job.jobId, DetectorError(QStringLiteral("[DetectionManager]: 工作线程未启动!"),
-												DetectorErrorCategory::Other, DetectorErrorCode::UnknownError));
+		emit jobFailed(job.jobId, DetectionError(QStringLiteral("[DetectionManager]: 工作线程未启动!"),
+												DetectionErrorCategory::Other, DetectionErrorCode::UnknownError));
 		return 0;
 	}
 
@@ -131,8 +131,8 @@ quint64 DetectionManager::dispatch(DetectionJob job) {
 	if (accepted == 0) {
 		m_jobs.remove(job.jobId);
 		m_pendingTasks.remove(job.jobId);
-		emit jobFailed(job.jobId, DetectorError(QStringLiteral("[DetectionManager]: 任务投递失败!"),
-												DetectorErrorCategory::Other, DetectorErrorCode::UnknownError));
+		emit jobFailed(job.jobId, DetectionError(QStringLiteral("[DetectionManager]: 任务投递失败!"),
+												DetectionErrorCategory::Other, DetectionErrorCode::UnknownError));
 		return 0;
 	}
 	if (accepted < total)
@@ -183,7 +183,7 @@ void DetectionManager::onDetectorWarning(const DetectorWarning& warning) {
 	emit detectorWarning(warning);
 }
 
-void DetectionManager::onDetectorFailed(const DetectorError& error) {
+void DetectionManager::onDetectorFailed(const DetectionError& error) {
 	Logger::instance()->error(QStringLiteral("[DetectionManager]: 检测器初始化失败: ") + error.errorMessage);
 }
 
@@ -224,10 +224,10 @@ void DetectionManager::advanceTaskCounters(quint64 jobId, bool failed) {
 }
 
 void DetectionManager::onTaskCompleted(quint64 jobId, const QVector<DetectionResult>& results) {
-	settleTask(jobId, false, false, DetectorError{}, results);
+	settleTask(jobId, false, false, DetectionError{}, results);
 }
 
-void DetectionManager::onTaskFailed(quint64 jobId, const DetectorError& error) {
+void DetectionManager::onTaskFailed(quint64 jobId, const DetectionError& error) {
 	// 单个 Task 失败不再直接宣告整个作业失败：批量作业里一个坏文件
 	// 不该让剩下的几十个文件全部作废。失败先计数，等作业收尾时再判断。
 	Logger::instance()->warning(QStringLiteral("[DetectionManager]: 作业 ") + QString::number(jobId)
@@ -236,12 +236,12 @@ void DetectionManager::onTaskFailed(quint64 jobId, const DetectorError& error) {
 }
 
 void DetectionManager::onTaskCancelled(quint64 jobId) {
-	settleTask(jobId, false, true, DetectorError{}, {});
+	settleTask(jobId, false, true, DetectionError{}, {});
 }
 
 // 一个 Task 到达终态后的统一收尾。
 void DetectionManager::settleTask(quint64 jobId, bool failed, bool cancelled,
-								  const DetectorError& error,
+								  const DetectionError& error,
 								  const QVector<DetectionResult>& results)
 {
 	if (!cancelled) {

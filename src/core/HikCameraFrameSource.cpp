@@ -327,7 +327,7 @@ QString HikCameraFrameSource::displayName()const {
 	return m_displayName; // 显示名称
 }
 
-// 最近一次错误：worker 在 open() 失败时取它拼成 DetectorError 上报
+// 最近一次错误：worker 在 open() 失败时取它拼成 DetectionError 上报
 QString HikCameraFrameSource::lastError()const {
 	return m_lastError;
 }

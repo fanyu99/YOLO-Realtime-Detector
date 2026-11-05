@@ -26,11 +26,14 @@ struct LetterboxInfo {
 	Q_PROPERTY(int padHeight READ padHeight)
 	Q_PROPERTY(float scale READ scaleValue)
 public:
-	int orig_w, orig_h;	// 原图宽高
-	int new_w, new_h;	// 缩放后宽高
-	int pad_w, pad_h;	// 填充宽高
-	float scale;		// 缩放比例
+	int orig_w{ 0 }, orig_h{ 0 };	// 原图宽高
+	int new_w{ 0 }, new_h{ 0 };	// 缩放后宽高
+	int pad_w{ 0 }, pad_h{ 0 };	// 填充宽高
+	float scale{ 0.0f };		// 缩放比例
 
+	bool isValid() const {
+		return orig_w > 0 && orig_h > 0 && new_w > 0 && new_h > 0 && scale > 0.0f ;
+	}
 	// getter 供 QML 读取
 	int origWidth() const { return orig_w; }
 	int origHeight() const { return orig_h; }
@@ -87,8 +90,8 @@ public:
 	}
 };
 
-// 检测器错误
-struct DetectorError {
+// 检测错误
+struct DetectionError {
 	Q_GADGET
 	QML_ELEMENT
 public:
@@ -97,6 +100,7 @@ public:
 		Model,
 		Config,
 		Image,
+		Preprocess,
 		Detection,
 		Other,
 		None
@@ -107,6 +111,7 @@ public:
 		InvalidModelPath,	  // 模型路径无效
 		InvalidConfig,		  // 配置无效
 		InvalidImage,		  // 图像无效
+		PreprocessFailed,	  // 预处理失败
 		DetectionFailed,	  // 检测失败
 		UnknownError,		  // 未知错误
 		None				  // 无错误
@@ -122,8 +127,8 @@ public:
 	Category errorCategory;
 	Code errorCode;
 
-	DetectorError() : errorCategory(Category::None), errorCode(Code::None) {}
-	DetectorError(QStringView msg, Category category = Category::Other, Code code = Code::UnknownError)
+	DetectionError() : errorCategory(Category::None), errorCode(Code::None) {}
+	DetectionError(QStringView msg, Category category = Category::Other, Code code = Code::UnknownError)
 		: errorMessage(msg.toString()), errorCategory(category), errorCode(code) {}
 	bool has_error() const {
 		return !errorMessage.isEmpty() && errorCategory != Category::None && errorCode != Code::None;
@@ -135,8 +140,8 @@ public:
 	Code errorCodeValue() const { return errorCode; }
 };
 
-using DetectorErrorCategory = DetectorError::Category;
-using DetectorErrorCode = DetectorError::Code;
+using DetectionErrorCategory = DetectionError::Category;
+using DetectionErrorCode = DetectionError::Code;
 
 // 检测器警告
 // 用于显式地提醒用户
@@ -183,18 +188,18 @@ struct DetectionResult {
 	Q_GADGET
 	QML_ELEMENT
 	Q_PROPERTY(QVariantList boxes READ boxesVariant)
-	Q_PROPERTY(DetectorError error READ errorValue)
+	Q_PROPERTY(DetectionError error READ errorValue)
 	Q_PROPERTY(qint64 duration READ durationValue)
 	Q_PROPERTY(QString source READ sourceValue)
 public:
 	QVector<Box> boxes;		  // 置信框
-	DetectorError error;		 // 错误
+	DetectionError error;		 // 错误
 	long long duration = 0;	// 推理耗时(ms)
 	quint64 taskId = 0;		// 任务ID(由 Worker 回填，0 表示未归属)
 	QString source;			// 输入来源(图片/视频路径；摄像头为空)，由 Worker 回填,用于显示
 
 	DetectionResult() = default;          
-	DetectionResult(const QVector<Box>& boxes_, const DetectorError& error_, long long duration_)
+	DetectionResult(const QVector<Box>& boxes_, const DetectionError& error_, long long duration_)
 		: boxes(boxes_), error(error_), duration(duration_) {}
 
 	//  getter 供 QML 读取
@@ -205,7 +210,7 @@ public:
 			list.append(QVariant::fromValue(box));
 		return list;
 	}
-	DetectorError errorValue() const { return error; }
+	DetectionError errorValue() const { return error; }
 	qint64 durationValue() const { return static_cast<qint64>(duration); }
 	QString sourceValue() const { return source; }
 };

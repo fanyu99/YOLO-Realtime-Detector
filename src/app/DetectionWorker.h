@@ -37,14 +37,14 @@ public:
 signals:
 	void started();												// 工作线程已就绪
 	void stopped();												// 工作线程已退出
-	void detectorFailed(const DetectorError& error);			// 模型加载失败（在 worker 线程内）
+	void detectorFailed(const DetectionError& error);			// 模型加载失败（在 worker 线程内）
 	void detectorWarning(const DetectorWarning& warning);		// 检测器警告（非致命，如输入尺寸自动对齐）
 
 	void taskStarted(quint64 jobId);	 // 任务开始执行
 	void taskProgress(quint64 jobId, quint64 taskId, int unitDone, int unitTotal);	// 向上Manager汇报当前 Task 内部的工作单元进度
 	void taskResult(quint64 jobId, const DetectionResult& result, const QImage& frame);	// 每个工作单元的即时结果
 	void taskCompleted(quint64 jobId, const QVector<DetectionResult>& results);
-	void taskFailed(quint64 jobId, const DetectorError& error);
+	void taskFailed(quint64 jobId, const DetectionError& error);
 	void taskCancelled(quint64 jobId);
 
 private:
@@ -59,7 +59,7 @@ private:
 	std::unique_ptr<QThread> m_thread;		// 工作线程
 	std::unique_ptr<Detector> m_detector;		// 在 worker 线程内构造
 	DetectorConfig m_config;					   // 保存内部的Detector配置
-	DetectorError m_lastError;					// 只在 worker 线程内写
+	DetectionError m_lastError;					// 只在 worker 线程内写
 
 	std::queue<std::unique_ptr<DetectionTask>> m_queue;
 	mutable std::mutex m_mutex;					// 保护 m_queue

@@ -24,7 +24,7 @@ public:
 	// 会话是否构造成功(构造失败时用 lastError() 取原因)
 	bool isValid() const { return m_valid; }
 	// 最近一次错误(调用方主动查询)
-	const DetectorError& lastError() const { return m_lastError; }
+	const DetectionError& lastError() const { return m_lastError; }
 	// 构造/配置期产生的警告(非致命)：如输入尺寸已按模型自动对齐。
 	const QVector<DetectorWarning>& warnings() const { return m_warnings; }
 	// 更改配置：返回是否成功(仅更新配置与输入尺寸，不重建会话)
@@ -74,5 +74,5 @@ private:
 	Ort::MemoryInfo mem_info;	 // 预分配内存信息
 	bool cuda_enabled = false;	// CUDA 是否真正启用成功
 	bool m_valid = false;		// 会话是否构造成功
-	DetectorError m_lastError;	// 最近一次错误
+	DetectionError m_lastError;	// 最近一次错误
 };
