@@ -1,4 +1,5 @@
 #include "DetectionWorker.h"
+#include "CpuFrameHandle.h"
 #include "DetectionRenderer.h"
 #include "DetectionResultSaver.h"
 #include <vector>
@@ -246,7 +247,17 @@ bool DetectionWorker::runImage(DetectionTask& task) {
 
 	// 图已在 FrameSource::open() 里读好
 	// 直接获取单张图片
-	const cv::Mat frame = task.source->getFrame();
+	const FrameHandlePtr handle = task.source->getFrame();
+	// 指针为空，出现读取错误
+	if (!handle) {
+		const QString message = task.source->lastError().isEmpty()
+			? QStringLiteral("无法读取图像帧")
+			: task.source->lastError();
+		m_lastError = DetectorError(QStringLiteral("[DetectionWorker]: ") + message,
+			DetectorErrorCategory::Image, DetectorErrorCode::InvalidImage);
+		return false;
+	}
+	const cv::Mat frame = toCvMat(handle);
 	DetectionResult result = m_detector->detect(frame);
 	if (result.error.has_error()) {
 		m_lastError = result.error;
@@ -277,17 +288,18 @@ bool DetectionWorker::runStream(DetectionTask& task) {
 	if (!saver.begin(task, size.width, size.height, source.fps()) && !saver.lastError().isEmpty())
 		Logger::instance()->warning(QStringLiteral("[DetectionWorker]: ") + saver.lastError());
 
-	cv::Mat frame;
+	FrameHandlePtr handle; // 统一的帧句柄指针
 	int processed = 0;
 	QElapsedTimer clock;
 	clock.start();
 
-	// 读失败/流结束都返回空 Mat，循环退出
-	while (!(frame = source.getFrame()).empty()) {
+	// 读失败/流结束都返回空指针，循环退出
+	while ((handle = source.getFrame())) {
 		// 逐帧检查取消
 		if (task.shared->cancelled())
 			break;								// 取消按正常结束处理，由 execute() 发 taskCancelled
 
+		const cv::Mat frame = toCvMat(handle);
 		DetectionResult result = m_detector->detect(frame);
 		if (result.error.has_error()) {
 			m_lastError = result.error;

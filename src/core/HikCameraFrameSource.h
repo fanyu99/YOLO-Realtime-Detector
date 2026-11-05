@@ -22,7 +22,7 @@ public:
     static QVector<DeviceInfo>enumerateDevices(); // 枚举在线设备
 	static FrameSourcePtr forDevices(QStringView serial, TriggerMode mode = TriggerMode::Off); // 根据序列号创建帧源
     bool open() override;  
-    cv::Mat getFrame()override;  // 获取帧,获取到空cv::Mat代表终止,同现在的摄像头源
+    FrameHandlePtr getFrame()override;  // 获取帧,获取到空指针代表终止,同现在的摄像头源
     cv::Size frameSize()const override;
     QString displayName()const override; //获取相机名称
 	QString lastError()const override;   // 最近一次错误(worker 取它上报给上层)
@@ -47,5 +47,6 @@ private:
 	QString m_lastError; // 最近的错误信息
 	QString m_displayName; // 显示名称
     TriggerMode m_mode; // 设置的触发模式
+	int m_frameIndex = 0; // 当前已产出的帧序号
 
 };
