@@ -55,9 +55,12 @@ private:
 	void finishUnit(DetectionTask& task, const cv::Mat& frame, DetectionResult& result,DetectionResultSaver& saver);	// 完成一个task,进行总结
 	void reportSaveResult(const DetectionResultSaver& saver);	// Task 结束后上报一次保存结果
 	void failTaskIfUnfinished(DetectionTask& task);		// 任务抛异常时补发失败信号(避免重复发)
+	// 预处理 + 推理：成功返回 true 并回填 result，失败时设置 m_lastError
+	bool preprocessAndDetect(const FrameHandlePtr& handle, DetectionResult& result);
 
 	std::unique_ptr<QThread> m_thread;		// 工作线程
 	std::unique_ptr<Detector> m_detector;		// 在 worker 线程内构造
+	CpuPreprocessor m_preprocessor;			// CPU 预处理器(在 worker 线程内使用)
 	DetectorConfig m_config;					   // 保存内部的Detector配置
 	DetectionError m_lastError;					// 只在 worker 线程内写
 

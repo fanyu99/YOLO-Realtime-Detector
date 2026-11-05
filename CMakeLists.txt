@@ -314,7 +314,8 @@ PRIVATE ${YOLO_SOURCE_DIRS})
 # 链接
 # -----------------------------------------------------------------------------
 target_link_libraries(CpuPreprocessor PUBLIC ${OpenCV_LIBS} Qt::Core)
-target_link_libraries(Detector PUBLIC onnxruntime ${OpenCV_LIBS} Qt::Core)
+target_link_libraries(Detector PUBLIC 
+onnxruntime ${OpenCV_LIBS} Qt::Core CpuPreprocessor)
 target_link_libraries(FfmpegDecoder PUBLIC 
 Qt::Core
 FFmpeg::avcodec
