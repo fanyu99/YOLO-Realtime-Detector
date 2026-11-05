@@ -7,12 +7,16 @@
 
 当前完成： 
 - 新增`FrameHandle`抽象类以及`CpuFrameHandle`；
+- 将新增的`FrameHandle`接入到强依赖于cv::Mat的`FrameSource`中，作为统一的帧句柄指针；
+- 新增`CpuPreprocessor`类，统一原本的`DetectorError`为`DetectionError`,新增PreprocessFailed错误类型；将原本的`Detector::letterbox()`和`Detector::preprocess()`统一调用为`CpuPreprocessor::preprocess()`，
+其返回值为`std::optional<CpuPreprocessResult>`，在失败时返回`std::nullopt`，并在内部设置错误`DetectionError`；
+---
 
-正在更新： 
-- 先将`FrameSource`内部持有的cv::Mat等变为统一的抽象的`FrameHandlePtr`指针，减少依赖oencv、ffmpeg。
-- 将 `FrameSource` 的 `getFrame()` 返回类型从 `cv::Mat` 改为 `FrameHandlePtr`，以便支持CPU、 GPU 帧两种句柄。
-- `CpuFrameHandle`用于封装CPU处理流程中所需要的cv::Mat
+正在准备完成：
+- 将当前的Detector内部功能模块进行分离解耦，分为cpuPreprocessor、gpuProcessor两种预处理器，并在detector中分为cpu、gpu两种推理模式；Detector内部仅作为ORT的推理；
+提供Fallback机制；
 - `GpuFrameHandle`用于封装GPU处理流程中所需要的AVFrame*和CUDA硬件帧NV12上下文。
+- GPU处理中，将当前的显示结果分为CPU的NMS检测框+QTOverlay绘制检测框叠加在GPU图像数据上显示
 
 ---
 
@@ -102,7 +106,7 @@ ONNX 会话的封装，负责预处理、推理与后处理。
 
 ### 推理所需要的各种类型 `DetectionTypes.h`
 
-类型中枢：`LetterboxInfo`、`DetectorConfig`、`DetectorError`、`DetectorWarning`、
+类型中枢：`LetterboxInfo`、`DetectorConfig`、`DetectionError`、`DetectorWarning`、
 `DetectionResult`、`TaskShared`、`FpsCounter`、`DetectionTask`、`DetectionJob`、
 `DetectionJobType`，以及 `jobTypeOf()` / `makeSingleTaskJob()` / `makeBatchJob()`。
 

@@ -194,6 +194,11 @@ qt_add_resources(PROJECT_SOURCES resources/images.qrc)
 # -----------------------------------------------------------------------------
 # 静态库
 # -----------------------------------------------------------------------------
+# 预处理器，进行letterbox、NCHW预处理等操作
+qt_add_library(CpuPreprocessor STATIC
+    src/core/CpuPreprocessor.cpp
+    src/core/CpuPreprocessor.h
+)
 # 推理内核：ONNX 会话管理、letterbox 预处理、YOLO 输出解析与 NMS
 qt_add_library(Detector STATIC
     src/core/Detector.cpp
@@ -308,6 +313,7 @@ PRIVATE ${YOLO_SOURCE_DIRS})
 # -----------------------------------------------------------------------------
 # 链接
 # -----------------------------------------------------------------------------
+target_link_libraries(CpuPreprocessor PUBLIC ${OpenCV_LIBS} Qt::Core)
 target_link_libraries(Detector PUBLIC onnxruntime ${OpenCV_LIBS} Qt::Core)
 target_link_libraries(FfmpegDecoder PUBLIC 
 Qt::Core
@@ -324,6 +330,7 @@ FFmpeg::avcodec
 target_link_libraries(CpuFrameHandle PUBLIC 
    ${OpenCV_LIBS} Qt::Core
 )
+# 帧源
 target_include_directories(FrameSource INTERFACE
 ${YOLO_SOURCE_DIRS}
 ${OpenCV_INCLUDE_DIRS}

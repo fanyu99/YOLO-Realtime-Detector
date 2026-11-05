@@ -45,7 +45,7 @@ signals:
 	void jobFinished(quint64 jobId, DetectionJobType type,
 					 const QVector<DetectionResult>& results,
 					 int totalTasks, int failedTasks);
-	void jobFailed(quint64 jobId, const DetectorError& error);
+	void jobFailed(quint64 jobId, const DetectionError& error);
 	// 结果保存
 	void jobSaved(quint64 jobId, const QString& dir, int fileCount);
 	void jobCancelled(quint64 jobId);
@@ -54,12 +54,12 @@ signals:
 
 private slots:
 	void onDetectorWarning(const DetectorWarning& warning);
-	void onDetectorFailed(const DetectorError& error);
+	void onDetectorFailed(const DetectionError& error);
 	void onTaskStarted(quint64 jobId);
 	void onTaskProgress(quint64 jobId, quint64 taskId, int unitDone, int unitTotal);
 	void onTaskResult(quint64 jobId, const DetectionResult& result, const QImage& frame);
 	void onTaskCompleted(quint64 jobId, const QVector<DetectionResult>& results);
-	void onTaskFailed(quint64 jobId, const DetectorError& error);
+	void onTaskFailed(quint64 jobId, const DetectionError& error);
 	void onTaskCancelled(quint64 jobId);
 
 private:
@@ -68,7 +68,7 @@ private:
 	quint64 dispatch(DetectionJob job);
 	// 一个 Task 到达终态后的统一收尾：累加计数，全部结束后才发作业级Job信号
 	void settleTask(quint64 jobId, bool failed, bool cancelled,
-					const DetectorError& error,
+					const DetectionError& error,
 					const QVector<DetectionResult>& results);
 	void advanceTaskCounters(quint64 jobId, bool failed);	// 记一个 Task 结束，并广播新进度
 	std::unique_ptr<DetectionWorker> m_worker;		// 单路输入先用 1 个 worker

@@ -42,15 +42,15 @@ bool DetectionWorker::start() {
 		catch (const std::exception& e) {
 			Logger::instance()->error(QStringLiteral("[DetectionWorker]: 工作线程异常退出: ")
 				+ QString::fromUtf8(e.what()));
-			emit detectorFailed(DetectorError(
+			emit detectorFailed(DetectionError(
 				QStringLiteral("[DetectionWorker]: 工作线程异常: ") + QString::fromUtf8(e.what()),
-				DetectorErrorCategory::Other, DetectorErrorCode::UnknownError));
+				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError));
 		}
 		catch (...) {
 			Logger::instance()->error(QStringLiteral("[DetectionWorker]: 工作线程发生未知异常"));
-			emit detectorFailed(DetectorError(
+			emit detectorFailed(DetectionError(
 				QStringLiteral("[DetectionWorker]: 工作线程发生未知异常"),
-				DetectorErrorCategory::Other, DetectorErrorCode::UnknownError));
+				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError));
 		}
 		// 线程结束: 复位状态
 		m_running.store(false, std::memory_order_relaxed);
@@ -152,16 +152,16 @@ void DetectionWorker::work() {
 		catch (const std::exception& e) {
 			Logger::instance()->error(QStringLiteral("[DetectionWorker]: 任务执行异常: ")
 				+ QString::fromUtf8(e.what()));
-			m_lastError = DetectorError(
+			m_lastError = DetectionError(
 				QStringLiteral("[DetectionWorker]: 任务执行异常: ") + QString::fromUtf8(e.what()),
-				DetectorErrorCategory::Other, DetectorErrorCode::UnknownError);
+				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError);
 			failTaskIfUnfinished(*task);
 		}
 		catch (...) {
 			Logger::instance()->error(QStringLiteral("[DetectionWorker]: 任务执行发生未知异常"));
-			m_lastError = DetectorError(
+			m_lastError = DetectionError(
 				QStringLiteral("[DetectionWorker]: 任务执行发生未知异常"),
-				DetectorErrorCategory::Other, DetectorErrorCode::UnknownError);
+				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError);
 			failTaskIfUnfinished(*task);
 		}
 	}
@@ -201,20 +201,20 @@ void DetectionWorker::execute(DetectionTask& task) {
 	if (!m_detector || !m_detector->isValid()) {
 		m_lastError = m_detector   // 获取检测器的最后错误信息
 			? m_detector->lastError()
-			: DetectorError(QStringLiteral("[DetectionWorker]: 检测器未初始化!"),
-				DetectorErrorCategory::Other, DetectorErrorCode::UnknownError);
+			: DetectionError(QStringLiteral("[DetectionWorker]: 检测器未初始化!"),
+				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError);
 	}
 	else if (!task.source) {
-		m_lastError = DetectorError(QStringLiteral("[DetectionWorker]: 帧源为空!"),
-			DetectorErrorCategory::Other, DetectorErrorCode::UnknownError);
+		m_lastError = DetectionError(QStringLiteral("[DetectionWorker]: 帧源为空!"),
+			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError);
 	}
 	// 打开帧源
 	else if (!task.source->open()) {
 		// 打开失败的错误分类沿用旧实现：图片归 Image，视频/摄像头归 Detection
 		const bool isImage = (task.source->type() == FrameSourceType::SingleImage);
-		m_lastError = DetectorError(QStringLiteral("[DetectionWorker]: ") + task.source->lastError(),
-			isImage ? DetectorErrorCategory::Image : DetectorErrorCategory::Detection,
-			isImage ? DetectorErrorCode::InvalidImage : DetectorErrorCode::DetectionFailed);
+		m_lastError = DetectionError(QStringLiteral("[DetectionWorker]: ") + task.source->lastError(),
+			isImage ? DetectionErrorCategory::Image : DetectionErrorCategory::Detection,
+			isImage ? DetectionErrorCode::InvalidImage : DetectionErrorCode::DetectionFailed);
 	}
 	else {
 		switch (task.source->type()) {
@@ -253,8 +253,8 @@ bool DetectionWorker::runImage(DetectionTask& task) {
 		const QString message = task.source->lastError().isEmpty()
 			? QStringLiteral("无法读取图像帧")
 			: task.source->lastError();
-		m_lastError = DetectorError(QStringLiteral("[DetectionWorker]: ") + message,
-			DetectorErrorCategory::Image, DetectorErrorCode::InvalidImage);
+		m_lastError = DetectionError(QStringLiteral("[DetectionWorker]: ") + message,
+			DetectionErrorCategory::Image, DetectionErrorCode::InvalidImage);
 		return false;
 	}
 	const cv::Mat frame = toCvMat(handle);

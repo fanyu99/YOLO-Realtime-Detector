@@ -111,7 +111,7 @@ signals:
 
 private:
 	void reportError(const AppError& error);								// 统一上报错误：发信号 + 写日志
-	AppError mapDetectionErrortoAppError(const DetectorError& error) const;	// 检测器错误 -> 应用层错误
+	AppError mapDetectionErrortoAppError(const DetectionError& error) const;	// 检测器错误 -> 应用层错误
 	// 帧源工厂
 	FrameSourcePtr makeFileSource(QStringView path) const;
 	FrameSourcePtr makeCameraSource(int cameraId) const;
@@ -134,7 +134,7 @@ private:
 	void onJobFinished(quint64 jobId, DetectionJobType type,
 					   const QVector<DetectionResult>& results,
 					   int totalTasks, int failedTasks);
-	void onJobFailed(quint64 jobId, const DetectorError& error);
+	void onJobFailed(quint64 jobId, const DetectionError& error);
 	void onJobCancelled(quint64 jobId);
 	void onJobSaved(quint64 jobId, QStringView dir, int fileCount);	// 结果已落盘 -> 成功横幅
 	void onDetectorWarning(const DetectorWarning& warning);		// 检测器警告 -> 横幅

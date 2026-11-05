@@ -65,12 +65,13 @@ void DetectionApp::reportError(const AppError& error) {
 }
 
 // 检测器错误 -> 应用层错误
-AppError DetectionApp::mapDetectionErrortoAppError(const DetectorError& error) const {
+AppError DetectionApp::mapDetectionErrortoAppError(const DetectionError& error) const {
 	switch (error.errorCategory) {
-	case DetectorErrorCategory::Model:		return AppError(error.errorMessage, AppErrorCode::InvalidModelPath);
-	case DetectorErrorCategory::Config:		return AppError(error.errorMessage, AppErrorCode::InvalidConfig);
-	case DetectorErrorCategory::Image:		return AppError(error.errorMessage, AppErrorCode::InvalidFilePath);
-	case DetectorErrorCategory::Detection:	return AppError(error.errorMessage, AppErrorCode::DetectionFailed);
+	case DetectionErrorCategory::Model:		return AppError(error.errorMessage, AppErrorCode::InvalidModelPath);
+	case DetectionErrorCategory::Config:		return AppError(error.errorMessage, AppErrorCode::InvalidConfig);
+	case DetectionErrorCategory::Image:		return AppError(error.errorMessage, AppErrorCode::InvalidFilePath);
+	case DetectionErrorCategory::Detection:	return AppError(error.errorMessage, AppErrorCode::DetectionFailed);
+	case DetectionErrorCategory::Preprocess:return AppError(error.errorMessage, AppErrorCode::DetectionFailed);
 	default:								return AppError(error.errorMessage, AppErrorCode::UnknownError);
 	}
 }
@@ -659,7 +660,7 @@ void DetectionApp::onJobFinished(quint64 jobId, DetectionJobType type,
 	setState(0,false,false);
 }
 
-void DetectionApp::onJobFailed(quint64 jobId, const DetectorError& error) {
+void DetectionApp::onJobFailed(quint64 jobId, const DetectionError& error) {
 	// 注意：投递失败时 Manager 会在 submit() 内部就同步 emit jobFailed，
 	// 此时 m_currentJobId 还没被赋值。所以这里不能按 jobId 过滤掉，
 	// 否则错误会被静默吞掉。
