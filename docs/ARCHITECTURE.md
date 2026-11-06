@@ -14,6 +14,8 @@
 - 添加了`CpuDetecitonFlow`流程类骨架以及通用的后处理器`CommonPostProcessor`，统一CPU推理流程，其中进行了预处理+推理+后处理的完整流程。
 - 完成了`CpuDetector`内部的纯化解耦，作为单纯的推理模块管理ORT的会话以及推理等,并将其接入到`CpuDetectionFlow`中，完成了CPU推理总线。
 - CPU推理总线接入到`DetectionWorker`中，完成了CPU推理总线的接入。
+- 为FfmpegFrameSource添加设备支持，
+能够打开摄像头/相机等设备并将其接入到CPU推理总线中，前端QML能够使用ffmpeg获取的设备帧。
 ---
 需要注意的后续改动：
 1. 后续的FrameSource依旧作为策略模式，其中管理FileFrameSource、HikCameraFrameSource、FfmpegFrameSource等帧源，
@@ -24,9 +26,11 @@
 ---
 
 正在准备完成：
+- 将当前的FileFrameSource进行分化为ImageFrameSource并将原本的视频文件/摄像头集成到FfmpegFrameSource中
+由FfmpegDecoder进行解码等操作
+- 创建统一的抽象工厂类FrameSourceFactory和DetectionFlowFactory，分别用于创建CPU/GPU的FrameSource和DetectionFlow
 - 添加统一管理FrameSource和DetectionFlow的Session类别，目前仅创建CpuDetectionSession，后续将添加GpuDetectionSession，
 统一管理FrameSource和DetectionFlow的生命周期以及配置和配对；
-- 添加工厂创建CPU或者GPU的FrameSource和DetectionFlow，然后Session内部统一配对
 - `GpuFrameHandle`用于封装GPU处理流程中所需要的AVFrame*和CUDA硬件帧NV12上下文。
 - GPU处理中，将当前的显示结果分为CPU的NMS检测框+QTOverlay绘制检测框叠加在GPU图像数据上显示
 

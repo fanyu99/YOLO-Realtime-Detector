@@ -61,7 +61,7 @@ Window {
 				anchors.leftMargin: 8
 				anchors.rightMargin: 8
 				Label {
-					text: "检测头"
+					text: "实时检测器"
 					font.bold: true
 					font.pixelSize: 15
 					Layout.fillWidth: true
@@ -336,6 +336,13 @@ Window {
 							enabled: !app.busy
 							onClicked: cameraDialog.open()
 						}
+						// Ffmpeg摄像头检测(先弹对话框选设备；走 ffmpeg dshow 采集，与上面的 USB 编号不是一回事)
+						Button{
+							text:"ffmpeg摄像头检测"
+							enabled:!app.busy
+							onClicked: ffmpegDeviceDialog.open()
+						}
+
 
 						// 海康工业相机检测(先弹对话框选设备；走 MVS SDK，与上面的 USB 编号不是一回事)
 						Button {
@@ -619,6 +626,7 @@ Window {
 	ConfigDialog { id: configDialog; theme: theme; app: app }
 	CameraDialog { id: cameraDialog; theme: theme; app: app }
 	HikCameraDialog { id: hikCameraDialog; theme: theme; app: app }
+	FfmpegDeviceDialog { id: ffmpegDeviceDialog; theme: theme; app: app }
 
 	// 状态栏订阅日志流：与日志列表同源，
 	// 选择文件 / 配置更新 / 错误 / 检测完成等都会自动刷新状态栏

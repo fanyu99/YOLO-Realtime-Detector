@@ -1,11 +1,22 @@
 #pragma once
 #include <QUrl>
+#include <QVector>
 #include "FrameSource.h"
+#include "DecodeTypes.h"
 #include <FfmpegDecoder.h>
 class FfmpegFrameSource : public FrameSource {
 public:
 	// 创建本地文件帧源（视频文件）
 	static FrameSourcePtr forLocalFile( QStringView filePath );
+	// 创建设备帧源（摄像头/相机），使用 ffmpeg 采集（dshow/avfoundation/v4l2）
+	// formatName 为空时使用当前平台的默认输入格式；设备无效返回空指针
+	static FrameSourcePtr forDevice( const FfmpegDeviceInfo& device, const QString& formatName = QString() );
+	// 按设备友好名（或原始标识）创建帧源；名字大小写/首尾空白/部分匹配均可
+	static FrameSourcePtr forDevice( const QString& nameOrId, const QString& formatName = QString() );
+	// 枚举指定输入格式下的 video 类型输入设备（阻塞操作）
+	static FfmpegDeviceInfoList enumerateVideoDevices( const QString& formatName = QString() );
+	// 当前平台的默认视频采集输入格式（Windows->"dshow"）
+	static QString defaultVideoInputFormat();
 	~FfmpegFrameSource()override;
 	bool open() override;
 	bool isOpened()const override;

@@ -118,6 +118,12 @@ FrameSourcePtr DetectionApp::makeFfmpegSource( QStringView filePath ) const {
 	return FfmpegFrameSource::forLocalFile( filePath );
 }
 
+// 4. Ffmpeg设备帧源（摄像头，dshow/avfoundation/v4l2）
+FrameSourcePtr DetectionApp::makeFfmpegDeviceSource(const QString& deviceName, const QString& formatName) const {
+	// 按友好名查找：findVideoDevice 内部做了大小写/子串容错，名字写错一个字符也能命中
+	return FfmpegFrameSource::forDevice(deviceName, formatName);
+}
+
 // 枚举在线海康相机，供 HikCameraDialog 填列表(为阻塞操作)
 QVariantList DetectionApp::hikDevices() const {
 	QVariantList list;
@@ -129,6 +135,21 @@ QVariantList DetectionApp::hikDevices() const {
 		item.insert(QStringLiteral("model"), device.model);
 		item.insert(QStringLiteral("userDefinedName"), device.userDefinedName);
 		item.insert(QStringLiteral("online"), device.online);
+		list.append(item);
+	}
+	return list;
+}
+
+// 枚举 ffmpeg video 输入设备(摄像头等)，供选择对话框填列表(为阻塞操作)
+QVariantList DetectionApp::ffmpegVideoDevices(const QString& formatName) const {
+	QVariantList list;
+	const FfmpegDeviceInfoList devices = FfmpegFrameSource::enumerateVideoDevices(formatName);
+	list.reserve(devices.size());
+	for (const FfmpegDeviceInfo& device : devices) {
+		QVariantMap item;
+		item.insert(QStringLiteral("name"), device.name);		// 友好名：列表显示 + 创建帧源都用它
+		item.insert(QStringLiteral("id"), device.originalId);			// 原始标识（PNP 路径），仅排查用
+		item.insert(QStringLiteral("isDefault"), device.isDefault);
 		list.append(item);
 	}
 	return list;
@@ -268,6 +289,44 @@ void DetectionApp::onDetectHikCameraClicked(const QString& serial,const QString&
 	m_progress = 0.0f;
 	setState(m_currentJobId, true, true);
 }
+// qml侧调用: Ffmpeg设备检测（摄像头，dshow/avfoundation/v4l2）
+void DetectionApp::onDetectFfmpegDeviceClicked(const QString& deviceName, const QString& formatName) {
+	if (m_busy) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: 已有检测在进行中，请先停止!"), AppErrorCode::DetectionFailed));
+		return;
+	}
+	if (deviceName.isEmpty()) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: 设备名为空!"), AppErrorCode::InvalidConfig));
+		return;
+	}
+	if (!m_config.isValid()) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: 配置无效!"), AppErrorCode::InvalidConfig));
+		return;
+	}
+	if (!m_config.model_exists()) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: 模型路径无效!"), AppErrorCode::InvalidModelPath));
+		return;
+	}
+	if (!m_manager->start()) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: 检测器未就绪!"), AppErrorCode::DetectorError));
+		return;
+	}
+	Logger::instance()->info(QStringLiteral("[DetectionApp]: 请求 Ffmpeg 设备检测，设备 = ") + deviceName
+		+ QStringLiteral(", 格式 = ") + (formatName.isEmpty() ? FfmpegFrameSource::defaultVideoInputFormat() : formatName));
+	// 创建帧源（按设备名在枚举结果中匹配，匹配失败说明设备不在线/已拔出）
+	FrameSourcePtr source = makeFfmpegDeviceSource(deviceName, formatName);
+	if (!source) {
+		reportError(AppError(QStringLiteral("[DetectionApp]: Ffmpeg 设备无效或不在线: %1").arg(deviceName), AppErrorCode::InvalidConfig));
+		return;
+	}
+	// 提交检测
+	m_currentJobId = m_manager->submitSource(std::move(source), effectiveResultsDir());
+	if (m_currentJobId == 0)
+		return;
+	m_progress = 0.0f;
+	setState(m_currentJobId, true, true);
+}
+
 // qml侧调用: Ffmpeg检测
 void DetectionApp::onDetectFfmpegClicked() {
 	if (m_busy) {

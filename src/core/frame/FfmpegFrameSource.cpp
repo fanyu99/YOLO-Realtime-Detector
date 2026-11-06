@@ -147,6 +147,11 @@ cv::Size FfmpegFrameSource::frameSize() const {
 }
 
 QString FfmpegFrameSource::displayName() const {
+	// 设备源优先展示友好名（如 "ASUS FHD webcam"），而不是 "video=..." 输入串
+	if (m_config.deviceDisplayName && !m_config.deviceDisplayName->isEmpty())
+		return *m_config.deviceDisplayName;
+	if (m_config.isDevice())
+		return *m_config.deviceInput;
 	return m_url.isLocalFile() ? m_url.toLocalFile() : m_url.toString();
 }
 
@@ -222,4 +227,42 @@ FrameSourcePtr FfmpegFrameSource::forLocalFile( QStringView filePath ) {
 	DecodeConfig config;
 	config.url = url;
 	return FrameSourcePtr( new FfmpegFrameSource( config ) );
+}
+
+// 创建设备帧源（摄像头/相机）
+FrameSourcePtr FfmpegFrameSource::forDevice( const FfmpegDeviceInfo& device, const QString& formatName ) {
+	if (device.name.isEmpty() && device.originalId.isEmpty())
+		return nullptr;
+	// 格式为空时回退到平台默认格式
+	const QString fmt = formatName.isEmpty() ? FfmpegDecoder::defaultVideoInputFormat() : formatName;
+	DecodeConfig config;
+	// 设备输入串：友好名优先
+	config.deviceInput = FfmpegDecoder::deviceInput( device, fmt );
+	if (!config.isDevice())
+		return nullptr;
+	// dshow 兜底：友好名打不开时用 PNP 路径重试
+	const QString fallback = FfmpegDecoder::deviceFallbackInput( device, fmt );
+	if (!fallback.isEmpty())
+		config.deviceFallbackInput = fallback;
+	config.deviceDisplayName = device.name;
+	config.inputFormat = fmt;
+	return FrameSourcePtr( new FfmpegFrameSource( config ) );
+}
+
+// 按设备友好名（或原始标识）查找并创建帧源；名字写错也能模糊匹配
+FrameSourcePtr FfmpegFrameSource::forDevice( const QString& nameOrId, const QString& formatName ) {
+	const std::optional<FfmpegDeviceInfo> device = FfmpegDecoder::findVideoDevice( nameOrId, formatName );
+	if (!device)
+		return nullptr;
+	return forDevice( *device, formatName );
+}
+
+// 枚举 video 类型输入设备（转发 FfmpegDecoder 的列举方法）
+FfmpegDeviceInfoList FfmpegFrameSource::enumerateVideoDevices( const QString& formatName ) {
+	return FfmpegDecoder::enumerateVideoDevices( formatName );
+}
+
+// 当前平台的默认视频采集输入格式
+QString FfmpegFrameSource::defaultVideoInputFormat() {
+	return FfmpegDecoder::defaultVideoInputFormat();
 }

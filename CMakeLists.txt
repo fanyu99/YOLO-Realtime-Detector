@@ -230,6 +230,7 @@ set(YOLO_QML_FILES
     qml/ConfigDialog.qml
     qml/CameraDialog.qml
     qml/HikCameraDialog.qml
+    qml/FfmpegDeviceDialog.qml
     qml/AcceptShortcut.qml
 )
 foreach(_qml IN LISTS YOLO_QML_FILES)

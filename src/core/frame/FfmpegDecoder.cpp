@@ -1,5 +1,8 @@
 #include "FfmpegDecoder.h"
 #include <QFile>
+#include <QElapsedTimer>
+#include <algorithm>
+#include "Logger.h"
 FfmpegDecoder::FfmpegDecoder( const DecodeConfig& config )
 	: m_config( config )
 	, m_interruptContex( config.readTimeoutMs ) {
@@ -12,6 +15,136 @@ FfmpegDecoder::~FfmpegDecoder() {
 QUrl FfmpegDecoder::getUrl() const {
 	return m_config.url;
 }
+
+// ====== 采集设备枚举 ======
+
+// 当前平台的默认视频采集输入格式
+QString FfmpegDecoder::defaultVideoInputFormat() {
+#if defined(Q_OS_WIN)
+	return QStringLiteral( "dshow" );
+#elif defined(Q_OS_MACOS)
+	return QStringLiteral( "avfoundation" );
+#elif defined(Q_OS_LINUX)
+	return QStringLiteral( "v4l2" );
+#else
+	return QString();
+#endif
+}
+
+// 枚举指定输入格式下的 video 类型输入设备
+FfmpegDeviceInfoList FfmpegDecoder::enumerateVideoDevices( const QString& formatName ) {
+	// 注册所有设备（1次）
+	static std::once_flag registerOnce;
+	std::call_once( registerOnce, [ ] { avdevice_register_all(); } );
+
+	// 获取格式
+	const QString fmt = formatName.isEmpty() ? defaultVideoInputFormat() : formatName;
+	if (fmt.isEmpty())
+		return {};
+	const AVInputFormat* inputFormat = av_find_input_format( fmt.toUtf8().constData() );
+	if (!inputFormat) {
+		Logger::instance()->warning( QStringLiteral( "[FfmpegDecoder]: 无法找到输入格式: %1，枚举设备失败" ).arg( fmt ) );
+		return {};
+	}
+
+	// 获取设备列表
+	AVDeviceInfoList* deviceList = nullptr;
+	// 返回值为枚举到的设备数，负数表示错误
+	const int count = avdevice_list_input_sources( inputFormat, nullptr, nullptr, &deviceList );
+	if (count < 0 || !deviceList) {
+		Logger::instance()->warning( QStringLiteral( "[FfmpegDecoder]: 枚举设备失败（%1）: %2" ).arg( fmt, FfmpegDecode::ffmepegError( count ) ) );
+		return {};
+	}
+
+	// 获取设备信息
+	FfmpegDeviceInfoList devices;
+	devices.reserve( count );
+	for (int i = 0; i < deviceList->nb_devices; ++i) {
+		const AVDeviceInfo* device = deviceList->devices[i];
+		if (!device || !device->media_types)
+			continue;
+		// 仅保留 video 类型设备（跳过纯音频设备）
+		const bool hasVideo = std::any_of( device->media_types, device->media_types + device->nb_media_types,
+			[ ]( const AVMediaType type ) { return type == AVMEDIA_TYPE_VIDEO; } );
+		if (!hasVideo)
+			continue;
+		FfmpegDeviceInfo info;
+		// dshow 的 device_name 是 PNP 路径（@device_pnp_\\?\usb#vid_...），
+		// device_description 才是用户看到的友好名（如 "ASUS FHD webcam"）。
+		// 统一用友好名作为 name，原始标识留作兜底。
+		info.originalId = QString::fromUtf8( device->device_name );
+		info.name = device->device_description && *device->device_description
+			? QString::fromUtf8( device->device_description )
+			: info.originalId;
+		info.isDefault = (i == deviceList->default_device);
+		devices.append( info );
+	}
+	avdevice_free_list_devices( &deviceList );	  // 释放内存
+
+	Logger::instance()->info( QStringLiteral( "[FfmpegDecoder]: 枚举 %1 设备完成，共 %2 个 video 设备" ).arg( fmt ).arg( devices.size() ) );
+	return devices;
+}
+
+// 根据友好名/原始标识查找设备
+std::optional<FfmpegDeviceInfo> FfmpegDecoder::findVideoDevice( const QString& nameOrId, const QString& formatName ) {
+	const QString target = nameOrId.trimmed();
+	if (target.isEmpty())
+		return std::nullopt;
+	const FfmpegDeviceInfoList devices = enumerateVideoDevices( formatName );
+
+	// 1.精确匹配（友好名 / 原始标识）
+	for (const FfmpegDeviceInfo& device : devices) {
+		if (device.name.compare( target, Qt::CaseInsensitive ) == 0
+			|| device.originalId.compare( target, Qt::CaseInsensitive ) == 0)
+			return device;
+	}
+	// 2.子串匹配
+	for (const FfmpegDeviceInfo& device : devices) {
+		if (device.name.contains( target, Qt::CaseInsensitive )
+			|| device.originalId.contains( target, Qt::CaseInsensitive ))
+			return device;
+	}
+	// 3.如果输入的设备名带有前缀
+	for (const FfmpegDeviceInfo& device : devices) {
+		if (!device.name.isEmpty() && target.contains( device.name, Qt::CaseInsensitive ))
+			return device;
+	}
+	return std::nullopt;
+}
+
+// 由设备信息生成 ffmpeg 输入串（原样字符串，不做 URL 编码）
+QString FfmpegDecoder::deviceInput( const FfmpegDeviceInfo& device, const QString& formatName ) {
+	const QString fmt = formatName.isEmpty() ? defaultVideoInputFormat() : formatName;
+	if (device.name.isEmpty() && device.originalId.isEmpty())
+		return QString();
+	if (fmt == QStringLiteral( "dshow" )) {
+		// dshow 用友好名打开："video=ASUS FHD webcam"
+		QString name = device.name.isEmpty() ? device.originalId : device.name;
+		name.replace( QLatin1Char( '"' ), QChar( 0x201C ) );
+		return QStringLiteral( "video=%1" ).arg( name );
+	}
+	if (fmt == QStringLiteral( "avfoundation" )) {
+		// avfoundation 的 device_name 是 "<video_idx>.<audio_idx>"，只取视频部分
+		const QString raw = device.originalId.isEmpty() ? device.name : device.originalId;
+		const int colon = raw.indexOf( QLatin1Char( ':' ) );
+		return colon >= 0 ? raw.left( colon ) : raw;
+	}
+	// v4l2 及其他格式：设备路径本身
+	return device.originalId.isEmpty() ? device.name : device.originalId;
+}
+
+// 打开失败时的兜底输入串：dshow 回退到 PNP 路径（对重名友好名更可靠）
+QString FfmpegDecoder::deviceFallbackInput( const FfmpegDeviceInfo& device, const QString& formatName ) {
+	const QString fmt = formatName.isEmpty() ? defaultVideoInputFormat() : formatName;
+	if (fmt != QStringLiteral( "dshow" ) || device.originalId.isEmpty())
+		return QString();
+	// 兜底输入与主输入相同时直接返回空
+	if (device.originalId.compare( device.name, Qt::CaseInsensitive ) == 0)
+		return QString();
+	return QStringLiteral( "video=%1" ).arg( device.originalId );
+}
+
+// ==========
 StreamInfo FfmpegDecoder::getStreamInfo() const {
 	return m_streamInfo;
 }
@@ -120,10 +253,7 @@ bool FfmpegDecoder::openInput() {
 	}
 	m_interruptContex.timeoutMs = m_config.connectTimeoutMs; // 连接阶段使用连接超时
 	m_interruptContex.restart(); // 开启连接时重启计时
-	// 打开输入
-	const QByteArray urlBytes = m_config.url.isLocalFile()
-		? QFile::encodeName( m_config.url.toLocalFile() )
-		: m_config.url.toString( QUrl::FullyEncoded ).toUtf8();
+
 	const AVInputFormat* inputFormat = nullptr;
 	if (m_config.inputFormat && !m_config.inputFormat->isEmpty()) {
 		inputFormat = av_find_input_format( m_config.inputFormat->toUtf8().constData() );
@@ -133,18 +263,49 @@ bool FfmpegDecoder::openInput() {
 			return false;
 		}
 	}
-	int openRet = avformat_open_input( &rawFormatContext, urlBytes.constData(), inputFormat, &options );
-	av_dict_free( &options );
-	if (openRet < 0) {
-		m_lastError = DecodeError::OpenFailedError( QStringLiteral( "无法打开输入: %1" ).arg( FfmpegDecode::ffmepegError( openRet ) ) );
-		// 注意：avformat_open_input 失败时会自行释放 context，并把指针置为 nullptr
-		if (isStopRequested()) // 其他县城请求停止，直接返回
-			return false;
-		if (m_interruptContex.isTimeout()) {
-			m_lastError = DecodeError::ReadTimeoutError( QStringLiteral( "打开输入超时: %1" ).arg( m_config.url.toString() ) );
+
+	// 设备源使用 deviceInput
+	// 图片、视频文件等使用 URL 
+	const bool isDevice = m_config.isDevice();	 // 检查是否为设备
+	// 生成输入串（根据是否为设备）
+	const auto toInputBytes = [ isDevice ]( const DecodeConfig& config ) -> QByteArray {
+		if (isDevice)
+			return config.deviceInput->toUtf8();
+		return config.url.isLocalFile()
+			? QFile::encodeName( config.url.toLocalFile() )
+			: config.url.toString( QUrl::FullyEncoded ).toUtf8();
+		};
+	const QString inputLabel = isDevice ? m_config.deviceInput.value() : m_config.url.toString();
+
+	// 打开输入；设备源在主输入失败时用兜底输入（dshow 的 PNP 路径）再试一次
+	QByteArray inputBytes = toInputBytes( m_config );
+	int openRet = avformat_open_input( &rawFormatContext, inputBytes.constData(), inputFormat, &options );
+	// 如果打开失败并且是设备、存在兜底输入，重新尝试
+	if (openRet < 0 && isDevice && m_config.deviceFallbackInput && !m_config.deviceFallbackInput->isEmpty()) {
+		// avformat_open_input 失败时会自行释放 context 并置空，重试前需要重新分配
+		rawFormatContext = avformat_alloc_context();
+		if (rawFormatContext) {
+			rawFormatContext->interrupt_callback.opaque = &m_interruptContex;
+			rawFormatContext->interrupt_callback.callback = &FfmpegDecode::interrupt_cb;
+			const QByteArray fallbackBytes = m_config.deviceFallbackInput->toUtf8();
+			openRet = avformat_open_input( &rawFormatContext, fallbackBytes.constData(), inputFormat, &options );
+			if (openRet >= 0)
+				Logger::instance()->info( QStringLiteral( "[FfmpegDecoder]: 友好名打开失败，已回退到设备标识打开: %1" ).arg( *m_config.deviceFallbackInput ) );
 		}
 		else {
-			m_lastError = DecodeError::OpenFailedError( QStringLiteral( "无法打开输入: %1" ).arg( FfmpegDecode::ffmepegError( openRet ) ) );
+			openRet = AVERROR( ENOMEM );
+		}
+	}
+	av_dict_free( &options );
+	if (openRet < 0) {
+		// 注意：avformat_open_input 失败时会自行释放 context，并把指针置为 nullptr
+		if (isStopRequested()) // 其他线程请求停止，直接返回
+			return false;
+		if (m_interruptContex.isTimeout()) {
+			m_lastError = DecodeError::ReadTimeoutError( QStringLiteral( "打开输入超时: %1" ).arg( inputLabel ) );
+		}
+		else {
+			m_lastError = DecodeError::OpenFailedError( QStringLiteral( "无法打开输入: %1 输入: %2" ).arg( FfmpegDecode::ffmepegError( openRet ), inputLabel ) );
 		}
 		return false;
 	}
@@ -159,7 +320,7 @@ bool FfmpegDecoder::openInput() {
 		if (isStopRequested())
 			return false;
 		if (m_interruptContex.isTimeout()) {
-			m_lastError = DecodeError::ReadTimeoutError( QStringLiteral( "查找流信息超时: %1" ).arg( m_config.url.toString() ) );
+			m_lastError = DecodeError::ReadTimeoutError( QStringLiteral( "查找流信息超时: %1" ).arg( inputLabel ) );
 		}
 		else {
 			m_lastError = DecodeError::OpenFailedError( QStringLiteral( "无法查找流信息: %1" ).arg( FfmpegDecode::ffmepegError( infoRet ) ) );
@@ -431,16 +592,13 @@ bool FfmpegDecoder::open() {
 	has_pendingPacket = false;
 	flushEof = false;
 
-	// 校验当前的URL有效
-	if (m_config.url.isEmpty() || !m_config.url.isValid()) {
-		m_lastError = DecodeError::OpenFailedError( QStringLiteral( "URL无效: %1" ).arg( m_config.url.toString() ) );
-		m_running.store(false,std::memory_order_relaxed);
-		return false;
-	}
-	// 校验配置
+	// 校验输入有效：设备源看 deviceInput，其余看 url
 	if (!m_config.isValid()) {
-		m_lastError = DecodeError::OpenFailedError( QStringLiteral( "配置无效" ) );
-		m_running.store( false, std::memory_order_relaxed );
+		const QString what = m_config.isDevice()
+			? QStringLiteral( "设备输入无效: %1" ).arg( *m_config.deviceInput )
+			: QStringLiteral( "URL无效: %1" ).arg( m_config.url.toString() );
+		m_lastError = DecodeError::OpenFailedError( what );
+		m_running.store(false,std::memory_order_relaxed);
 		return false;
 	}
 	// 初始化

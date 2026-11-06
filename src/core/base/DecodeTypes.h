@@ -1,6 +1,7 @@
 #pragma once
 #include <QString>
 #include <QUrl>
+#include <QVector>
 #include <optional>
 #include <map>
 extern "C" {
@@ -19,6 +20,16 @@ enum class ReadStatus {
 	Stopped, // 停止
 	Error		 // 发生错误
 };
+
+// 采集设备信息（摄像头等 video 输入设备，由 FfmpegDecoder 枚举）
+struct FfmpegDeviceInfo {
+	QString name;        // 友好名，用于 UI 展示与打开（dshow: "ASUS FHD webcam"）
+	QString originalId;          // 原始标识，作为设备打开失败时的兜底（dshow: PNP 路径）
+	bool isDefault{ false }; // 是否为该格式的默认设备（无默认则为 false）
+};
+
+// 采集设备信息列表
+using FfmpegDeviceInfoList = QVector<FfmpegDeviceInfo>;
 
 // 解码错误
 enum class DecodeErrorCode {
@@ -109,14 +120,28 @@ struct StreamInfo {
 // 解码配置
 struct DecodeConfig {
 	QUrl url; // URL，本地文件路径、rtsp://
+	// 采集设备输入串（如 dshow 的 "video=ASUS FHD webcam"）。
+	std::optional<QString> deviceInput;
+	// 设备输入串的兜底方案（dshow 用 PNP 路径），主输入打开失败时重试一次
+	std::optional<QString> deviceFallbackInput;
+	// 设备友好名，仅用于 displayName() 展示（为空时回退到 deviceInput）
+	std::optional<QString> deviceDisplayName;
 	std::optional<QString> inputFormat; // 输入格式，dshow等
 	std::map<QString, QString>options; // 选项，rtsp_transport、stimeout、max_delay、buffer_size
 	int connectTimeoutMs{ DEFAULT_DECODE_CONNECT_TIMEOUT_MS };
 	int readTimeoutMs{ DEFAULT_DECODE_READ_TIMEOUT_MS };
 	int videoStreamIndex{ -1 }; // 视频流索引，-1表示自动选择
-	// 是否合法
+	// 是否为采集设备源
+	[[nodiscard]] bool isDevice()const {
+		return deviceInput && !deviceInput->isEmpty();
+	}
+	// 是否合法：设备源看 deviceInput，其余看 url
 	[[nodiscard]] bool isValid()const {
-		return !url.isEmpty() && url.isValid() && connectTimeoutMs > 0 && readTimeoutMs > 0;
+		if (connectTimeoutMs <= 0 || readTimeoutMs <= 0)
+			return false;
+		if (isDevice())
+			return true;
+		return !url.isEmpty() && url.isValid();
 	}
 };
 

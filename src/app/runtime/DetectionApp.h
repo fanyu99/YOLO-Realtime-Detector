@@ -84,7 +84,9 @@ public:
 	Q_INVOKABLE void onDetectCameraClicked(int camera_id);		// qml 摄像头检测按钮点击(带设备 id)
 	Q_INVOKABLE void onDetectHikCameraClicked(const QString& serial, const QString& triggerMode);	// qml 海康相机检测(带序列号)
 	Q_INVOKABLE void onDetectFfmpegClicked();					// qml Ffmpeg检测按钮点击
+	Q_INVOKABLE void onDetectFfmpegDeviceClicked(const QString& deviceName, const QString& formatName = QString());	// qml Ffmpeg设备检测(带设备名)
 	Q_INVOKABLE QVariantList hikDevices() const;				// 枚举在线海康相机(供选择对话框填列表)
+	Q_INVOKABLE QVariantList ffmpegVideoDevices(const QString& formatName = QString()) const;	// 枚举 ffmpeg video 输入设备(供选择对话框填列表，阻塞操作)
 	Q_INVOKABLE quint64 submitBatch(const QList<QUrl>& urls);	// qml 批量检测：一个 Job 含多个 Task
 	Q_INVOKABLE void cancelCurrentJob();						// qml 停止按钮
 	Q_INVOKABLE void dismissBanner();							// qml 关闭横幅
@@ -117,6 +119,7 @@ private:
 	FrameSourcePtr makeCameraSource(int cameraId) const;
 	FrameSourcePtr makeHikCameraSource( QStringView serial, QStringView triggerMode = QString("Off") ) const;
 	FrameSourcePtr makeFfmpegSource( QStringView filePath )const;
+	FrameSourcePtr makeFfmpegDeviceSource(const QString& deviceName, const QString& formatName = QString()) const;
 
 	QString configSummary() const;											// 生成配置摘要文本(用于日志)
 	// 实际生效的保存目录：开关关掉时为空（worker 见到空目录就不保存）

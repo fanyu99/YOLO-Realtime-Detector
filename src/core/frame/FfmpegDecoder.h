@@ -1,5 +1,6 @@
 #pragma once
 #include <QString>
+#include <optional>
 #include <QUrl>
 #include <QElapsedTimer>
 #include <atomic>
@@ -134,6 +135,20 @@ public:
 
 	QUrl getUrl() const;
 	StreamInfo getStreamInfo() const;
+
+	// 采集设备枚举
+	// 当前平台的默认视频采集输入格式：Windows->"dshow"，macOS->"avfoundation"，Linux->"v4l2"
+	[[nodiscard]] static QString defaultVideoInputFormat();
+	// 枚举当前的系统默认的输入格式（dshow/avfoundation/v4l2）下的 video 类型输入设备
+	// 返回设备信息列表；阻塞操作
+	[[nodiscard]] static FfmpegDeviceInfoList enumerateVideoDevices( const QString& formatName = QString() );
+	// 根据设备友好名（或原始标识）在枚举结果中查找设备 找不到返回 std::nullopt
+	[[nodiscard]] static std::optional<FfmpegDeviceInfo> findVideoDevice( const QString& nameOrId, const QString& formatName = QString() );
+	// 由设备信息生成 ffmpeg 的输入字符串
+	[[nodiscard]] static QString deviceInput( const FfmpegDeviceInfo& device, const QString& formatName = QString() );
+	// 由设备信息生成打开失败时的fallback输入串（dshow 用 PNP 路径），无兜底时返回空
+	[[nodiscard]] static QString deviceFallbackInput( const FfmpegDeviceInfo& device, const QString& formatName = QString() );
+	
 	// 打开
 	[[nodiscard]] bool open();
 	// 是否打开
