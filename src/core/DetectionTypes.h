@@ -44,6 +44,11 @@ public:
 	float scaleValue() const { return scale; }
 };
 
+// 处理流程的模式：CPU/GPU
+enum class FlowMode {
+	CPU = 0, // CPU
+	GPU // GPU
+};
 // 检测器配置
 struct DetectorConfig {
 	Q_GADGET
@@ -69,6 +74,8 @@ public:
 	int input_width = 640;				// 推理输入宽度
 	int input_height = 640;				// 推理输入高度
 	bool use_cuda = true;				// 是否尝试启用 CUDA EP（失败会自动回退 CPU）
+	FlowMode preferred_mode = FlowMode::CPU;	// 用户选择的模式：CPU/GPU
+	FlowMode active_mode = FlowMode::CPU;	// 实际使用的模式：CPU/GPU
 
 	// getter 供 QML 读取
 	QString modelPathText() const { return QString::fromStdWString(model_path.wstring()); }
@@ -80,6 +87,8 @@ public:
 	int inputWidth() const { return input_width; }
 	int inputHeight() const { return input_height; }
 	bool useCuda() const { return use_cuda; }
+	Q_INVOKABLE QString preferredModeText() const { return preferred_mode == FlowMode::CPU ? "CPU" : "GPU"; }
+	Q_INVOKABLE QString activeModeText() const { return active_mode == FlowMode::CPU ? "CPU" : "GPU"; }
 
 	// 是否有效(未检查相关路径是否有效)
 	bool isValid()const {
@@ -111,6 +120,7 @@ public:
 	enum class Code {
 		InvalidModelPath,	  // 模型路径无效
 		InvalidConfig,		  // 配置无效
+		FallbackRequested,	  // 触发 fallback
 		InvalidImage,		  // 图像无效
 		PreprocessFailed,	  // 预处理失败
 		DetectionFailed,	  // 检测失败
@@ -153,6 +163,7 @@ struct DetectorWarning {
 public:
 	// 警告代码
 	enum class Code {
+		WarmUpFailed,		// 预热失败(不影响后续检测)
 		InputSizeAligned,	// 配置输入尺寸与模型不符，已按模型尺寸自动对齐
 		DynamicInputUsed,	// 模型输入为动态维(-1)，采用配置尺寸
 	};

@@ -14,6 +14,7 @@
 class CpuDetector {
 public:
 	CpuDetector();
+	// 输入配置，尝试创建对话以及对应的CPU内存及推理器
 	CpuDetector( const DetectorConfig& config );
 	~CpuDetector();
 	CpuDetector& operator=( const CpuDetector& ) = delete;
@@ -29,31 +30,22 @@ public:
 	const QVector<DetectorWarning>& warnings() const { return m_warnings; }
 	// 更改配置：返回是否成功(仅更新配置与输入尺寸，不重建会话)
 	bool setConfig( const DetectorConfig& config_ );
-	// 预热：用假输入跑若干次 Run
+	// 预热：用假输入跑若干次 Run , 失败时填入warnings，不影响后续检测
 	bool warmup( int iterations = 3 );
-	// 检测目标(需要将预处理的图像NCHW作为输入)
-	DetectionResult CpuDetect( const CpuPreprocessResult& preprocessed );		// 传图/帧
+	// 纯推理：接收预处理结果(NCHW blob)，执行 ORT Run
+	// 成功返回 true，输出张量数据拷贝到 outData，输出 shape 拷贝到 outShape(供上层反推解析维度)
+	// 失败返回 false，原因通过 lastError() 获取
+	bool infer( const CpuPreprocessResult& preprocessed, std::vector<float>& outData, std::vector<int64_t>&outShape );
 	// 当前推理输入尺寸(已按模型自动对齐)，供预处理使用
 	int inputWidth() const { return config.input_width; }
 	int inputHeight() const { return config.input_height; }
-	// 计算IoU
-	float getIoU( const Box& b1, const Box& b2 )const;
-	// 类别内NMS(需要保证已经有过置信度筛选)
-	std::vector<Box> NMS( std::span<const Box> boxes, float iou_threshold ) const;
-	// 解析推理结果(NMS等)	，返回得到的目标检测框Box（按照类别升序，置信度降序）
-	// num_anchors 由输出张量反推(output_shape[2])
-	std::vector<Box> parse_yolo_ouput( float* data, int num_classes, int num_anchors )const;
-	// 将预测框从 letterbox 后的 640x640 空间映射回原图(返回新容器)
-	QVector<Box> map_boxes_to_original_image( std::span<const Box> boxes, const LetterboxInfo& info ) const;
-	void map_boxes_to_original_image_replace( std::span<Box> boxes, const LetterboxInfo& info );
 private:
 	// 创建 CPU 会话选项
 	static Ort::SessionOptions CreateCpuSessionOptions( int threads );
 	// 按模型真实输入 shape 校正 config 与 input_shape；不符时生成警告。
 	// 模型为动态维(-1)时以配置尺寸为准。构造期与 setConfig() 共用。
 	void alignInputSizeToModel();
-	// CPU 推理入口：接收预处理结果(NCHW blob + letterbox 信息)，只负责 ORT 推理与解析
-	DetectionResult CpuRunInference(const CpuPreprocessResult& preprocessed );
+
 	DetectorConfig config;	// 配置
 	QString input_name;					 // 模型输入名
 	QString output_name;									  // 模型输出名
@@ -63,6 +55,6 @@ private:
 	Ort::Env env;
 	Ort::Session session;		// 对话,不能拷贝
 	Ort::MemoryInfo mem_info;	 // 预分配内存信息
-	bool m_valid = false;		// 会话是否构造成功
+	bool m_valid{ false };		// 会话是否构造成功
 	DetectionError m_lastError;	// 最近一次错误
 };

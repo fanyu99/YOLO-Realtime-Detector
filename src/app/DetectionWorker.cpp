@@ -8,6 +8,11 @@
 #include "Logger.h"
 #include <span>
 
+namespace {
+	// 预热次数
+	constexpr int kDefaultWarmupIterations = 3;	
+}
+
 DetectionWorker::DetectionWorker(QObject* parent) : QObject(parent) {}
 
 DetectionWorker::~DetectionWorker() {
@@ -84,9 +89,9 @@ void DetectionWorker::stop() {
 		emit taskCancelled(jobId);
 
 	// 释放内存
-	m_thread->wait();						
-	m_thread.reset();							
-	m_detector.reset(); 						
+	m_thread->wait();
+	m_thread.reset();
+	m_flow.reset();
 
 	Logger::instance()->info(QStringLiteral("[DetectionWorker]: 工作线程已停止"));
 	emit stopped();
@@ -110,22 +115,28 @@ bool DetectionWorker::submit(std::unique_ptr<DetectionTask> task) {
 // 工作循环
 void DetectionWorker::work() {
 	// 在 worker 线程内加载模型：ONNX 会话构造较重,在worker线程进行构造
-	m_detector = std::make_unique<CpuDetector>(m_config);
-	if (!m_detector->isValid()) {
+	// (流程内部持有检测器会话与预/后处理器)
+	m_flow = std::make_unique<CpuDetectionFlow>(m_config);
+	if (!m_flow->isValid()) {
 		Logger::instance()->error(QStringLiteral("[DetectionWorker]: 检测器初始化失败: ")
-			+ m_detector->lastError().errorMessage);
-		emit detectorFailed(m_detector->lastError());
+			+ m_flow->lastError().errorMessage);
+		emit detectorFailed(m_flow->lastError());
 	}
 	else {
-		// 构造期产生的警告(如输入尺寸已按模型自动对齐)必须显式上抛：
-		for (const DetectorWarning& warning : m_detector->warnings()) {
+		// 预热
+		QElapsedTimer timer;
+		timer.start();
+		const bool warmupSuc = m_flow->warmup( kDefaultWarmupIterations );
+		quint64 duration = timer.elapsed();
+		// 构造/预热产生的警告上报
+		for (const DetectorWarning& warning : m_flow->warnings()) {
 			Logger::instance()->warning(warning.message);
 			emit detectorWarning(warning);
 		}
+		if(warmupSuc)
+			Logger::instance()->info(QStringLiteral("[DetectionWorker]: 检测器预热完成，轮数: %1 耗时：%2ms  平均耗时：%3ms").arg(kDefaultWarmupIterations).arg(duration).arg(duration/kDefaultWarmupIterations));
 		Logger::instance()->info(QStringLiteral("[DetectionWorker]: 检测器就绪（CPU 推理）"));
 
-		// 预热
-		m_detector->warmup(3);
 	}
 	emit started();
 	 // 工作循环
@@ -197,9 +208,9 @@ void DetectionWorker::execute(DetectionTask& task) {
 	emit taskStarted(task.jobId);
 
 	bool ok = false;	// 执行是否成功
-	if (!m_detector || !m_detector->isValid()) {
-		m_lastError = m_detector   // 获取检测器的最后错误信息
-			? m_detector->lastError()
+	if (!m_flow || !m_flow->isValid()) {
+		m_lastError = m_flow	// 获取流程的最后错误信息
+			? m_flow->lastError()
 			: DetectionError(QStringLiteral("[DetectionWorker]: 检测器未初始化!"),
 				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError);
 	}
@@ -258,8 +269,11 @@ bool DetectionWorker::runImage(DetectionTask& task) {
 	}
 	const cv::Mat frame = toCvMat(handle);
 	DetectionResult result;
-	if (!preprocessAndDetect(handle, result))
+	// 执行完整的流程：预处理 + 推理 + 后处理
+	if (!m_flow->run(handle, result)) {
+		m_lastError = result.error;	// 流程失败时错误已回填到 result
 		return false;
+	}
 	result.taskId = task.taskId;
 	result.source = task.source->displayName();	  // 设置展示名称,例如文件路径/摄像头ID等
 
@@ -298,8 +312,10 @@ bool DetectionWorker::runStream(DetectionTask& task) {
 
 		const cv::Mat frame = toCvMat(handle);
 		DetectionResult result;
-		if (!preprocessAndDetect(handle, result))
+		if (!m_flow->run(handle, result)) {
+			m_lastError = result.error;	// 流程失败时错误已回填到 result
 			return false;
+		}
 		result.taskId = task.taskId;
 		result.source = source.displayName();
 		finishUnit(task, frame, result, saver);
@@ -313,33 +329,6 @@ bool DetectionWorker::runStream(DetectionTask& task) {
 		const double fps = static_cast<double>(processed) * 1000.0 / static_cast<double>(elapsedMs);
 		Logger::instance()->info(QStringLiteral("[DetectionWorker]: 实际处理帧率 %1 fps（%2 帧 / %3 ms）")
 			.arg(fps, 0, 'f', 1).arg(processed).arg(elapsedMs));
-	}
-	return true;
-}
-
-// 预处理 + 推理：成功返回 true 并回填 result；预处理失败时设置 m_lastError 并返回 false
-bool DetectionWorker::preprocessAndDetect(const FrameHandlePtr& handle, DetectionResult& result) {
-	if (!m_detector || !m_detector->isValid()) {
-		m_lastError = m_detector
-			? m_detector->lastError()
-			: DetectionError(QStringLiteral("[DetectionWorker]: 检测器未初始化!"),
-				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError);
-		return false;
-	}
-	// 预处理：letterbox + 颜色转换 + 归一化 + NCHW
-	auto preprocessed = m_preprocessor.preprocess(handle, m_detector->inputWidth(), m_detector->inputHeight());
-	if (!preprocessed.has_value()) {
-		m_lastError = m_preprocessor.lastError();
-		if (!m_lastError.has_error())	// 兜底错误
-			m_lastError = DetectionError(QStringLiteral("[DetectionWorker]: 预处理失败"),
-				DetectionErrorCategory::Preprocess, DetectionErrorCode::PreprocessFailed);
-		return false;
-	}
-	// 推理
-	result = m_detector->CpuDetect(*preprocessed);
-	if (result.error.has_error()) {
-		m_lastError = result.error;
-		return false;
 	}
 	return true;
 }

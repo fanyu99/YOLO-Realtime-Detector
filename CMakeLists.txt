@@ -370,7 +370,9 @@ CpuFrameHandle FrameSource CommonPostProcessor)
 # Qt::Core 供 QString；OpenCV 供 VideoCapture/imread
 target_link_libraries(FrameSource INTERFACE 
 ${OpenCV_LIBS} Qt::Core )
-target_link_libraries(DetectionWorker PRIVATE CpuDetector Qt::Core Qt::Gui FrameSource CpuFrameHandle)
+target_link_libraries(DetectionWorker PRIVATE 
+CpuDetector Qt::Core Qt::Gui 
+CpuDetectionFlow)
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
         Qt::Quick

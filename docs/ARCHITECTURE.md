@@ -12,13 +12,21 @@
 其返回值为`std::optional<CpuPreprocessResult>`，在失败时返回`std::nullopt`，并在内部设置错误`DetectionError`；
 - 将新增的`CpuPreprocessor`接入到`CpuDetect`中，实现CPU推理功能，完成了CPU推理总线。
 - 添加了`CpuDetecitonFlow`流程类骨架以及通用的后处理器`CommonPostProcessor`，统一CPU推理流程，其中进行了预处理+推理+后处理的完整流程。
+- 完成了`CpuDetector`内部的纯化解耦，作为单纯的推理模块管理ORT的会话以及推理等,并将其接入到`CpuDetectionFlow`中，完成了CPU推理总线。
+- CPU推理总线接入到`DetectionWorker`中，完成了CPU推理总线的接入。
+---
+需要注意的后续改动：
+1. 后续的FrameSource依旧作为策略模式，其中管理FileFrameSource、HikCameraFrameSource、FfmpegFrameSource等帧源，
+统一提供`getFrame()`接口获取帧，返回值为`std::unique_ptr<FrameHandle>`，
+其中`FrameHandle`为抽象类，`CpuFrameHandle`和`GpuFrameHandle`分别用于CPU和GPU的帧句柄封装。
+2. 然后使用Session(CPU/GPU)进行统一FrameSource内部的FrameHandle以及Flow，使其配对；
+1. 创建两个工厂类`DetectionFlowFactory`和`FrameSourceFactory`，由Session统一创建配对的FrameSource和Flow；
 ---
 
 正在准备完成：
-- 1.更改原本的`CpuDetector`内部的各种耦合的功能，仅保留推理功能
-- 2.建立完整的统一的CPU推理流程类`CpuDetectionFlow`并将其接入到`DetectionWorker`中，完成CPU推理总线
-- 将当前的Detector内部功能模块进行分离解耦，分为cpuPreprocessor、gpuProcessor两种预处理器，并在detector中分为cpu、gpu两种推理模式；Detector内部仅作为ORT的推理；
-提供Fallback机制；
+- 添加统一管理FrameSource和DetectionFlow的Session类别，目前仅创建CpuDetectionSession，后续将添加GpuDetectionSession，
+统一管理FrameSource和DetectionFlow的生命周期以及配置和配对；
+- 添加工厂创建CPU或者GPU的FrameSource和DetectionFlow，然后Session内部统一配对
 - `GpuFrameHandle`用于封装GPU处理流程中所需要的AVFrame*和CUDA硬件帧NV12上下文。
 - GPU处理中，将当前的显示结果分为CPU的NMS检测框+QTOverlay绘制检测框叠加在GPU图像数据上显示
 

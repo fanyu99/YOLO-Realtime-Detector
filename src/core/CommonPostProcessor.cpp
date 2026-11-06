@@ -123,7 +123,7 @@ void CommonPostProcessor::mapBoxes2OriImage_replace( std::span<Box> boxes, const
 
 
 // 统一的推理后处理	,出现问题记录错误并返回false，成功返回true
-bool CommonPostProcessor::postProcess( float* data, int num_classes, int num_anchors, const LetterboxInfo& info, float iou_threshold, std::vector<Box>& out_boxes ) {
+bool CommonPostProcessor::postProcess( float* data, int num_classes, int num_anchors, const LetterboxInfo& info, float conf_threshold, float iou_threshold, std::vector<Box>& out_boxes ) {
 	// 复位
 	m_lastError = DetectionError();
 	if (!data || num_classes <= 0 || num_anchors <= 0) {
@@ -141,7 +141,7 @@ bool CommonPostProcessor::postProcess( float* data, int num_classes, int num_anc
 			DetectionErrorCode::PostprocessFailed );
 		return false;
 	}
-	out_boxes = parse_yolo_output( data, num_classes, num_anchors, 0.0f, iou_threshold );
+	out_boxes = parse_yolo_output( data, num_classes, num_anchors, conf_threshold, iou_threshold );
 	mapBoxes2OriImage_replace( out_boxes, info );
 	return true;
 }

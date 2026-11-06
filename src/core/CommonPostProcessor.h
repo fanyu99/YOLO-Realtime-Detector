@@ -17,7 +17,7 @@ public:
 	void  mapBoxes2OriImage_replace( std::span<Box> boxes, const LetterboxInfo& info );
 	// 统一的推理后处理	,出现问题记录错误并返回false，成功返回true
 	// 出参为out_boxes
-	bool  postProcess( float* data, int num_classes, int num_anchors, const LetterboxInfo& info, float iou_threshold, std::vector<Box>& out_boxes );
+	bool  postProcess( float* data, int num_classes, int num_anchors, const LetterboxInfo& info, float conf_threshold, float iou_threshold, std::vector<Box>& out_boxes );
 
 	// 获取错误
 	DetectionError lastError() const;
