@@ -130,17 +130,7 @@ endforeach()
 
 find_package(OpenCV REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Core Test)
-# 查找 MvCameraControl.lib（海康相机控制核心库）
-find_library(MVS_CAMERA_CONTROL_LIB
-    NAMES MvCameraControl
-    PATHS "${MVS_LIBRARY_DIRS}"          
-      
-     
-     
-     
-    NO_DEFAULT_PATH
-    REQUIRED
-)
+# 海康 MVS SDK 的 find_library 在 src/core/CMakeLists.txt 中执行（yolo_hik）
 
 find_package(onnxruntime CONFIG REQUIRED)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
@@ -174,13 +164,20 @@ unset(_yolo_cv_debug_implib)
 # 源码搜索路径
 #
 # 各模块之间仍以「裸文件名」互相 include（例如 #include "CpuDetector.h"），
-# 因此这里把 src 及其子目录统一加入搜索路径。好处是源文件在 src/ 内挪动
-# 目录时，不必逐个改写 include 语句。
+# 因此这里把 src 及其分组子目录统一加入搜索路径。好处是源文件在 src/ 内
+# 挪动目录时，不必逐个改写 include 语句。
+#
+# 分组目录清单与 src/core、src/app 的 CMakeLists 保持一致：
+#   core/base  core/inference  core/frame
+#   app/runtime  app/components
 # -----------------------------------------------------------------------------
 set(YOLO_SOURCE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/core"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/app"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/base"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/inference"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/frame"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/app/runtime"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/app/components"
 )
 
 # -----------------------------------------------------------------------------
@@ -191,68 +188,14 @@ set(PROJECT_SOURCES
 )
 # 应用内嵌资源：默认示例图片与示例模型（rcc 按 .qrc 所在目录解析相对路径）
 qt_add_resources(PROJECT_SOURCES resources/images.qrc)
+
 # -----------------------------------------------------------------------------
-# 静态库
+# 模块库：定义在 src/core/CMakeLists.txt 与 src/app/CMakeLists.txt 中
+#   yolo_core        核心层（base + inference + frame，不含海康）
+#   yolo_hik         海康相机帧源（私有依赖 MVS SDK，YOLO_ENABLE_HIK 控制）
+#   DetectionRuntime 应用层运行库（runtime + components）
 # -----------------------------------------------------------------------------
-# 预处理器，进行letterbox、NCHW预处理等操作
-qt_add_library(CpuPreprocessor STATIC
-    src/core/CpuPreprocessor.cpp
-    src/core/CpuPreprocessor.h
-)
-# 推理内核：ONNX 会话管理、letterbox 预处理、YOLO 输出解析与 NMS
-qt_add_library(CpuDetector STATIC
-    src/core/CpuDetector.cpp
-    src/core/CpuDetector.h
-)
-# ffmpeg解码器，单独解码线程，将帧传给推理线程
-qt_add_library(FfmpegDecoder STATIC
-    src/core/FfmpegDecoder.cpp
-    src/core/FfmpegDecoder.h
-    src/core/DecodeTypes.h
-)
-
-# 帧句柄： FrameHandle，分为cpuFrameHandle和gpuFrameHandle
-qt_add_library(CpuFrameHandle STATIC 
-    src/core/FrameHandle.h  src/core/CpuFrameHandle.h src/core/CpuFrameHandle.cpp
-)
-# 帧来源单元: 1.摄像头/视频文件/图片文件 2.其他相机
-# 策略模式：FrameSource 作为接口，
-# FileFrameSource/HikCameraFrameSource 作为具体实现
-qt_add_library(FrameSource INTERFACE
-    src/core/FrameSource.h 
-)
-# 1.摄像头/视频文件/图片文件帧来源
-qt_add_library(FileFrameSource STATIC 
-src/core/FileFrameSource.h  src/core/FileFrameSource.cpp)
-# 2.ffmpeg 解码帧源
-qt_add_library(FfmpegFrameSource STATIC 
-src/core/FfmpegFrameSource.h src/core/FfmpegFrameSource.cpp)
-# 3.其他相机帧来源
-qt_add_library(HikCameraFrameSource STATIC 
-src/core/HikCameraFrameSource.h src/core/HikCameraFrameSource.cpp)
-
-# 通用的后处理器
-qt_add_library(CommonPostProcessor STATIC
-    src/core/CommonPostProcessor.cpp
-    src/core/CommonPostProcessor.h
-)
-
-# 统一的CPU推理流程
-qt_add_library(CpuDetectionFlow STATIC
-    src/core/IDetectionFlow.h
-    src/core/CpuDetectionFlow.h  src/core/CpuDetectionFlow.cpp
-)
-
-# 执行单元：worker 线程循环 + 结果渲染 + 结果落盘
-qt_add_library(DetectionWorker STATIC
-    src/app/DetectionWorker.cpp       src/app/DetectionWorker.h
-    src/app/DetectionRenderer.cpp     src/app/DetectionRenderer.h
-    src/app/DetectionResultSaver.cpp  src/app/DetectionResultSaver.h
-)
-
-foreach(_lib CpuDetector DetectionWorker)
-    target_include_directories(${_lib} PUBLIC ${YOLO_SOURCE_DIRS})
-endforeach()
+add_subdirectory(src)
 
 # -----------------------------------------------------------------------------
 #  开启测试、测试程序
@@ -302,15 +245,15 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
         QML_FILES
             ${YOLO_QML_FILES}
         SOURCES
-            src/app/DetectionApp.cpp            src/app/DetectionApp.h
-            src/app/DetectionManager.cpp        src/app/DetectionManager.h
-            src/app/DetectionImageProvider.cpp  src/app/DetectionImageProvider.h
-            src/app/Logger.cpp                  src/app/Logger.h
-            src/core/DetectionTypes.h
-            src/core/DecodeTypes.h
-            src/core/Box.h
-            src/core/AppError.h
-    )      
+            src/app/runtime/DetectionApp.cpp           src/app/runtime/DetectionApp.h
+            src/app/runtime/DetectionManager.cpp       src/app/runtime/DetectionManager.h
+            src/app/components/DetectionImageProvider.cpp  src/app/components/DetectionImageProvider.h
+            src/app/components/Logger.cpp              src/app/components/Logger.h
+            src/core/base/DetectionTypes.h
+            src/core/base/DecodeTypes.h
+            src/core/base/Box.h
+            src/core/base/AppError.h
+    )
 endif()
 
 set_target_properties(${PROJECT_NAME}
@@ -324,68 +267,21 @@ PRIVATE ${YOLO_SOURCE_DIRS})
 # -----------------------------------------------------------------------------
 # 链接
 # -----------------------------------------------------------------------------
-target_link_libraries(CpuPreprocessor PUBLIC ${OpenCV_LIBS} Qt::Core)
-target_link_libraries(CpuDetector PUBLIC 
-onnxruntime ${OpenCV_LIBS} Qt::Core CpuPreprocessor)
-target_link_libraries(FfmpegDecoder PUBLIC 
-Qt::Core
-FFmpeg::avcodec
-    FFmpeg::avformat
-    FFmpeg::avutil
-    FFmpeg::swscale
-    FFmpeg::swresample
-    FFmpeg::avfilter
-    FFmpeg::avdevice
-    FFmpeg::postproc
-)
-# 帧句柄
-target_link_libraries(CpuFrameHandle PUBLIC 
-   ${OpenCV_LIBS} Qt::Core
-)
-# 帧源
-target_include_directories(FrameSource INTERFACE
-${YOLO_SOURCE_DIRS}
-${OpenCV_INCLUDE_DIRS}
-)
-target_link_libraries(FileFrameSource PUBLIC FrameSource CpuFrameHandle)
-target_link_libraries(FfmpegFrameSource PUBLIC FrameSource FfmpegDecoder CpuFrameHandle)
-target_link_libraries(HikCameraFrameSource
-PUBLIC FrameSource CpuFrameHandle
-PRIVATE ${MVS_CAMERA_CONTROL_LIB})
-target_include_directories(HikCameraFrameSource 
-PRIVATE ${MVS_INCLUDE_DIRS})
-target_link_directories(HikCameraFrameSource
-PRIVATE  ${MVS_LIBRARY_DIRS})
-
-# 通用的后处理器
-# DetectionTypes.h/Box.h 需要 Qt 头文件与 OpenCV，不链接 Qt::Core 时
-# 会报 C1083 找不到 QElapsedTimer 等 Qt 头
-target_link_libraries(CommonPostProcessor PUBLIC ${OpenCV_LIBS} Qt::Core)
-
-# CPU推理流程
-target_link_libraries(CpuDetectionFlow PUBLIC 
-CpuDetector CpuPreprocessor
-CpuFrameHandle FrameSource CommonPostProcessor)
-
-# Qt::Core 供 QString；OpenCV 供 VideoCapture/imread
-target_link_libraries(FrameSource INTERFACE 
-${OpenCV_LIBS} Qt::Core )
-target_link_libraries(DetectionWorker PRIVATE 
-CpuDetector Qt::Core Qt::Gui 
-CpuDetectionFlow)
+# 各模块自身的依赖已在定义处（src/core、src/app 的 CMakeLists）声明，
+# 这里只负责把 exe 与三个模块库接起来。
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
         Qt::Quick
         Qt::Multimedia 
         ${OpenCV_LIBS}
         onnxruntime
-        CpuDetector
-        DetectionWorker
-        FrameSource
-        HikCameraFrameSource
-        FileFrameSource
-        FfmpegFrameSource
+        yolo_core
+        DetectionRuntime
 )
+
+if(YOLO_ENABLE_HIK)
+    target_link_libraries(${PROJECT_NAME} PUBLIC yolo_hik)
+endif()
 
 if(Qt6_FOUND)
     qt_import_qml_plugins(${PROJECT_NAME})
