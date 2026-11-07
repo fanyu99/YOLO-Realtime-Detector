@@ -11,7 +11,7 @@
 
 #include "DetectionTypes.h"
 #include "FrameSource.h"
-#include "CpuDetectionFlow.h"
+#include "DetectionFlow.h"
 
 class DetectionResultSaver;
 
@@ -57,7 +57,7 @@ private:
 	void failTaskIfUnfinished(DetectionTask& task);		// 任务抛异常时补发失败信号(避免重复发)
 
 	std::unique_ptr<QThread> m_thread;		// 工作线程
-	std::unique_ptr<CpuDetectionFlow> m_flow;		// 完整CPU处理流程(预处理+推理+后处理)，在 worker 线程内构造
+	DetectionFlowPtr m_flow;		// 完整处理流程(预处理+推理+后处理)，在 worker 线程内构造
 	DetectorConfig m_config;					   // 保存内部的Detector配置
 	DetectionError m_lastError;					// 只在 worker 线程内写
 

@@ -35,7 +35,7 @@ qt_add_library(yolo_core STATIC
     base/DetectionTypes.h
 
     # inference/
-    inference/IDetectionFlow.h
+    inference/DetectionFlow.h
     inference/CpuDetectionFlow.h
     inference/CpuDetectionFlow.cpp
     inference/CpuDetector.h
@@ -58,11 +58,14 @@ qt_add_library(yolo_core STATIC
     frame/FfmpegFrameSource.cpp
 
     # factories/
+    # 1.帧源工厂
     factories/FrameSourceFactory.h
     factories/CpuFrameSourceFactory.h 
     factories/CpuFrameSourceFactory.cpp
-    factories/GpuFrameSourceFactory.h
-    factories/GpuFrameSourceFactory.cpp
+    # 2.推理流程工厂
+    factories/DetectionFlowFactory.h
+    factories/CpuDetectionFlowFactory.h 
+    factories/CpuDetectionFlowFactory.cpp
 )
 
 target_include_directories(yolo_core PUBLIC

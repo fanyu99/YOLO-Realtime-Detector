@@ -1,12 +1,12 @@
 #pragma once
-#include "IDetectionFlow.h"
+#include "DetectionFlow.h"
 #include "CpuDetector.h"
 #include "CpuPreprocessor.h"
 #include "CommonPostProcessor.h"
 
 // 统一的CPU完整处理流程：预处理 + 推理 + 后处理
 // 处理流程中出现错误时，使用result的error回填错误信息
-class CpuDetectionFlow final: public IDetectionFlow {
+class CpuDetectionFlow final: public DetectionFlow {
 public:
 	CpuDetectionFlow() = default;
 	explicit CpuDetectionFlow( const DetectorConfig& config );
@@ -22,11 +22,11 @@ public:
 	FlowMode preferredMode()const override;
 
 	// 检测器会话是否构造成功(构造失败时用 lastError() 取原因)
-	bool isValid() const;
+	bool isValid() const override;
 	// 最近一次错误(由流程内部各组件上报,调用方主动查询)
-	DetectionError lastError() const;
+	DetectionError lastError() const override;
 	// 构造/配置期产生的警告(非致命)：如输入尺寸已按模型自动对齐。
-	const QVector<DetectorWarning>& warnings() const;
+	const QVector<DetectorWarning>& warnings() const override;
 
 private:
 	CpuDetector m_detector; // 推理器

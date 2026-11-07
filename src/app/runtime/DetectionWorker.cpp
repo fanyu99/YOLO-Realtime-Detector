@@ -1,4 +1,5 @@
 #include "DetectionWorker.h"
+#include "CpuDetectionFlow.h"
 #include "CpuFrameHandle.h"
 #include "DetectionRenderer.h"
 #include "DetectionResultSaver.h"
