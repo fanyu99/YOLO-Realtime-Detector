@@ -1,6 +1,13 @@
 #include "DetectionSession.h"
 #include "CpuDetectionFlowFactory.h"
 #include "CpuFrameSourceFactory.h"
+#include "Logger.h"
+#include <QElapsedTimer>
+
+namespace {
+	// 预热次数
+	constexpr int kDefaultWarmupIterations = 3;
+}
 
 DetectionSession::DetectionSession(const DetectorConfig& config)
 	: m_config(config)
@@ -20,14 +27,34 @@ DetectionSession::DetectionSession(const DetectorConfig& config)
 	}
 
 	m_detectionFlow = m_flowFactory->createDetectionFlow( m_config );
-	// 如果空指针或者ORT会话创建失败，记录错误与fallback标记，由调用方查询后决定重建
+	// 如果空指针或者ORT会话创建失败，记录错误与fallback标记，如果触发fallback，直接重建Session
 	if (!m_detectionFlow || !m_detectionFlow->isValid()) {
+		Logger::instance()->error(QStringLiteral("[DetectionSession]: 检测器初始化失败: ")
+			+ (m_detectionFlow ? m_detectionFlow->lastError().errorMessage : QStringLiteral("推理流程创建失败")));
 		m_fallbackRequested = true;
 		m_lastError = m_detectionFlow ? m_detectionFlow->lastError() : DetectionError(
 			QStringLiteral( "[DetectionSession]: 推理流程创建失败" ),
 			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 		return;
 	}
+
+	warmup();
+}
+
+// 预热 构造函数内自动调用，日志在会话内部完成
+void DetectionSession::warmup() {
+	QElapsedTimer timer;
+	timer.start();
+	const bool warmupSuc = m_detectionFlow->warmup(kDefaultWarmupIterations);
+	const quint64 duration = timer.elapsed();
+	// 构造/预热产生的警告上报
+	for (const DetectorWarning& warning : m_detectionFlow->warnings()) {
+		Logger::instance()->warning(warning.message);
+	}
+	if (warmupSuc)
+		Logger::instance()->info(QStringLiteral("[DetectionSession]: 检测器预热完成，轮数: %1 耗时：%2ms  平均耗时：%3ms")
+			.arg(kDefaultWarmupIterations).arg(duration).arg(duration / kDefaultWarmupIterations));
+	Logger::instance()->info(QStringLiteral("[DetectionSession]: 检测器就绪（CPU 推理）"));
 }
 
 // 创建文件帧源（图片/视频），直接转发给帧源工厂
@@ -58,12 +85,14 @@ bool DetectionSession::runFlow( const FrameHandlePtr& frame, DetectionResult& ou
 	if (!success) {
 		m_lastError = m_detectionFlow->lastError();
 		m_fallbackRequested = (m_lastError.errorCode == DetectionErrorCode::FallbackRequested);
+		// 兜底
+		if (!m_lastError.has_error()) {
+			m_lastError = DetectionError(
+				QStringLiteral( "[DetectionSession]: 推理流程执行失败: " ) + (m_lastError.errorMessage.isEmpty() ? QStringLiteral( "未知错误" ) : m_lastError.errorMessage),
+				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
+		}
 	}
 	return success;
-}
-
-FlowMode DetectionSession::currentMode()const {
-	return m_mode;
 }
 
 DetectionSession::~DetectionSession() {

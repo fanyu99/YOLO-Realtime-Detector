@@ -1,5 +1,4 @@
 #include "DetectionWorker.h"
-#include "CpuDetectionFlow.h"
 #include "CpuFrameHandle.h"
 #include "DetectionRenderer.h"
 #include "DetectionResultSaver.h"
@@ -8,11 +7,6 @@
 #include <opencv2/opencv.hpp>
 #include "Logger.h"
 #include <span>
-
-namespace {
-	// 预热次数
-	constexpr int kDefaultWarmupIterations = 3;	
-}
 
 DetectionWorker::DetectionWorker(QObject* parent) : QObject(parent) {}
 
@@ -92,7 +86,7 @@ void DetectionWorker::stop() {
 	// 释放内存
 	m_thread->wait();
 	m_thread.reset();
-	m_flow.reset();
+	m_session.reset();
 
 	Logger::instance()->info(QStringLiteral("[DetectionWorker]: 工作线程已停止"));
 	emit stopped();
@@ -113,34 +107,22 @@ bool DetectionWorker::submit(std::unique_ptr<DetectionTask> task) {
 	return true;
 }
 
+// 在 worker 线程内创建检测会话（预热/警告日志由 Session 内部完成）
+DetectionSession* DetectionWorker::createSession() {
+	auto session = std::make_unique<DetectionSession>(m_config);
+	if (!session->isValid()) {
+		// 构造失败（如模型加载失败）：上报 detectorFailed；fallback 标记留给上层后续处理
+		emit detectorFailed(session->lastError());
+		return nullptr;
+	}
+	return session.release();
+}
+
 // 工作循环
 void DetectionWorker::work() {
-	// 在 worker 线程内加载模型：ONNX 会话构造较重,在worker线程进行构造
-	// (流程内部持有检测器会话与预/后处理器)
-	m_flow = std::make_unique<CpuDetectionFlow>(m_config);
-	if (!m_flow->isValid()) {
-		Logger::instance()->error(QStringLiteral("[DetectionWorker]: 检测器初始化失败: ")
-			+ m_flow->lastError().errorMessage);
-		emit detectorFailed(m_flow->lastError());
-	}
-	else {
-		// 预热
-		QElapsedTimer timer;
-		timer.start();
-		const bool warmupSuc = m_flow->warmup( kDefaultWarmupIterations );
-		quint64 duration = timer.elapsed();
-		// 构造/预热产生的警告上报
-		for (const DetectorWarning& warning : m_flow->warnings()) {
-			Logger::instance()->warning(warning.message);
-			emit detectorWarning(warning);
-		}
-		if(warmupSuc)
-			Logger::instance()->info(QStringLiteral("[DetectionWorker]: 检测器预热完成，轮数: %1 耗时：%2ms  平均耗时：%3ms").arg(kDefaultWarmupIterations).arg(duration).arg(duration/kDefaultWarmupIterations));
-		Logger::instance()->info(QStringLiteral("[DetectionWorker]: 检测器就绪（CPU 推理）"));
-
-	}
+	// 在 worker 线程内创建检测会话：ONNX 会话构造较重,在worker线程进行构造
+	m_session.reset(createSession());
 	emit started();
-	 // 工作循环
 	while(true) {
 		std::unique_ptr<DetectionTask> task;
 		{
@@ -209,11 +191,9 @@ void DetectionWorker::execute(DetectionTask& task) {
 	emit taskStarted(task.jobId);
 
 	bool ok = false;	// 执行是否成功
-	if (!m_flow || !m_flow->isValid()) {
-		m_lastError = m_flow	// 获取流程的最后错误信息
-			? m_flow->lastError()
-			: DetectionError(QStringLiteral("[DetectionWorker]: 检测器未初始化!"),
-				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError);
+	if (!m_session) {
+		m_lastError = DetectionError(QStringLiteral("[DetectionWorker]: 检测会话未初始化!"),
+			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError);
 	}
 	else if (!task.source) {
 		m_lastError = DetectionError(QStringLiteral("[DetectionWorker]: 帧源为空!"),
@@ -271,7 +251,7 @@ bool DetectionWorker::runImage(DetectionTask& task) {
 	const cv::Mat frame = toCvMat(handle);
 	DetectionResult result;
 	// 执行完整的流程：预处理 + 推理 + 后处理
-	if (!m_flow->run(handle, result)) {
+	if (!m_session->runFlow(handle, result)) {
 		m_lastError = result.error;	// 流程失败时错误已回填到 result
 		return false;
 	}
@@ -313,7 +293,7 @@ bool DetectionWorker::runStream(DetectionTask& task) {
 
 		const cv::Mat frame = toCvMat(handle);
 		DetectionResult result;
-		if (!m_flow->run(handle, result)) {
+		if (!m_session->runFlow(handle, result)) {
 			m_lastError = result.error;	// 流程失败时错误已回填到 result
 			return false;
 		}

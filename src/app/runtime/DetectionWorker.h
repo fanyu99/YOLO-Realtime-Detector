@@ -11,7 +11,7 @@
 
 #include "DetectionTypes.h"
 #include "FrameSource.h"
-#include "DetectionFlow.h"
+#include "DetectionSession.h"
 
 class DetectionResultSaver;
 
@@ -48,6 +48,7 @@ signals:
 	void taskCancelled(quint64 jobId);
 
 private:
+	DetectionSession* createSession();	// 在 worker 线程内创建和管理会话
 	void work();					// 工作循环
 	void execute(DetectionTask& task);  // 总入口
 	bool runImage(DetectionTask& task);
@@ -57,7 +58,7 @@ private:
 	void failTaskIfUnfinished(DetectionTask& task);		// 任务抛异常时补发失败信号(避免重复发)
 
 	std::unique_ptr<QThread> m_thread;		// 工作线程
-	DetectionFlowPtr m_flow;		// 完整处理流程(预处理+推理+后处理)，在 worker 线程内构造
+	std::unique_ptr<DetectionSession> m_session;	// 检测会话（持有推理流程与帧源工厂），由Worker管理生命周期
 	DetectorConfig m_config;					   // 保存内部的Detector配置
 	DetectionError m_lastError;					// 只在 worker 线程内写
 
