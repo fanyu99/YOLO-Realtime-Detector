@@ -21,7 +21,8 @@ qt_add_library(DetectionRuntime STATIC
     # runtime/
     runtime/DetectionWorker.h
     runtime/DetectionWorker.cpp
-
+    runtime/DetectionSession.h
+    runtime/DetectionSession.cpp
     # components/
     components/DetectionRenderer.h
     components/DetectionRenderer.cpp

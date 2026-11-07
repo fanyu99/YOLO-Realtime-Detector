@@ -5,6 +5,46 @@
 
 ---
 
+后续整体推理架构更改：
+- Worker执行最小单元Task,Manager管理一个Job的状态
+一次会话对应一个Job（同一个模式复用）
+后续需要将Worker执行单元更改为Job而不是task,Worker的队列需要更改为Job队列，
+Manager管理Job的状态，Worker执行Job中的Task
+
+APP（QML点击对应的按钮,调用manager中的创建会话Session（通过Worker进行创建））
+-> Manager（管理Worker和Session状态）-> Worker（线程内创建Session）
+-> Session（创建配对的FrameSource和DetectionFlow）
+-> FrameSource（获取帧）
+-> DetectionFlow（预处理+推理+解析+NMS）-> Manager（汇总结果）-> APP（QML显示结果）
+Manager调用Session的创建帧源方法获取当前的模式（CPU/GPU）的帧源（image/video/camera等）
+Session创建对应的Flow（CPU/GPU）进行配对，Session统一管理FrameSource和DetectionFlow的生命周期
+
+```
+DetectionManager
+    -> 管理 DetectionJob
+    -> 管理 Job 状态和 fallback
+
+DetectionWorker
+    -> 一次执行一个 Job
+    -> Job 开始时创建 DetectionSession
+    -> Job 内依次执行多个 DetectionTask
+    -> Job 结束时销毁 DetectionSession
+
+DetectionSession
+    -> 保存 Job 级模式和配置
+    -> 持有一个 CpuDetectionFlow 或 GpuDetectionFlow
+    -> 持有来源创建策略
+    -> 不负责 UI 和 Job 统计
+
+DetectionTask
+    -> 持有自己的 FrameSource
+    -> 使用所属 Session 的 Flow
+    -> 负责具体图片/视频/摄像头执行
+
+```
+
+---
+
 当前完成： 
 - 新增`FrameHandle`抽象类以及`CpuFrameHandle`；
 - 将新增的`FrameHandle`接入到强依赖于cv::Mat的`FrameSource`中，作为统一的帧句柄指针；
@@ -16,6 +56,7 @@
 - CPU推理总线接入到`DetectionWorker`中，完成了CPU推理总线的接入。
 - 为FfmpegFrameSource添加设备支持，
 能够打开摄像头/相机等设备并将其接入到CPU推理总线中，前端QML能够使用ffmpeg获取的设备帧。
+- 完成FrameSource的抽象工厂类
 ---
 需要注意的后续改动：
 1. 后续的FrameSource依旧作为策略模式，其中管理FileFrameSource、HikCameraFrameSource、FfmpegFrameSource等帧源，
@@ -28,14 +69,15 @@ HikCameraFrameSource用于海康相机帧源，FfmpegFrameSource用于ffmpeg硬�
 具体流程：帧源工厂中，创建文件帧源时，仅支持单图，创建摄像头帧源时，使用FfmpegFrameSource，创建视频帧源时，使用FfmpegFrameSource。
 1. 帧源抽象工厂中使用**插件模式**注册HikCameraFrameSource的创建器，
 HikCameraFrameSource的创建器由HikCameraFrameSource.cpp中注册到帧源工厂中
+1. 使用Worker统一管理Session的生命周期并将会话的错误传入Manager中，
+Manager用于管理当前的Job以及Session的状态以及配置，Worker负责执行Session的建立以及错误上传
 ---
 
 正在准备完成：
-- 完成FrameSource的抽象工厂类
+- 添加统一管理FrameSource和DetectionFlow的Session类别，目前仅创建CpuDetectionSession，后续将添加GpuDetectionSession，
 - 后续需要将FileFrameSource中的Image和Camera、Video进行分离并更名为ImageFrameSource，FileFrameSource仅用于文件帧源，
 HikCameraFrameSource用于海康相机帧源，FfmpegFrameSource用于ffmpeg硬解/软解视频帧源（其中包含摄像头/视频文件等）。
 具体流程：帧源工厂中，创建文件帧源时，仅支持单图，创建摄像头帧源时，使用FfmpegFrameSource，创建视频帧源时，使用FfmpegFrameSource。
-- 添加统一管理FrameSource和DetectionFlow的Session类别，目前仅创建CpuDetectionSession，后续将添加GpuDetectionSession，
 统一管理FrameSource和DetectionFlow的生命周期以及配置和配对；
 - `GpuFrameHandle`用于封装GPU处理流程中所需要的AVFrame*和CUDA硬件帧NV12上下文。
 - GPU处理中，将当前的显示结果分为CPU的NMS检测框+QTOverlay绘制检测框叠加在GPU图像数据上显示

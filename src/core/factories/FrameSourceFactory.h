@@ -19,10 +19,10 @@ using HikCreator = std::function<FrameSourcePtr(QStringView serial,CameraTrigger
 class FrameSourceFactory {
 public:
 	virtual ~FrameSourceFactory() = default;
-	// 1.创建文件帧源
-	virtual FrameSourcePtr createFileFrameSource( QStringView filePath ) = 0;   // 创建文件帧源（图片/视频）
+	// 1.创建文件帧源（memoryType 决定帧句柄落在 CPU/GPU 内存，默认CPU）
+	virtual FrameSourcePtr createFileFrameSource( QStringView filePath, MemoryType memoryType = MemoryType::CPU ) = 0;   // 创建文件帧源（图片/视频）
 	// 创建摄像头帧源(ffmpeg)
-	virtual FrameSourcePtr createCameraFrameSource(const QString& nameOrId, const QString& formatName = QString()) = 0;	
+	virtual FrameSourcePtr createCameraFrameSource(const QString& nameOrId, const QString& formatName = QString(), MemoryType memoryType = MemoryType::CPU) = 0;
 
 	// 2. Hik注册以及创建帧源
 	void setHikCreator( HikCreator creator ) { m_hikCreator = std::move( creator ); }
@@ -36,3 +36,4 @@ protected:
 	HikCreator m_hikCreator{nullptr};	// Hik注册器
 	
 };
+using FrameSourceFactoryPtr = std::unique_ptr<FrameSourceFactory>;
