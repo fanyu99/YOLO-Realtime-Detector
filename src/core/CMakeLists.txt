@@ -1,11 +1,12 @@
 # -----------------------------------------------------------------------------
 # core 层：基础类型 + 推理流程 + 帧源
 #
-# 分组目录只是文件组织，不产生 target：
+# 分组目录：
 #   base/      AppError、Box、DecodeTypes、DetectionTypes 等纯数据类型
 #   inference/ IDetectionFlow、CpuDetectionFlow、CpuDetector、
 #              CpuPreprocessor、CommonPostProcessor
 #   frame/     FrameSource 及各帧源实现、FfmpegDecoder、FrameHandle
+#   factories   FrameSource、DetectionFlow的创建工厂
 #
 # 模块间 include 一律裸文件名（#include "CpuDetector.h"），因此这里把
 # src 及所有分组目录加入 PUBLIC 搜索路径——源文件挪目录无需改 include。
@@ -13,10 +14,16 @@
 # 海康相机源文件单独拆成 yolo_hik：它私有依赖 MVS SDK，与 OpenCV/ONNX
 # 的依赖互不污染；未装 SDK 的构建可整体排除（YOLO_ENABLE_HIK）。
 # -----------------------------------------------------------------------------
-set(YOLO_CORE_BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/base")
-set(YOLO_CORE_INFERENCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/inference")
-set(YOLO_CORE_FRAME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/frame")
 
+#基础数据类型
+set(YOLO_CORE_BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/base")
+# 推理流程库
+set(YOLO_CORE_INFERENCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/inference")
+# 帧源
+set(YOLO_CORE_FRAME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/frame")
+# 工厂
+set(YOLO_CORE_FACTORIES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/factories")
+# 是否编译MVS
 option(YOLO_ENABLE_HIK "编译海康相机帧源（需要本机 MVS SDK）" ON)
 
 # ---- yolo_core：除海康外的全部核心代码 --------------------------------------
@@ -49,6 +56,13 @@ qt_add_library(yolo_core STATIC
     frame/FfmpegDecoder.cpp
     frame/FfmpegFrameSource.h
     frame/FfmpegFrameSource.cpp
+
+    # factories/
+    factories/FrameSourceFactory.h
+    factories/CpuFrameSourceFactory.h 
+    factories/CpuFrameSourceFactory.cpp
+    factories/GpuFrameSourceFactory.h
+    factories/GpuFrameSourceFactory.cpp
 )
 
 target_include_directories(yolo_core PUBLIC
@@ -57,8 +71,7 @@ target_include_directories(yolo_core PUBLIC
     "${YOLO_CORE_BASE_DIR}"
     "${YOLO_CORE_INFERENCE_DIR}"
     "${YOLO_CORE_FRAME_DIR}"
-    # core 的源文件（FileFrameSource/CpuDetectionFlow 等）通过裸文件名
-    # include "Logger.h"（仅头文件，符号由 exe 的 QML 模块提供）
+    "${YOLO_CORE_FACTORIES_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/../app/components"
 )
 
@@ -89,6 +102,7 @@ if(YOLO_ENABLE_HIK)
     qt_add_library(yolo_hik STATIC
         frame/HikCameraFrameSource.h
         frame/HikCameraFrameSource.cpp
+        frame/HikRegister.cpp # 注册Hik到抽象工厂中
     )
 
     target_include_directories(yolo_hik PUBLIC

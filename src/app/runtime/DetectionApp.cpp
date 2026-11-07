@@ -79,12 +79,12 @@ AppError DetectionApp::mapDetectionErrortoAppError(const DetectionError& error) 
 // 帧源工厂,
 // 1. 文件帧源
 FrameSourcePtr DetectionApp::makeFileSource(QStringView  path) const {
-	return FileFrameSource::forFile(path);
+	return FileFrameSource::forFile( path, MemoryType::CPU );
 }
 
 FrameSourcePtr DetectionApp::makeCameraSource(int cameraId) const {
 	// 设备号无效时返回空，由调用方按"配置无效"上报
-	return FileFrameSource::forCamera(cameraId);
+	return FileFrameSource::forCamera( cameraId, MemoryType::CPU);	// VideoCapture 产出 CPU 帧，GPU 分支尚未接入
 }
 
 // 2. 海康相机帧源
@@ -115,13 +115,13 @@ FrameSourcePtr DetectionApp::makeHikCameraSource(QStringView serial,QStringView 
 
 // 3. Ffmpeg帧源
 FrameSourcePtr DetectionApp::makeFfmpegSource( QStringView filePath ) const {
-	return FfmpegFrameSource::forLocalFile( filePath );
+	return FfmpegFrameSource::forLocalFile( filePath, MemoryType::CPU );
 }
 
 // 4. Ffmpeg设备帧源（摄像头，dshow/avfoundation/v4l2）
 FrameSourcePtr DetectionApp::makeFfmpegDeviceSource(const QString& deviceName, const QString& formatName) const {
 	// 按友好名查找：findVideoDevice 内部做了大小写/子串容错，名字写错一个字符也能命中
-	return FfmpegFrameSource::forDevice(deviceName, formatName);
+	return FfmpegFrameSource::forDevice(deviceName, formatName, MemoryType::CPU);
 }
 
 // 枚举在线海康相机，供 HikCameraDialog 填列表(为阻塞操作)
@@ -203,7 +203,7 @@ void DetectionApp::onDetectClicked() {
 	}
 
 	const QString path = QString::fromStdWString(m_filePath.wstring());
-	if (isImagePath(path)) {
+	if (isImagePath( path )) {
 		Logger::instance()->info(QStringLiteral("[DetectionApp]: 提交图片检测: ") + path);
 		m_currentJobId = m_manager->submitSource(makeFileSource(path), effectiveResultsDir());
 	}

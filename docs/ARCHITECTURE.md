@@ -23,12 +23,18 @@
 其中`FrameHandle`为抽象类，`CpuFrameHandle`和`GpuFrameHandle`分别用于CPU和GPU的帧句柄封装。
 2. 然后使用Session(CPU/GPU)进行统一FrameSource内部的FrameHandle以及Flow，使其配对；
 1. 创建两个工厂类`DetectionFlowFactory`和`FrameSourceFactory`，由Session统一创建配对的FrameSource和Flow；
+1. 后续需要将FileFrameSource中的Image和Camera、Video进行分离，FileFrameSource仅用于文件帧源，
+HikCameraFrameSource用于海康相机帧源，FfmpegFrameSource用于ffmpeg硬解/软解视频帧源（其中包含摄像头/视频文件等）。
+具体流程：帧源工厂中，创建文件帧源时，仅支持单图，创建摄像头帧源时，使用FfmpegFrameSource，创建视频帧源时，使用FfmpegFrameSource。
+1. 帧源抽象工厂中使用**插件模式**注册HikCameraFrameSource的创建器，
+HikCameraFrameSource的创建器由HikCameraFrameSource.cpp中注册到帧源工厂中
 ---
 
 正在准备完成：
-- 将当前的FileFrameSource进行分化为ImageFrameSource并将原本的视频文件/摄像头集成到FfmpegFrameSource中
-由FfmpegDecoder进行解码等操作
-- 创建统一的抽象工厂类FrameSourceFactory和DetectionFlowFactory，分别用于创建CPU/GPU的FrameSource和DetectionFlow
+- 完成FrameSource的抽象工厂类
+- 后续需要将FileFrameSource中的Image和Camera、Video进行分离并更名为ImageFrameSource，FileFrameSource仅用于文件帧源，
+HikCameraFrameSource用于海康相机帧源，FfmpegFrameSource用于ffmpeg硬解/软解视频帧源（其中包含摄像头/视频文件等）。
+具体流程：帧源工厂中，创建文件帧源时，仅支持单图，创建摄像头帧源时，使用FfmpegFrameSource，创建视频帧源时，使用FfmpegFrameSource。
 - 添加统一管理FrameSource和DetectionFlow的Session类别，目前仅创建CpuDetectionSession，后续将添加GpuDetectionSession，
 统一管理FrameSource和DetectionFlow的生命周期以及配置和配对；
 - `GpuFrameHandle`用于封装GPU处理流程中所需要的AVFrame*和CUDA硬件帧NV12上下文。

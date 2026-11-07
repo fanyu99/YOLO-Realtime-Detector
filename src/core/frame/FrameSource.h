@@ -3,7 +3,7 @@
 // 目前支持两种:
 // 1. 使用摄像头/视频文件/图片文件作为帧来源
 // 2. 使用相机类获取帧源
-// 目前仅支持返回CpuFrameHandle的帧源
+// 帧句柄内存类型由 MemoryType(FrameHandle.h) 描述,当前仅实现 CPU 分支,GPU 分支预留
 #pragma once
 #include <opencv2/core.hpp>
 #include <QString>
@@ -33,6 +33,7 @@ public:
 	virtual cv::Size frameSize()const { return cv::Size(); } // 返回帧大小
 	virtual QString displayName() const = 0; // 路径/摄像头编号/相机名称等
 	virtual QString lastError()const { return {}; } // 获取错误
+	virtual MemoryType memoryType()const = 0;	// 帧句柄的内存类型,CPU/GPU
 };
 using FrameSourcePtr = std::shared_ptr<FrameSource>;		// 使用抽象工厂
 
@@ -51,13 +52,13 @@ inline bool isVideoPath(QStringView path) {
 }
 
 // 判断是否为图片路径
-inline bool isImagePath(const QString& path) {
+inline bool isImagePath(QStringView path) {
 	static const QStringList kImageExts = {
 		QStringLiteral(".jpg"), QStringLiteral(".jpeg"), QStringLiteral(".png"),
 		QStringLiteral(".bmp"), QStringLiteral(".webp")
 	};
-	const QString lower = path.toLower();
-	for (const QString& ext : kImageExts)
+	const QString lower = path.toString().toLower();
+	for (QStringView ext : kImageExts)
 		if (lower.endsWith(ext))
 			return true;
 	return false;

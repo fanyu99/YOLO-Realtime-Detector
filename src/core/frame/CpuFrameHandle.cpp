@@ -51,6 +51,10 @@ cv::Size CpuFrameHandle::size() const {
 	return m_frame.size();
 }
 
+MemoryType CpuFrameHandle::memoryType()	const {
+	return MemoryType::CPU;
+}
+
 CpuFrameHandle::CpuFrameHandle(const cv::Mat& mat, int index )
 	: m_frame( mat ), m_frameIndex( index ) {
 }

@@ -18,21 +18,29 @@ namespace {
 }
 
 // 文件帧源: 单图/视频文件,路径
-FrameSourcePtr FileFrameSource::forFile(QStringView path) {
+FrameSourcePtr FileFrameSource::forFile(QStringView path, MemoryType memoryType) {
+	// GPU 分支预留：GPU 解码/显存句柄尚未实现
+	// TODO: 接入 GPU 路径后在此创建 GPU 帧句柄的帧源
+	if (memoryType != MemoryType::CPU)
+		return nullptr;
 	const FrameSourceType type = isVideoPath(path) ? FrameSourceType::VideoFile
 												   : FrameSourceType::SingleImage;
-	return FrameSourcePtr(new FileFrameSource(path, type, -1));	 // 返回对应的路径下的源对象
+	return FrameSourcePtr(new FileFrameSource(path, type, memoryType, -1));	 // 返回对应的路径下的源对象
 }
 
 // 摄像头帧源,CameraId
-FrameSourcePtr FileFrameSource::forCamera(int cameraId) {
+FrameSourcePtr FileFrameSource::forCamera(int cameraId, MemoryType memoryType) {
+	// GPU 分支预留：GPU 采集/显存句柄尚未实现
+	// TODO: 接入 GPU 路径后在此创建 GPU 帧句柄的帧源
+	if (memoryType != MemoryType::CPU)
+		return nullptr;
 	if (cameraId < 0)
 		return nullptr;
-	return FrameSourcePtr(new FileFrameSource(QString(), FrameSourceType::Camera, cameraId));
+	return FrameSourcePtr(new FileFrameSource(QString(), FrameSourceType::Camera, memoryType, cameraId));
 }
 
-FileFrameSource::FileFrameSource(QStringView filePath, FrameSourceType type, int cameraId)
-	: m_filePath(filePath.toString()), m_type(type), m_cameraId(cameraId) {
+FileFrameSource::FileFrameSource( QStringView filePath, FrameSourceType type, MemoryType memoryType, int cameraId )
+	: m_filePath( filePath.toString() ), m_type( type ), m_cameraId( cameraId ), m_memoryType{memoryType} {
 }
 
 FileFrameSource::~FileFrameSource() {
@@ -102,12 +110,18 @@ FrameHandlePtr FileFrameSource::getFrame() {
 		if (m_imageTaken)	//单图如果已经被取，返回空
 			return nullptr;
 		m_imageTaken = true;
-		return std::make_shared<CpuFrameHandle>(m_image, m_frameIndex++);
+		if (m_memoryType == MemoryType::CPU)
+			return std::make_shared<CpuFrameHandle>(m_image, m_frameIndex++);
+		// TODO: GPU 分支预留（接入 GpuFrameHandle 后实现）
+		return nullptr;
 	}
 
 	cv::Mat frame;
 	m_cap.read(frame);	 // 读帧
 	if (frame.empty())
 		return nullptr;
-	return std::make_shared<CpuFrameHandle>(frame, m_frameIndex++);
+	if (m_memoryType == MemoryType::CPU)
+		return std::make_shared<CpuFrameHandle>(frame, m_frameIndex++);
+	// TODO: GPU 分支预留（接入 GpuFrameHandle 后实现）
+	return nullptr;
 }

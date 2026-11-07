@@ -2,6 +2,12 @@
 #include <cstdint>
 #include <memory>
 #include <QString>
+// 内存类型
+enum class MemoryType {
+	CPU = 0,
+	GPU
+};
+
 // 像素格式：
 enum class PixelFormat {
 	BGR24,  
@@ -33,6 +39,7 @@ public:
 	virtual int frameIndex()const=0;
 	virtual PixelFormat pixelFormat() const = 0;
 	virtual PlaneDescriptor plane( int planeIndex )const = 0;
+	virtual MemoryType memoryType()const = 0;	// 内存类型,CPU/GPU
 
 };
 using FrameHandlePtr = std::shared_ptr<FrameHandle>;

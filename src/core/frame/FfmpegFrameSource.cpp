@@ -217,20 +217,28 @@ void FfmpegFrameSource::close() {
 	m_decoder.close();
 }
 // 构造函数
-FfmpegFrameSource::FfmpegFrameSource( const DecodeConfig& config ) : m_decoder( config ), m_config( config ), m_url( config.url ) {
+FfmpegFrameSource::FfmpegFrameSource( const DecodeConfig& config, MemoryType memoryType ) : m_decoder( config ), m_config( config ), m_url( config.url ), m_memoryType( memoryType ) {
 }
 // 创建本地文件帧源（视频文件）
-FrameSourcePtr FfmpegFrameSource::forLocalFile( QStringView filePath ) {
+FrameSourcePtr FfmpegFrameSource::forLocalFile( QStringView filePath, MemoryType memoryType ) {
+	// GPU 分支预留：GPU 解码/显存句柄尚未实现
+	// TODO: 接入 GPU 解码路径后在此创建 GPU 帧句柄的帧源
+	if (memoryType != MemoryType::CPU)
+		return nullptr;
 	if (filePath.isEmpty())
 		return nullptr;
 	QUrl url = QUrl::fromLocalFile( filePath.toString() );
 	DecodeConfig config;
 	config.url = url;
-	return FrameSourcePtr( new FfmpegFrameSource( config ) );
+	return FrameSourcePtr( new FfmpegFrameSource( config, memoryType ) );
 }
 
 // 创建设备帧源（摄像头/相机）
-FrameSourcePtr FfmpegFrameSource::forDevice( const FfmpegDeviceInfo& device, const QString& formatName ) {
+FrameSourcePtr FfmpegFrameSource::forDevice( const FfmpegDeviceInfo& device, const QString& formatName, MemoryType memoryType ) {
+	// GPU 分支预留：GPU 解码/显存句柄尚未实现
+	// TODO: 接入 GPU 解码路径后在此创建 GPU 帧句柄的帧源
+	if (memoryType != MemoryType::CPU)
+		return nullptr;
 	if (device.name.isEmpty() && device.originalId.isEmpty())
 		return nullptr;
 	// 格式为空时回退到平台默认格式
@@ -246,15 +254,15 @@ FrameSourcePtr FfmpegFrameSource::forDevice( const FfmpegDeviceInfo& device, con
 		config.deviceFallbackInput = fallback;
 	config.deviceDisplayName = device.name;
 	config.inputFormat = fmt;
-	return FrameSourcePtr( new FfmpegFrameSource( config ) );
+	return FrameSourcePtr( new FfmpegFrameSource( config, memoryType ) );
 }
 
 // 按设备友好名（或原始标识）查找并创建帧源；名字写错也能模糊匹配
-FrameSourcePtr FfmpegFrameSource::forDevice( const QString& nameOrId, const QString& formatName ) {
+FrameSourcePtr FfmpegFrameSource::forDevice( const QString& nameOrId, const QString& formatName, MemoryType memoryType ) {
 	const std::optional<FfmpegDeviceInfo> device = FfmpegDecoder::findVideoDevice( nameOrId, formatName );
 	if (!device)
 		return nullptr;
-	return forDevice( *device, formatName );
+	return forDevice( *device, formatName, memoryType );
 }
 
 // 枚举 video 类型输入设备（转发 FfmpegDecoder 的列举方法）

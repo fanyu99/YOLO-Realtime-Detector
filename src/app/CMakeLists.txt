@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # app 层：程序运行流程 + 程序运行组件
 #
-# 分组目录只是文件组织，不产生 target：
+# 分组目录：
 #   runtime/    DetectionApp(QML 门面)、DetectionManager(调度)、DetectionWorker
 #   components/ Logger、DetectionRenderer、DetectionResultSaver、
 #               DetectionImageProvider

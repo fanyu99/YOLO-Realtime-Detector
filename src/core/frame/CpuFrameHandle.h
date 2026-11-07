@@ -23,6 +23,8 @@ public:
 	cv::Mat& referenceMat();
 	// 获取大小
 	cv::Size size()const;
+	// 获取内存类型
+	MemoryType memoryType()const override;
 private:
 	cv::Mat m_frame; // 内部存储的帧数据
 	int m_frameIndex = -1; // 帧序号
