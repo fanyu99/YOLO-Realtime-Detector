@@ -2,9 +2,8 @@
 #include "CpuDetectionFlowFactory.h"
 #include "CpuFrameSourceFactory.h"
 
-DetectionSession::DetectionSession(const DetectorConfig& config,QObject* parent)
-	: QObject(parent)
-	, m_config(config)
+DetectionSession::DetectionSession(const DetectorConfig& config)
+	: m_config(config)
 	, m_mode{ config.preferred_mode }
 {
 	// 根据配置的 FlowMode 创建对应的工厂
@@ -21,11 +20,12 @@ DetectionSession::DetectionSession(const DetectorConfig& config,QObject* parent)
 	}
 
 	m_detectionFlow = m_flowFactory->createDetectionFlow( m_config );
-	// 如果空指针或者ORT会话创建失败，触发fallback
+	// 如果空指针或者ORT会话创建失败，记录错误与fallback标记，由调用方查询后决定重建
 	if (!m_detectionFlow || !m_detectionFlow->isValid()) {
-		emit fallbackToCPU( m_detectionFlow ? m_detectionFlow->lastError() : DetectionError(
+		m_fallbackRequested = true;
+		m_lastError = m_detectionFlow ? m_detectionFlow->lastError() : DetectionError(
 			QStringLiteral( "[DetectionSession]: 推理流程创建失败" ),
-			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError ) );
+			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 		return;
 	}
 }
@@ -45,24 +45,19 @@ FrameSourcePtr DetectionSession::createHikCameraFrameSource( QStringView serial,
 	return m_sourceFactory->createHikCameraFrameSource( serial, mode, memoryType );
 }
 
-// 执行推理流程（调用Flow的run,如果执行失败且GPU不支持，发送fallback信号）
+// 执行推理流程（调用Flow的run，错误记录到 m_lastError 由调用方查询）
 bool DetectionSession::runFlow( const FrameHandlePtr& frame, DetectionResult& outResult ) {
 	if (!m_detectionFlow) {
-		emit errorOccurred( DetectionError(
+		m_lastError = DetectionError(
 			QStringLiteral( "[DetectionSession]: 推理流程未创建" ),
-			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError ) );
+			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 		return false;
 	}
 	const bool success = m_detectionFlow->run( frame, outResult );
-	// 执行失败判断是否为fallback
+	// 执行失败记录错误，并标记是否为fallback
 	if (!success) {
-		const DetectionError err = m_detectionFlow->lastError();
-		if (err.errorCode == DetectionErrorCode::FallbackRequested) {
-			emit fallbackToCPU( err );
-		}
-		else {
-			emit errorOccurred( err );
-		}
+		m_lastError = m_detectionFlow->lastError();
+		m_fallbackRequested = (m_lastError.errorCode == DetectionErrorCode::FallbackRequested);
 	}
 	return success;
 }
