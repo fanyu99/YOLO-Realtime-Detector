@@ -20,7 +20,7 @@ public:
     };
 	bool isOpened() const override;
     static QVector<DeviceInfo>enumerateDevices(); // 枚举在线设备
-	static FrameSourcePtr forDevices(QStringView serial, TriggerMode mode = TriggerMode::Off); // 根据序列号创建帧源
+	static FrameSourcePtr forDevices(QStringView serial, TriggerMode mode = TriggerMode::Off, MemoryType memoryType = MemoryType::CPU); // 根据序列号创建帧源
     bool open() override;  
     FrameHandlePtr getFrame()override;  // 获取帧,获取到空指针代表终止,同现在的摄像头源
     cv::Size frameSize()const override;
@@ -28,6 +28,9 @@ public:
 	QString lastError()const override;   // 最近一次错误(worker 取它上报给上层)
     FrameSourceType type() const override {
         return FrameSourceType::Camera;
+    }
+    MemoryType memoryType() const override {
+        return m_memoryType;	// 帧句柄的内存类型,CPU/GPU
     }
     bool setTriggerSoftware(); // 设置软触发模式(需要先暂停采集,后续需要自行重启采集)
 	bool setTriggerHardware(int lineId =0 ); // 设置硬触发模式(需要先暂停采集,后续需要自行重启采集)
@@ -41,9 +44,10 @@ private:
 	
 	struct Camera; // 有关MVS相关的结构体,PIMPL设计避免头文件暴露和编译依赖
 	using CameraPtr = std::unique_ptr<Camera>;
-	explicit HikCameraFrameSource(const QString& serial);
+	explicit HikCameraFrameSource(const QString& serial, MemoryType memoryType = MemoryType::CPU);
     CameraPtr m_camera;
     QString m_serial;  // 序列号
+    MemoryType m_memoryType = MemoryType::CPU;	// 帧句柄的内存类型,CPU/GPU
 	QString m_lastError; // 最近的错误信息
 	QString m_displayName; // 显示名称
     TriggerMode m_mode; // 设置的触发模式

@@ -124,7 +124,7 @@ struct HikCameraFrameSource::Camera {
 	std::unique_ptr<void, Handle_Deleter> handle = nullptr;
 };
 
-HikCameraFrameSource::HikCameraFrameSource(const QString& serial) : m_camera(std::make_unique<Camera>()), m_serial(serial) {
+HikCameraFrameSource::HikCameraFrameSource(const QString& serial, MemoryType memoryType) : m_camera(std::make_unique<Camera>()), m_serial(serial), m_memoryType(memoryType) {
 }
 
 HikCameraFrameSource::~HikCameraFrameSource() {
@@ -340,7 +340,12 @@ void HikCameraFrameSource::close() {
 		m_camera->handle.reset();
 }
 //    工厂函数,创建FrameSource
-FrameSourcePtr HikCameraFrameSource::forDevices(QStringView serial, TriggerMode mode) {
+FrameSourcePtr HikCameraFrameSource::forDevices(QStringView serial, TriggerMode mode, MemoryType memoryType) {
+
+	// GPU 分支预留：GPU 采集/显存句柄尚未实现
+	// TODO: 接入 GPU 路径后在此创建 GPU 帧句柄的帧源
+	if (memoryType != MemoryType::CPU)
+		return FrameSourcePtr();
 
 	if (!ensureSdkInitialized())
 		return FrameSourcePtr();
@@ -386,7 +391,7 @@ FrameSourcePtr HikCameraFrameSource::forDevices(QStringView serial, TriggerMode 
 	{
 		return FrameSourcePtr();
 	}
-	HikCameraFrameSource* source = new HikCameraFrameSource(serial.toString());
+	HikCameraFrameSource* source = new HikCameraFrameSource(serial.toString(), memoryType);
 	source->m_camera->deviceInfo = std::make_unique<MV_CC_DEVICE_INFO>(*deviceInfo); // 深拷贝设备信息防止被释放
 	source->m_camera->handle = std::unique_ptr<void, Handle_Deleter>(handle);
 	source->m_mode = mode; // 设置触发模式
