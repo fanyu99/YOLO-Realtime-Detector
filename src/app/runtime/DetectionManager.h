@@ -51,6 +51,7 @@ signals:
 	void jobCancelled(quint64 jobId);
 	void detectorWarning(const DetectorWarning& warning);	// 检测器警告(非致命)，供 UI 显式提示
 	void configAdjusted(const DetectorConfig& config);		// 检测器按模型对齐了配置(如输入尺寸)，供上层同步
+	void fallbackOccurred( const DetectionError& error ); // 触发fallback，转发信号，通知上层App进行更改配置以及警告
 
 private slots:
 	void onDetectorWarning(const DetectorWarning& warning);
@@ -61,6 +62,7 @@ private slots:
 	void onTaskCompleted(quint64 jobId, const QVector<DetectionResult>& results);
 	void onTaskFailed(quint64 jobId, const DetectionError& error);
 	void onTaskCancelled(quint64 jobId);
+	void onFallback(const DetectionError& error); // worker 触发 fallback，转发信号，通知上层进行更改配置以及警告
 
 private:
 	quint64 nextJobId() { return ++m_nextJobId; }

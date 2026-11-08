@@ -50,6 +50,7 @@ bool DetectionManager::start() {
 	connect(m_worker.get(), &DetectionWorker::taskCompleted,  this, &DetectionManager::onTaskCompleted);
 	connect(m_worker.get(), &DetectionWorker::taskFailed,     this, &DetectionManager::onTaskFailed);
 	connect(m_worker.get(), &DetectionWorker::taskCancelled,  this, &DetectionManager::onTaskCancelled);
+	connect(m_worker.get(),&DetectionWorker::fallbackOccurred,this,&DetectionManager::onFallback);
 
 	m_worker->setConfig(m_config);
 	return m_worker->start();
@@ -238,6 +239,12 @@ void DetectionManager::onTaskFailed(quint64 jobId, const DetectionError& error) 
 
 void DetectionManager::onTaskCancelled(quint64 jobId) {
 	settleTask(jobId, false, true, DetectionError{}, {});
+}
+
+void DetectionManager::onFallback( const DetectionError& error ) {
+	// 触发了fallback，设置配置自愈并上报给App进行警告和配置更改
+	m_config.active_mode = FlowMode::CPU;
+	emit fallbackOccurred( error );
 }
 
 // 一个 Task 到达终态后的统一收尾。

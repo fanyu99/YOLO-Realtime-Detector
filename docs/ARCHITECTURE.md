@@ -45,43 +45,40 @@ DetectionTask
 
 ---
 
-当前完成： 
-- 新增`FrameHandle`抽象类以及`CpuFrameHandle`；
-- 将新增的`FrameHandle`接入到强依赖于cv::Mat的`FrameSource`中，作为统一的帧句柄指针；
-- 新增`CpuPreprocessor`类，统一原本的`DetectorError`为`DetectionError`,新增PreprocessFailed错误类型；将原本的`Detector::letterbox()`和`Detector::preprocess()`统一调用为`CpuPreprocessor::preprocess()`，
-其返回值为`std::optional<CpuPreprocessResult>`，在失败时返回`std::nullopt`，并在内部设置错误`DetectionError`；
-- 将新增的`CpuPreprocessor`接入到`CpuDetect`中，实现CPU推理功能，完成了CPU推理总线。
-- 添加了`CpuDetecitonFlow`流程类骨架以及通用的后处理器`CommonPostProcessor`，统一CPU推理流程，其中进行了预处理+推理+后处理的完整流程。
-- 完成了`CpuDetector`内部的纯化解耦，作为单纯的推理模块管理ORT的会话以及推理等,并将其接入到`CpuDetectionFlow`中，完成了CPU推理总线。
-- CPU推理总线接入到`DetectionWorker`中，完成了CPU推理总线的接入。
-- 为FfmpegFrameSource添加设备支持，
-能够打开摄像头/相机等设备并将其接入到CPU推理总线中，前端QML能够使用ffmpeg获取的设备帧。
-- 完成FrameSource的抽象工厂类
----
-需要注意的后续改动：
-1. 后续的FrameSource依旧作为策略模式，其中管理FileFrameSource、HikCameraFrameSource、FfmpegFrameSource等帧源，
-统一提供`getFrame()`接口获取帧，返回值为`std::unique_ptr<FrameHandle>`，
-其中`FrameHandle`为抽象类，`CpuFrameHandle`和`GpuFrameHandle`分别用于CPU和GPU的帧句柄封装。
-2. 然后使用Session(CPU/GPU)进行统一FrameSource内部的FrameHandle以及Flow，使其配对；
-1. 创建两个工厂类`DetectionFlowFactory`和`FrameSourceFactory`，由Session统一创建配对的FrameSource和Flow；
-1. 后续需要将FileFrameSource中的Image和Camera、Video进行分离，FileFrameSource仅用于文件帧源，
-HikCameraFrameSource用于海康相机帧源，FfmpegFrameSource用于ffmpeg硬解/软解视频帧源（其中包含摄像头/视频文件等）。
-具体流程：帧源工厂中，创建文件帧源时，仅支持单图，创建摄像头帧源时，使用FfmpegFrameSource，创建视频帧源时，使用FfmpegFrameSource。
-1. 帧源抽象工厂中使用**插件模式**注册HikCameraFrameSource的创建器，
-HikCameraFrameSource的创建器由HikCameraFrameSource.cpp中注册到帧源工厂中
-1. 使用Worker统一管理Session的生命周期并将会话的错误传入Manager中，
-Manager用于管理当前的Job以及Session的状态以及配置，Worker负责执行Session的建立以及错误上传
----
+当前完成：
 
-正在准备完成：
-- 添加统一管理FrameSource和DetectionFlow的Session类别，目前仅创建CpuDetectionSession，后续将添加GpuDetectionSession，
-- 后续需要将FileFrameSource中的Image和Camera、Video进行分离并更名为ImageFrameSource，FileFrameSource仅用于文件帧源，
-HikCameraFrameSource用于海康相机帧源，FfmpegFrameSource用于ffmpeg硬解/软解视频帧源（其中包含摄像头/视频文件等）。
-具体流程：帧源工厂中，创建文件帧源时，仅支持单图，创建摄像头帧源时，使用FfmpegFrameSource，创建视频帧源时，使用FfmpegFrameSource。
-统一管理FrameSource和DetectionFlow的生命周期以及配置和配对；
-- `GpuFrameHandle`用于封装GPU处理流程中所需要的AVFrame*和CUDA硬件帧NV12上下文。
-- GPU处理中，将当前的显示结果分为CPU的NMS检测框+QTOverlay绘制检测框叠加在GPU图像数据上显示
+- 新增 `FrameHandle` 抽象类及 `CpuFrameHandle`，并接入 `FrameSource`，统一帧句柄管理。
+- 新增 `CpuPreprocessor`，统一预处理流程；将 `DetectorError` 更名为 `DetectionError`，新增 `PreprocessFailed` 错误类型。
+- 完成 `CpuDetector` 纯化解耦，负责 ORT 会话和推理，并接入 `CpuDetectionFlow`。
+- 新增 `CommonPostProcessor`，完成 CPU 推理流程中的预处理、推理和后处理。
+- CPU 推理总线已接入 `DetectionWorker`。
+- `FfmpegFrameSource` 支持摄像头等设备，并接入 CPU 推理总线，QML 可使用设备帧。
+- 完成 `FrameSource` 抽象工厂。
+- 新增 `DetectionSession`，并接入 Worker 和 Manager 基线。
+- 接线fallback机制，fallback信号层层上报并使用自愈机制完成配置的修正
 
+后续计划：
+
+- 完善 fallback 机制：
+  - 上层删除配置中的use_cuda字段并改用preferred_mode/active_mode字段
+  - App 修改配置、通知 QML，自动显示警告。
+  - 暂时先不接入Job的drop和重建投递机制
+  - **注意点：当前的config更改设置并不完善，后续在QML侧接入GPU/CPU模式设置时，App中需要先校验effective_mode与用户的设置是否一致，使用懒设置机制设置配置**，
+  避免后续的用户设置模式与实际的执行模式不一致且不会上报的问题 
+
+- 调整帧源结构：
+  - `FileFrameSource` 更名为 `ImageFrameSource`，仅支持单图。
+  - `FfmpegFrameSource` 负责摄像头和视频文件的软解、硬解。
+  - `HikCameraFrameSource` 负责海康相机。
+  - 工厂根据输入类型创建对应帧源。
+- 统一管理 `FrameSource` 和 `DetectionFlow` 的生命周期、配置和配对关系。
+- 调整执行模型：
+  - Worker 以 Job 为最小执行单元，并负责 Session 管理。
+  - 每个 Job 包含多个 Task，Worker 根据配置复用或创建 Session。
+  - Job 完成后暂时保留 Session，支持后续复用。
+  - Manager 负责 Job 和 Session 的状态管理。
+- 完善 `GpuFrameHandle`，封装 `AVFrame*` 和 CUDA/NV12 硬件帧上下文。
+- 完善 GPU 显示流程，在 GPU 图像数据上叠加 CPU NMS 检测框和 Qt Overlay。
 ---
 
 ## 1. 分层

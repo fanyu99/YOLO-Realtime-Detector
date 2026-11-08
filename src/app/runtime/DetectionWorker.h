@@ -35,6 +35,9 @@ public:
 	bool submit(std::unique_ptr<DetectionTask> task);
 
 signals:
+
+	void fallbackOccurred(const DetectionError& error); // 触发fallback并完成自愈，通知上层进行更改配置以及警告
+
 	void started();												// 工作线程已就绪
 	void stopped();												// 工作线程已退出
 	void detectorFailed(const DetectionError& error);			// 模型加载失败（在 worker 线程内）
@@ -48,6 +51,10 @@ signals:
 	void taskCancelled(quint64 jobId);
 
 private:
+	// 重建会话,fallback机制，其中发送fallbackOccurred信号并记录日志并发送警告信息
+	// 返回是否成功
+	bool rebuildSession();
+
 	DetectionSession* createSession();	// 在 worker 线程内创建和管理会话
 	void work();					// 工作循环
 	void execute(DetectionTask& task);  // 总入口

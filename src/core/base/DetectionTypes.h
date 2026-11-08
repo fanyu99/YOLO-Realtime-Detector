@@ -75,7 +75,10 @@ public:
 	int input_height = 640;				// 推理输入高度
 	bool use_cuda = true;				// 是否尝试启用 CUDA EP（失败会自动回退 CPU）
 	FlowMode preferred_mode = FlowMode::CPU;	// 用户选择的模式：CPU/GPU
-	FlowMode active_mode = FlowMode::CPU;	// 实际使用的模式：CPU/GPU
+	// 实际使用的模式：CPU/GPU。
+	// 创建各个实例时优先使用 active_mode，未设置(nullopt)时跟随 preferred_mode；
+	// 创建成功后由 Session 写回为实际生效的模式，fallback 重建时由 Worker 更改为 CPU。
+	std::optional<FlowMode> active_mode = std::nullopt;
 
 	// getter 供 QML 读取
 	QString modelPathText() const { return QString::fromStdWString(model_path.wstring()); }
@@ -88,12 +91,16 @@ public:
 	int inputHeight() const { return input_height; }
 	bool useCuda() const { return use_cuda; }
 	Q_INVOKABLE QString preferredModeText() const { return preferred_mode == FlowMode::CPU ? "CPU" : "GPU"; }
-	Q_INVOKABLE QString activeModeText() const { return active_mode == FlowMode::CPU ? "CPU" : "GPU"; }
+	// 兜底：未设置(nullopt)时显示用户选择的模式
+	Q_INVOKABLE QString activeModeText() const { return active_mode.has_value() ? (*active_mode == FlowMode::CPU ? "CPU" : "GPU") : preferredModeText(); }
 
-	// 是否有效(未检查相关路径是否有效)
+	// 是否有效(未检查相关路径是否存在)
 	bool isValid()const {
 		return !model_path.empty() && !class_names.isEmpty() && conf_threshold > 0.0f && conf_threshold < 1.0f && iou_threshold > 0.0f && iou_threshold < 1.0f;
 	};
+	// 实际生效的模式：active_mode 优先，未设置时跟随 preferred_mode
+	FlowMode effectiveMode() const { return active_mode.value_or(preferred_mode); }
+	// 模型文件是否存在
 	bool model_exists()const {
 		return std::filesystem::exists(model_path);
 	}
@@ -166,6 +173,7 @@ public:
 		WarmUpFailed,		// 预热失败(不影响后续检测)
 		InputSizeAligned,	// 配置输入尺寸与模型不符，已按模型尺寸自动对齐
 		DynamicInputUsed,	// 模型输入为动态维(-1)，采用配置尺寸
+		FallbackRequested,	// 触发 fallback，切换到 CPU 模式
 	};
 	Q_ENUM(Code)
 

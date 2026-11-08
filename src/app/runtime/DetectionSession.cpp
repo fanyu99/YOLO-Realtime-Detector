@@ -11,9 +11,9 @@ namespace {
 
 DetectionSession::DetectionSession(const DetectorConfig& config)
 	: m_config(config)
-	, m_mode{ config.preferred_mode }
+	, m_mode{ config.effectiveMode() }	// active_mode 优先，未设置时跟随 preferred_mode
 {
-	// 根据配置的 FlowMode 创建对应的工厂
+	// 根据实际生效的模式创建对应的工厂
 	switch (m_mode) {
 	case FlowMode::CPU:
 		m_flowFactory = std::make_unique<CpuDetectionFlowFactory>();
@@ -26,6 +26,8 @@ DetectionSession::DetectionSession(const DetectorConfig& config)
 		return;
 	}
 
+	// 创建成功后把实际生效的模式写回配置
+	m_config.active_mode = m_mode;
 	m_detectionFlow = m_flowFactory->createDetectionFlow( m_config );
 	// 如果空指针或者ORT会话创建失败，记录错误与fallback标记，如果触发fallback，直接重建Session
 	if (!m_detectionFlow || !m_detectionFlow->isValid()) {
