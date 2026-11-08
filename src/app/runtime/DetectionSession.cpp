@@ -29,6 +29,8 @@ DetectionSession::DetectionSession(const DetectorConfig& config)
 	// 创建成功后把实际生效的模式写回配置
 	m_config.active_mode = m_mode;
 	m_detectionFlow = m_flowFactory->createDetectionFlow( m_config );
+	if (m_detectionFlow)
+		m_warnings = m_detectionFlow->warnings();
 	// 如果空指针或者ORT会话创建失败，记录错误与fallback标记，如果触发fallback，直接重建Session
 	if (!m_detectionFlow || !m_detectionFlow->isValid()) {
 		Logger::instance()->error(QStringLiteral("[DetectionSession]: 检测器初始化失败: ")
@@ -50,13 +52,16 @@ void DetectionSession::warmup() {
 	const bool warmupSuc = m_detectionFlow->warmup(kDefaultWarmupIterations);
 	const quint64 duration = timer.elapsed();
 	// 构造/预热产生的警告上报
-	for (const DetectorWarning& warning : m_detectionFlow->warnings()) {
+	// 预热失败时 Detector 会追加 WarmUpFailed 警告，这里重新捕获一次
+	m_warnings = m_detectionFlow->warnings();
+	for (const DetectorWarning& warning : m_warnings) {
 		Logger::instance()->warning(warning.message);
 	}
+
 	if (warmupSuc)
 		Logger::instance()->info(QStringLiteral("[DetectionSession]: 检测器预热完成，轮数: %1 耗时：%2ms  平均耗时：%3ms")
 			.arg(kDefaultWarmupIterations).arg(duration).arg(duration / kDefaultWarmupIterations));
-	Logger::instance()->info(QStringLiteral("[DetectionSession]: 检测器就绪（CPU 推理）"));
+	Logger::instance()->info(QStringLiteral("[DetectionSession]: 检测器就绪（%1）").arg(m_config.effectiveModeText()));
 }
 
 // 创建文件帧源（图片/视频），直接转发给帧源工厂

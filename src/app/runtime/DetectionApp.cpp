@@ -168,8 +168,7 @@ QString DetectionApp::configSummary() const {
 		+ QStringLiteral( " 输入: " ) + QString::number( m_config.input_width )
 		+ QStringLiteral( "x" ) + QString::number( m_config.input_height )
 		+ QStringLiteral( " 线程: " ) + QString::number( m_config.num_threads )
-		+ QStringLiteral( " 设备: " ) + QString::number( m_config.device_id )
-		+ QStringLiteral( " CUDA: " ) + (m_config.use_cuda ? QStringLiteral( "是" ) : QStringLiteral( "否" ));
+		+ QStringLiteral( " 设备: " ) + QString::number( m_config.device_id );
 }
 
 void DetectionApp::setBusy( bool busy ) {
@@ -586,7 +585,7 @@ void DetectionApp::setConfig( const DetectorConfig& config ) {
 	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 检测器已就绪 -> " ) + configSummary() );
 }
 
-void DetectionApp::setConfig( const QUrl& model_path, const QStringList& class_names, float conf_confidence, float iou_threshold, int num_threads, int device_id, int input_width, int input_height, bool use_cuda ) {
+void DetectionApp::setConfig( const QUrl& model_path, const QStringList& class_names, float conf_confidence, float iou_threshold, int num_threads, int device_id, int input_width, int input_height,const QString& flow_mode ) {
 	DetectorConfig config;
 	config.model_path = std::filesystem::path( model_path.toLocalFile().toStdWString() );
 	config.class_names = class_names;
@@ -596,8 +595,37 @@ void DetectionApp::setConfig( const QUrl& model_path, const QStringList& class_n
 	config.device_id = device_id;
 	config.input_width = input_width;
 	config.input_height = input_height;
-	config.use_cuda = use_cuda;
+	auto  newMode = str2FlowMode( flow_mode );
+	if (!newMode.has_value()) {
+		// 无效模式，忽略并警告
+		onDetectorWarning( DetectorWarning( QStringLiteral( "[DetectionApp]: 无效的流模式: " ) + flow_mode , DetectorWarning::Code::InvalidFlowMode ) );
+	 }
+	// 懒设置，只有与当前实际生效的模式不同时才进行更改
+	else if (m_config.effectiveMode() != newMode.value()) {
+		config.preferred_mode = newMode.value();
+		config.active_mode = std::nullopt;
+	}
 	setConfig( config );
+}
+
+// 设置模式
+void DetectionApp::setFlowMode( const QString& flow_mode ) {
+	auto  newMode = str2FlowMode( flow_mode );
+	if (!newMode.has_value()) {
+		// 无效模式，忽略并警告
+		onDetectorWarning( DetectorWarning( QStringLiteral( "[DetectionApp]: 无效的流模式: " ) + flow_mode, DetectorWarning::Code::InvalidFlowMode ) );
+		return;
+	}
+	if (m_config.effectiveMode() == newMode.value())
+		return;						// 没变就不改了
+	DetectorConfig next = m_config;
+	next.preferred_mode = newMode.value();
+	next.active_mode = std::nullopt;
+	setConfig( next );
+}
+// 获取当前实际生效的模式
+QString DetectionApp::effectiveFlowMode()const {
+	return m_config.effectiveModeText();
 }
 
 void DetectionApp::setModelPath( const QUrl& path ) {
@@ -638,6 +666,14 @@ void DetectionApp::onJobProgress( quint64 jobId, float progress ) {
 	m_progress = progress;
 	m_progressIndeterminate = m_manager->indeterminate( jobId );
 	emit progressChanged();
+}
+
+// 将字符串变为模式枚举
+std::optional<FlowMode> DetectionApp::str2FlowMode( QStringView str )const {
+	QMetaEnum meta = QMetaEnum::fromType<FlowMode>();
+	bool valid = false;
+	int mode = meta.keyToValue( str.toUtf8().constData(), &valid );
+	return valid ? std::make_optional(static_cast<FlowMode>(mode)) : std::nullopt;
 }
 
 void DetectionApp::onFrameReady( quint64 jobId, const DetectionResult& result, const QImage& frame ) {

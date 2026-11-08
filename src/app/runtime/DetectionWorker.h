@@ -51,6 +51,9 @@ signals:
 	void taskCancelled(quint64 jobId);
 
 private:
+	// 转发警告并修正尺寸
+	void reportWarnings();
+
 	// 重建会话,fallback机制，其中发送fallbackOccurred信号并记录日志并发送警告信息
 	// 返回是否成功
 	bool rebuildSession();

@@ -17,14 +17,14 @@
 // letterbox 预处理信息
 struct LetterboxInfo {
 	Q_GADGET
-	QML_ELEMENT
-	Q_PROPERTY(int origWidth READ origWidth)
-	Q_PROPERTY(int origHeight READ origHeight)
-	Q_PROPERTY(int newWidth READ newWidth)
-	Q_PROPERTY(int newHeight READ newHeight)
-	Q_PROPERTY(int padWidth READ padWidth)
-	Q_PROPERTY(int padHeight READ padHeight)
-	Q_PROPERTY(float scale READ scaleValue)
+		QML_ELEMENT
+		Q_PROPERTY( int origWidth READ origWidth )
+		Q_PROPERTY( int origHeight READ origHeight )
+		Q_PROPERTY( int newWidth READ newWidth )
+		Q_PROPERTY( int newHeight READ newHeight )
+		Q_PROPERTY( int padWidth READ padWidth )
+		Q_PROPERTY( int padHeight READ padHeight )
+		Q_PROPERTY( float scale READ scaleValue )
 public:
 	int orig_w{ 0 }, orig_h{ 0 };	// 原图宽高
 	int new_w{ 0 }, new_h{ 0 };	// 缩放后宽高
@@ -32,7 +32,7 @@ public:
 	float scale{ 0.0f };		// 缩放比例
 
 	bool isValid() const {
-		return orig_w > 0 && orig_h > 0 && new_w > 0 && new_h > 0 && scale > 0.0f ;
+		return orig_w > 0 && orig_h > 0 && new_w > 0 && new_h > 0 && scale > 0.0f;
 	}
 	// getter 供 QML 读取
 	int origWidth() const { return orig_w; }
@@ -44,27 +44,29 @@ public:
 	float scaleValue() const { return scale; }
 };
 
-// 处理流程的模式：CPU/GPU
-enum class FlowMode {
-	CPU = 0, // CPU
-	GPU // GPU
-};
 // 检测器配置
 struct DetectorConfig {
 	Q_GADGET
-	QML_ELEMENT
-	Q_PROPERTY(QString modelPath READ modelPathText)
-	Q_PROPERTY(QStringList classNames READ classNamesText)
-	Q_PROPERTY(float confThreshold READ confThreshold)
-	Q_PROPERTY(float iouThreshold READ iouThreshold)
-	Q_PROPERTY(int numThreads READ numThreads)
-	Q_PROPERTY(int deviceId READ deviceId)
-	Q_PROPERTY(int inputWidth READ inputWidth)
-	Q_PROPERTY(int inputHeight READ inputHeight)
-	Q_PROPERTY(bool useCuda READ useCuda)
-	Q_PROPERTY(bool valid READ isValid)
-	Q_PROPERTY(bool modelExists READ model_exists)
+		QML_ELEMENT
+		Q_PROPERTY( QString modelPath READ modelPathText )
+		Q_PROPERTY( QStringList classNames READ classNamesText )
+		Q_PROPERTY( float confThreshold READ confThreshold )
+		Q_PROPERTY( float iouThreshold READ iouThreshold )
+		Q_PROPERTY( int numThreads READ numThreads )
+		Q_PROPERTY( int deviceId READ deviceId )
+		Q_PROPERTY( int inputWidth READ inputWidth )
+		Q_PROPERTY( int inputHeight READ inputHeight )
+		Q_PROPERTY( bool valid READ isValid )
+		Q_PROPERTY( bool modelExists READ model_exists )
+		Q_PROPERTY(QString userModeTxt READ preferredModeText)
+		Q_PROPERTY( QString effectiveModeTxt READ effectiveModeText )
 public:
+	// 处理流程的模式：CPU/GPU
+	enum class FlowMode {
+		CPU = 0, // CPU
+		GPU // GPU
+	};
+	Q_ENUM(FlowMode)
 	std::filesystem::path model_path;	// 模型路径
 	QVector<QString> class_names;		// 类别名称
 	float conf_threshold = 0.5f;		// 置信度阈值
@@ -73,7 +75,6 @@ public:
 	int device_id = 0;					// CUDA 设备号
 	int input_width = 640;				// 推理输入宽度
 	int input_height = 640;				// 推理输入高度
-	bool use_cuda = true;				// 是否尝试启用 CUDA EP（失败会自动回退 CPU）
 	FlowMode preferred_mode = FlowMode::CPU;	// 用户选择的模式：CPU/GPU
 	// 实际使用的模式：CPU/GPU。
 	// 创建各个实例时优先使用 active_mode，未设置(nullopt)时跟随 preferred_mode；
@@ -81,7 +82,7 @@ public:
 	std::optional<FlowMode> active_mode = std::nullopt;
 
 	// getter 供 QML 读取
-	QString modelPathText() const { return QString::fromStdWString(model_path.wstring()); }
+	QString modelPathText() const { return QString::fromStdWString( model_path.wstring() ); }
 	QStringList classNamesText() const { return class_names; }
 	float confThreshold() const { return conf_threshold; }
 	float iouThreshold() const { return iou_threshold; }
@@ -89,27 +90,29 @@ public:
 	int deviceId() const { return device_id; }
 	int inputWidth() const { return input_width; }
 	int inputHeight() const { return input_height; }
-	bool useCuda() const { return use_cuda; }
+	// 用户选择的模式
 	Q_INVOKABLE QString preferredModeText() const { return preferred_mode == FlowMode::CPU ? "CPU" : "GPU"; }
-	// 兜底：未设置(nullopt)时显示用户选择的模式
-	Q_INVOKABLE QString activeModeText() const { return active_mode.has_value() ? (*active_mode == FlowMode::CPU ? "CPU" : "GPU") : preferredModeText(); }
+	// 真实生效的模式
+	Q_INVOKABLE QString effectiveModeText() const { return active_mode.has_value() ? (*active_mode == FlowMode::CPU ? "CPU" : "GPU") : preferredModeText(); }
 
 	// 是否有效(未检查相关路径是否存在)
 	bool isValid()const {
 		return !model_path.empty() && !class_names.isEmpty() && conf_threshold > 0.0f && conf_threshold < 1.0f && iou_threshold > 0.0f && iou_threshold < 1.0f;
 	};
 	// 实际生效的模式：active_mode 优先，未设置时跟随 preferred_mode
-	FlowMode effectiveMode() const { return active_mode.value_or(preferred_mode); }
+	FlowMode effectiveMode() const { return active_mode.value_or( preferred_mode ); }
+
 	// 模型文件是否存在
 	bool model_exists()const {
-		return std::filesystem::exists(model_path);
+		return std::filesystem::exists( model_path );
 	}
 };
+using FlowMode = DetectorConfig::FlowMode;
 
 // 检测错误
 struct DetectionError {
 	Q_GADGET
-	QML_ELEMENT
+		QML_ELEMENT
 public:
 	// 错误分类
 	enum class Category {
@@ -122,9 +125,9 @@ public:
 		Other,
 		None
 	};
-	Q_ENUM(Category)
-	// 错误代码
-	enum class Code {
+	Q_ENUM( Category )
+		// 错误代码
+		enum class Code {
 		InvalidModelPath,	  // 模型路径无效
 		InvalidConfig,		  // 配置无效
 		FallbackRequested,	  // 触发 fallback
@@ -135,20 +138,21 @@ public:
 		UnknownError,		  // 未知错误
 		None				  // 无错误
 	};
-	Q_ENUM(Code)
+	Q_ENUM( Code )
 
-	Q_PROPERTY(QString errorMessage READ errorMessageText)
-	Q_PROPERTY(Category errorCategory READ errorCategoryValue)
-	Q_PROPERTY(Code errorCode READ errorCodeValue)
-	Q_PROPERTY(bool hasError READ has_error)
+		Q_PROPERTY( QString errorMessage READ errorMessageText )
+		Q_PROPERTY( Category errorCategory READ errorCategoryValue )
+		Q_PROPERTY( Code errorCode READ errorCodeValue )
+		Q_PROPERTY( bool hasError READ has_error )
 
-	QString errorMessage;
+		QString errorMessage;
 	Category errorCategory;
 	Code errorCode;
 
-	DetectionError() : errorCategory(Category::None), errorCode(Code::None) {}
-	DetectionError(QStringView msg, Category category = Category::Other, Code code = Code::UnknownError)
-		: errorMessage(msg.toString()), errorCategory(category), errorCode(code) {}
+	DetectionError() : errorCategory( Category::None ), errorCode( Code::None ) {}
+	DetectionError( QStringView msg, Category category = Category::Other, Code code = Code::UnknownError )
+		: errorMessage( msg.toString() ), errorCategory( category ), errorCode( code ) {
+	}
 	bool has_error() const {
 		return !errorMessage.isEmpty() && errorCategory != Category::None && errorCode != Code::None;
 	}
@@ -166,7 +170,7 @@ using DetectionErrorCode = DetectionError::Code;
 // 用于显式地提醒用户
 struct DetectorWarning {
 	Q_GADGET
-	QML_ELEMENT
+		QML_ELEMENT
 public:
 	// 警告代码
 	enum class Code {
@@ -174,26 +178,28 @@ public:
 		InputSizeAligned,	// 配置输入尺寸与模型不符，已按模型尺寸自动对齐
 		DynamicInputUsed,	// 模型输入为动态维(-1)，采用配置尺寸
 		FallbackRequested,	// 触发 fallback，切换到 CPU 模式
+		InvalidFlowMode,		// 无效的流模式，已忽略
 	};
-	Q_ENUM(Code)
+	Q_ENUM( Code )
 
-	Q_PROPERTY(QString message READ messageText)
-	Q_PROPERTY(Code code READ codeValue)
-	Q_PROPERTY(int fromWidth READ fromWidth)
-	Q_PROPERTY(int fromHeight READ fromHeight)
-	Q_PROPERTY(int toWidth READ toWidth)
-	Q_PROPERTY(int toHeight READ toHeight)
+		Q_PROPERTY( QString message READ messageText )
+		Q_PROPERTY( Code code READ codeValue )
+		Q_PROPERTY( int fromWidth READ fromWidth )
+		Q_PROPERTY( int fromHeight READ fromHeight )
+		Q_PROPERTY( int toWidth READ toWidth )
+		Q_PROPERTY( int toHeight READ toHeight )
 
-	QString message;						
+		QString message;
 	Code code = Code::InputSizeAligned;
 	int from_width = 0, from_height = 0;	// 改动前(配置值)
 	int to_width = 0, to_height = 0;		// 改动后(模型值)
 
 	DetectorWarning() = default;
-	DetectorWarning(QStringView msg, Code code_,
-					int from_w = 0, int from_h = 0, int to_w = 0, int to_h = 0)
-		: message(msg.toString()), code(code_), from_width(from_w), from_height(from_h),
-		  to_width(to_w), to_height(to_h) {}
+	DetectorWarning( QStringView msg, Code code_,
+		int from_w = 0, int from_h = 0, int to_w = 0, int to_h = 0 )
+		: message( msg.toString() ), code( code_ ), from_width( from_w ), from_height( from_h ),
+		to_width( to_w ), to_height( to_h ) {
+	}
 
 	// getter 供 QML 读取
 	QString messageText() const { return message; }
@@ -207,11 +213,11 @@ public:
 // 检测结果: 检测框 + 错误 + 推理耗时
 struct DetectionResult {
 	Q_GADGET
-	QML_ELEMENT
-	Q_PROPERTY(QVariantList boxes READ boxesVariant)
-	Q_PROPERTY(DetectionError error READ errorValue)
-	Q_PROPERTY(qint64 duration READ durationValue)
-	Q_PROPERTY(QString source READ sourceValue)
+		QML_ELEMENT
+		Q_PROPERTY( QVariantList boxes READ boxesVariant )
+		Q_PROPERTY( DetectionError error READ errorValue )
+		Q_PROPERTY( qint64 duration READ durationValue )
+		Q_PROPERTY( QString source READ sourceValue )
 public:
 	QVector<Box> boxes;		  // 置信框
 	DetectionError error;		 // 错误
@@ -219,16 +225,17 @@ public:
 	quint64 taskId = 0;		// 任务ID(由 Worker 回填，0 表示未归属)
 	QString source;			// 输入来源(图片/视频路径；摄像头为空)，由 Worker 回填,用于显示
 
-	DetectionResult() = default;          
-	DetectionResult(const QVector<Box>& boxes_, const DetectionError& error_, long long duration_)
-		: boxes(boxes_), error(error_), duration(duration_) {}
+	DetectionResult() = default;
+	DetectionResult( const QVector<Box>& boxes_, const DetectionError& error_, long long duration_ )
+		: boxes( boxes_ ), error( error_ ), duration( duration_ ) {
+	}
 
 	//  getter 供 QML 读取
 	QVariantList boxesVariant() const {
 		QVariantList list;
-		list.reserve(boxes.size());
+		list.reserve( boxes.size() );
 		for (const auto& box : boxes)
-			list.append(QVariant::fromValue(box));
+			list.append( QVariant::fromValue( box ) );
 		return list;
 	}
 	DetectionError errorValue() const { return error; }
@@ -274,8 +281,9 @@ enum class DetectionTaskStatus {
 // 含原子成员，既不可拷贝也不可移动 —— 只能通过 shared_ptr 使用。
 //   progress = (已完成 task 数 + 当前 task 内部的单元比例) / task 总数
 struct TaskShared {
-	TaskShared(quint64 jobId_, DetectionJobType jobType_, QStringView saveDir_ = QString())
-		: jobId(jobId_), jobType(jobType_), saveDir(saveDir_.toString()) {}
+	TaskShared( quint64 jobId_, DetectionJobType jobType_, QStringView saveDir_ = QString() )
+		: jobId( jobId_ ), jobType( jobType_ ), saveDir( saveDir_.toString() ) {
+	}
 
 	const quint64 jobId;								// 只读
 	const DetectionJobType jobType;						// 只读：作业种类，供 Manager 在收尾时回传给 UI
@@ -298,38 +306,38 @@ struct TaskShared {
 
 	// 请求取消：Manager 在 GUI 线程调用，worker 在 worker 线程读取
 	void requestCancel() {
-		cancelRequested.store(true, std::memory_order_relaxed);
-		status.store(DetectionTaskStatus::Cancelled, std::memory_order_relaxed);
+		cancelRequested.store( true, std::memory_order_relaxed );
+		status.store( DetectionTaskStatus::Cancelled, std::memory_order_relaxed );
 	}
 	bool cancelled() const {
-		return cancelRequested.load(std::memory_order_relaxed);
+		return cancelRequested.load( std::memory_order_relaxed );
 	}
 
 	// 一个 Task 结束、下一个 Task 开始前调用：把上一个 Task 的单元进度清掉
 	void resetCurrentUnit() {
-		currentUnitDone.store(0, std::memory_order_relaxed);
-		currentUnitTotal.store(0, std::memory_order_relaxed);
+		currentUnitDone.store( 0, std::memory_order_relaxed );
+		currentUnitTotal.store( 0, std::memory_order_relaxed );
 	}
 
 	// 进度 
 	float progress() const {
-		const int tasks = totalTasks.load(std::memory_order_relaxed);
+		const int tasks = totalTasks.load( std::memory_order_relaxed );
 		if (tasks <= 0) return 0.0f;
 
-		const int ut = currentUnitTotal.load(std::memory_order_relaxed);
+		const int ut = currentUnitTotal.load( std::memory_order_relaxed );
 		const float frac = ut > 0
-			? static_cast<float>(currentUnitDone.load(std::memory_order_relaxed)) / static_cast<float>(ut)
+			? static_cast<float>(currentUnitDone.load( std::memory_order_relaxed )) / static_cast<float>(ut)
 			: 0.0f;
 
-		const float p = (static_cast<float>(completedTasks.load(std::memory_order_relaxed)) + frac)
+		const float p = (static_cast<float>(completedTasks.load( std::memory_order_relaxed )) + frac)
 			/ static_cast<float>(tasks);
 		return p < 0.0f ? 0.0f : (p > 1.0f ? 1.0f : p);
 	}
 
 	// 摄像头流不计算进度
 	bool indeterminate() const {
-		return totalTasks.load(std::memory_order_relaxed) == 1
-			&& currentUnitTotal.load(std::memory_order_relaxed) == 0;
+		return totalTasks.load( std::memory_order_relaxed ) == 1
+			&& currentUnitTotal.load( std::memory_order_relaxed ) == 0;
 	}
 };
 using TaskSharedPtr = std::shared_ptr<TaskShared>;
@@ -387,7 +395,7 @@ struct DetectionJob {
 };
 
 // 单任务作业的种类：从帧源种类派生（单向）
-inline DetectionJobType jobTypeOf(const DetectionTask& task) {
+inline DetectionJobType jobTypeOf( const DetectionTask& task ) {
 	if (!task.source)
 		return DetectionJobType::SingleImage;
 	switch (task.source->type()) {
@@ -400,9 +408,9 @@ inline DetectionJobType jobTypeOf(const DetectionTask& task) {
 
 // 构造一个「单 Task」作业：单图 / 单视频 / 摄像头
 // saveDir 为空表示本次不保存结果。
-inline DetectionJob makeSingleTaskJob(quint64 jobId, quint64 taskId,
-									  FrameSourcePtr source,
-									  QStringView saveDir = QString())
+inline DetectionJob makeSingleTaskJob( quint64 jobId, quint64 taskId,
+	FrameSourcePtr source,
+	QStringView saveDir = QString() )
 {
 	DetectionJob job;
 	job.jobId = jobId;
@@ -410,15 +418,15 @@ inline DetectionJob makeSingleTaskJob(quint64 jobId, quint64 taskId,
 	auto task = std::make_unique<DetectionTask>();
 	task->taskId = taskId;
 	task->jobId = jobId;
-	task->source = std::move(source);
+	task->source = std::move( source );
 	// 摄像头流不累积，靠 taskResult 逐帧推送
 	task->accumulateResults = (task->source && task->source->type() != FrameSourceType::Camera);
 
-	job.type = jobTypeOf(*task);				// 先定 task.source，再派生 job.type
-	job.shared = std::make_shared<TaskShared>(jobId, job.type, saveDir);
+	job.type = jobTypeOf( *task );				// 先定 task.source，再派生 job.type
+	job.shared = std::make_shared<TaskShared>( jobId, job.type, saveDir );
 	task->shared = job.shared;
 
-	job.tasks.push_back(std::move(task));
+	job.tasks.push_back( std::move( task ) );
 	return job;
 }
 
@@ -427,22 +435,22 @@ inline DetectionJob makeSingleTaskJob(quint64 jobId, quint64 taskId,
 // 构造一个「批量」作业：每个帧源一个 Task，来源可混排
 // （认不出的路径由 FileFrameSource 建成 SingleImage，执行时报"图片加载失败"）
 // saveDir 为空表示本次不保存结果。
-inline DetectionJob makeBatchJob(quint64 jobId, QVector<FrameSourcePtr> sources,
-								 QStringView saveDir = QString()) {
+inline DetectionJob makeBatchJob( quint64 jobId, QVector<FrameSourcePtr> sources,
+	QStringView saveDir = QString() ) {
 	DetectionJob job;
 	job.jobId = jobId;
 	job.type = DetectionJobType::Batch;			// 批量无法从单个 task 派生，显式指定
-	job.shared = std::make_shared<TaskShared>(jobId, job.type, saveDir);
+	job.shared = std::make_shared<TaskShared>( jobId, job.type, saveDir );
 
 	for (FrameSourcePtr& source : sources) {
 		auto task = std::make_unique<DetectionTask>();
 		task->jobId = jobId;
-		task->source = std::move(source);
+		task->source = std::move( source );
 		task->accumulateResults = false;
 		task->renderFrames = true;
 		task->shared = job.shared;
 
-		job.tasks.push_back(std::move(task));
+		job.tasks.push_back( std::move( task ) );
 	}
 	return job;
 }

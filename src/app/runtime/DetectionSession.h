@@ -34,6 +34,8 @@ public:
 	bool fallbackRequested() const { return m_fallbackRequested; }
 	// 获取当前的实际执行模式
 	FlowMode currentMode() const { return m_mode; }
+	// 构造/预热期产生的警告(如输入尺寸对齐)
+	const QVector<DetectorWarning>& warnings() const { return m_warnings; }
 
 private:
 	void warmup();	// 预热推理流程（构造函数内自动调用，内部记录警告日志）
@@ -43,6 +45,7 @@ private:
 	FlowMode m_mode; // 当前的真实执行模式：CPU/GPU
 	bool m_fallbackRequested = false;	// 是否为 fallback
 	DetectionError m_lastError;			// 最近一次错误
+	QVector<DetectorWarning> m_warnings;	// 构造/预热期警告
 	// 推理流程和帧源工厂
 	DetectionFlowFactoryPtr m_flowFactory;
 	FrameSourceFactoryPtr m_sourceFactory;

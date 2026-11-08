@@ -143,7 +143,7 @@ Window {
 					border.color: theme.border
 					border.width: 1
 				}
-
+				// 配置内容：
 				ColumnLayout {
 					anchors.fill: parent
 					spacing: 8
@@ -168,8 +168,9 @@ Window {
 								{ "k": "输入尺寸",  "v": app.config.inputWidth + "×" + app.config.inputHeight },
 								{ "k": "线程数",    "v": String(app.config.numThreads) },
 								{ "k": "设备号",    "v": String(app.config.deviceId) },
-								{ "k": "启用 CUDA", "v": app.config.useCuda ? "是" : "否" },
-								{ "k": "模型存在",  "v": app.config.modelExists ? "是" : "否" }
+								{ "k": "模型存在",  "v": app.config.modelExists ? "是" : "否" },
+								{ "k": "用户设置模式",  "v": app.config.preferredModeText() },
+								{ "k": "实际生效模式", "v": app.config.effectiveModeText() }
 							]
 
 							delegate: Column {
@@ -551,6 +552,7 @@ Window {
 	// ========================================================================
 	MediaPlayer {
 		id: mediaPlayer
+		loops: MediaPlayer.Infinite
 		source: window.selectedFileUrl
 		videoOutput: videoOutput
 		onErrorOccurred: function(error, errorString) {

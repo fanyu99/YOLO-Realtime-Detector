@@ -123,6 +123,7 @@ DetectionSession* DetectionWorker::createSession() {
 // 重建会话：fallback 时将配置中的 active_mode 更改为 CPU 后重建；已是 CPU 则不再重建（避免循环）
 // 发送fallbackOccurred信号并记录日志,返回是否重建成功
 bool DetectionWorker::rebuildSession() {
+	Logger::instance()->warning(QStringLiteral("[DetectionWorker]: 会话/推理流程出现异常，开启 fallback 重建会话"));
 	// 已是 CPU 不需要重建，上报 detectorFailed
 	if (m_config.active_mode.has_value() && m_config.active_mode.value() == FlowMode::CPU) {
 		Logger::instance()->error( QStringLiteral( "[DetectionWorker]: 已处于 CPU 模式，放弃 fallback 重建" ) );
@@ -133,7 +134,7 @@ bool DetectionWorker::rebuildSession() {
 		QStringLiteral( "[DetectionWorker]: 推理流程创建失败" ),
 		DetectionErrorCategory::Detection, DetectionErrorCode::FallbackRequested ) );
 	// 发送警告信号
-	emit detectorWarning(DetectorWarning( QStringLiteral( "Fallback 已触发，正在切换到 CPU 模式" ), DetectorWarning::Code::FallbackRequested) );
+	emit detectorWarning( DetectorWarning( QStringLiteral( "Fallback 已触发，当前的GPU模式不可用或异常，正在切换到 CPU 模式" ), DetectorWarning::Code::FallbackRequested ) );
 	// 释放旧的 Session
 	m_session.reset();
 	// 修改配置为 CPU 模式
@@ -147,7 +148,7 @@ bool DetectionWorker::rebuildSession() {
 	}
 	// 同步实际生效的模式
 	m_config.active_mode = m_session->currentMode();
-	Logger::instance()->info( QStringLiteral( "[DetectionWorker]: fallback 重建会话成功，已切换到 CPU 模式" ) );
+	Logger::instance()->warning( QStringLiteral( "[DetectionWorker]: fallback 重建会话成功，已切换到 CPU 模式" ) );
 	return true;
 }
 
@@ -155,15 +156,24 @@ bool DetectionWorker::rebuildSession() {
 void DetectionWorker::work() {
 	// 在 worker 线程内创建检测会话：ONNX 会话构造较重,在worker线程进行构造
 	m_session.reset( createSession() );
+	if (m_session) {
+		//检查会话中产生的警告（预热产生的警告等）
+		reportWarnings();
+	}
+
 	// 如果创建失败尝试重建
 	if (!m_session || !m_session->isValid()) {
-			// 重建会话，内部进行校验是否为CPU
-			if (!rebuildSession()) {
-				// 仍然创建失败：m_lastError 已由 createSession() 填入真实错误，直接上报
-				emit detectorFailed(m_lastError);
-				return;
-			}
+		// 重建会话，内部进行校验是否为CPU
+		if (!rebuildSession()) {
+			// 仍然创建失败：m_lastError 已由 createSession() 填入真实错误，直接上报
+			emit detectorFailed( m_lastError );
+			return;
+		}
+		// 创建成功，发送产生的警告
+		reportWarnings();
 	}
+
+
 
 	// 创建成功后从会话同步实际生效的模式
 	m_config.active_mode = m_session->currentMode();
@@ -204,6 +214,20 @@ void DetectionWorker::work() {
 			failTaskIfUnfinished( *task );
 		}
 	}
+}
+
+// 转发会话中产生的警告
+void DetectionWorker::reportWarnings() {
+	if (!m_session)
+		return;
+	for (const auto& war : m_session->warnings()) {
+		if (war.code == DetectorWarning::Code::InputSizeAligned) {
+			m_config.input_height = war.toHeight();
+			m_config.input_width = war.toWidth();
+		}
+		emit detectorWarning( war );
+	}
+
 }
 
 // 补发失败信号：只在任务还没落到终态时才

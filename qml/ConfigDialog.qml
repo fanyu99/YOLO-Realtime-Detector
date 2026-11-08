@@ -31,6 +31,7 @@ Dialog {
 
 	// 用当前配置回填表单并打开
 	function openWith(cfg, currentModelPathUrl) {
+	    // 如果配置存在，显示配置的信息
 		if (cfg) {
 			classNamesArea.text = cfg.classNames.join("\n")
 			confSpin.value = Math.round(cfg.confThreshold * 100)
@@ -39,7 +40,8 @@ Dialog {
 			deviceSpin.value = cfg.deviceId
 			widthSpin.value = cfg.inputWidth
 			heightSpin.value = cfg.inputHeight
-			cudaCheck.checked = cfg.useCuda
+			flowModeCombo.currentIndex = cfg.userModeTxt === "GPU" ? 1 : 0
+
 		}
 		modelPathUrl = currentModelPathUrl ? currentModelPathUrl : ""
 		open()
@@ -52,7 +54,7 @@ Dialog {
 		if (s.indexOf("file:///") === 0) s = s.substring(8)
 		return decodeURIComponent(s)
 	}
-
+	// 配置表单
 	contentItem: ColumnLayout {
 		spacing: 10
 
@@ -154,12 +156,20 @@ Dialog {
 			SpinBox { id: heightSpin; from: 32; to: 4096; value: 640; stepSize: 32; editable: true }
 		}
 
-		// ---- CUDA 开关 ----
-		CheckBox {
-			id: cudaCheck
-			text: "启用 CUDA（不可用时自动回退 CPU）"
-			checked: true
+		// --- 流程模式  --- 
+		RowLayout{
+		Layout.fillWidth:true
+		spacing: 8 
+		Label{text: "流程模式";Layout.preferredWidth: 80; color: dialog.theme ? dialog.theme.windowText : "black" }
+		Label{text: "实际生效模式: " + app.config.effectiveModeTxt; color: dialog.theme ? dialog.theme.windowText : "black" }
+		ComboBox {
+			id: flowModeCombo
+			Layout.fillWidth: true
+			currentIndex : 0
+			model: ["CPU", "GPU"]
+			}
 		}
+
 	}
 
 	footer: DialogButtonBox {
@@ -188,7 +198,7 @@ Dialog {
 					  confSpin.realValue, iouSpin.realValue,
 					  threadsSpin.value, deviceSpin.value,
 					  widthSpin.value, heightSpin.value,
-					  cudaCheck.checked)
+					  flowModeCombo.currentText)
 	}
 	AcceptShortcut { popup: dialog; button: acceptButton }
 

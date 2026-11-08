@@ -76,10 +76,12 @@ public:
 	QString resultInfo() const;
 
 	// 供 QML 调用
+	Q_INVOKABLE void setFlowMode( const QString& flow_mode );	// 设置 CPU/GPU 模式
+	Q_INVOKABLE QString effectiveFlowMode()const; // 获取当前实际生效的模式
 	Q_INVOKABLE void setModelPath(const QUrl& path);
 	Q_INVOKABLE void setFilePath(const QUrl& path);
 	Q_INVOKABLE void setConfig(const DetectorConfig& config);
-	Q_INVOKABLE void setConfig(const QUrl& model_path, const QStringList& class_names, float conf_confidence, float iou_threshold, int num_threads, int device_id, int input_width, int input_height, bool use_cuda = true);
+	Q_INVOKABLE void setConfig(const QUrl& model_path, const QStringList& class_names, float conf_confidence, float iou_threshold, int num_threads, int device_id, int input_width, int input_height,const QString& flow_mode);
 	Q_INVOKABLE void onDetectClicked();							// qml 检测按钮点击
 	Q_INVOKABLE void onDetectCameraClicked(int camera_id);		// qml 摄像头检测按钮点击(带设备 id)
 	Q_INVOKABLE void onDetectHikCameraClicked(const QString& serial, const QString& triggerMode);	// qml 海康相机检测(带序列号)
@@ -112,6 +114,9 @@ signals:
 	void batchFinished(quint64 jobId, int totalTasks, int succeeded, int failed);		// 批量作业完成(带汇总)
 
 private:
+	// 将字符串变为模式枚举
+	std::optional<FlowMode> str2FlowMode( QStringView str ) const;
+
 	void reportError(const AppError& error);								// 统一上报错误：发信号 + 写日志
 	AppError mapDetectionErrortoAppError(const DetectionError& error) const;	// 检测器错误 -> 应用层错误
 	// 帧源工厂

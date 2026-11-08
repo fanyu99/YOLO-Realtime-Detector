@@ -56,15 +56,12 @@ DetectionTask
 - 完成 `FrameSource` 抽象工厂。
 - 新增 `DetectionSession`，并接入 Worker 和 Manager 基线。
 - 接线fallback机制，fallback信号层层上报并使用自愈机制完成配置的修正
+- 完成当前的fallback机制的QML层接线
 
 后续计划：
 
 - 完善 fallback 机制：
-  - 上层删除配置中的use_cuda字段并改用preferred_mode/active_mode字段
-  - App 修改配置、通知 QML，自动显示警告。
   - 暂时先不接入Job的drop和重建投递机制
-  - **注意点：当前的config更改设置并不完善，后续在QML侧接入GPU/CPU模式设置时，App中需要先校验effective_mode与用户的设置是否一致，使用懒设置机制设置配置**，
-  避免后续的用户设置模式与实际的执行模式不一致且不会上报的问题 
 
 - 调整帧源结构：
   - `FileFrameSource` 更名为 `ImageFrameSource`，仅支持单图。
