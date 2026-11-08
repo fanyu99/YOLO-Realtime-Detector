@@ -28,8 +28,9 @@ public:
 	void shutdown();								// 停止 worker 并清理全部作业
 	const DetectorConfig& config() const { return m_config; }
 
-	quint64 submitSource(FrameSourcePtr source, const QString& saveDir = QString());
-	quint64 submitBatch(QVector<FrameSourcePtr> sources, const QString& saveDir = QString());
+	// 提交作业：只提交帧源描述，帧源由 Worker 经 Session 创建
+	quint64 submitSource(const FrameSourceDescription& des, const QString& saveDir = QString());
+	quint64 submitBatch(QVector<FrameSourceDescription> descriptions, const QString& saveDir = QString());
 	quint64 submit(DetectionJob job);				// 通用入口
 
 	bool cancel(quint64 jobId);

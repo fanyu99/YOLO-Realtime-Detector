@@ -371,11 +371,15 @@ private:
 	QElapsedTimer m_clock;		// 上一次采样时刻
 };
 
+
+
+
 // 一个可执行的任务单元
 struct DetectionTask {
 	quint64 taskId = 0;
 	quint64 jobId = 0;								// 便于日志与信号路由
-	FrameSourcePtr source;							// 帧源：图片/视频/摄像头，或后续新增的源类型	 ,原本为文件路径或摄像头ID,现在进行抽象封装
+	FrameSourceDescription sourceDescription; // 帧源描述
+	FrameSourcePtr source;							// 帧源，由worker创建
 	bool accumulateResults = true;					// 摄像头流应设 false，避免结果无限增长
 	bool renderFrames = true;						// 是否在 worker 线程内画框并转 QImage（离线批量作业可关掉省算力）
 	TaskSharedPtr shared;							// 与 Job / Manager 共享的同一份状态
@@ -394,22 +398,22 @@ struct DetectionJob {
 	std::vector<std::unique_ptr<DetectionTask>> tasks;
 };
 
-// 单任务作业的种类：从帧源种类派生（单向）
-inline DetectionJobType jobTypeOf( const DetectionTask& task ) {
-	if (!task.source)
-		return DetectionJobType::SingleImage;
-	switch (task.source->type()) {
-	case FrameSourceType::Camera:		return DetectionJobType::Camera;
+// 单任务作业的种类：从帧源描述派生（单向）
+// 帧源由 Worker 执行时才创建，Job 创建时只能从描述取类型
+inline DetectionJobType jobTypeOf( const FrameSourceDescription& des ) {
+	switch (des.type) {
+	case FrameSourceType::Camera:
+	case FrameSourceType::Hik:			return DetectionJobType::Camera;
 	case FrameSourceType::VideoFile:	return DetectionJobType::SingleVideo;
 	case FrameSourceType::SingleImage:	return DetectionJobType::SingleImage;
 	}
 	return DetectionJobType::SingleImage;
 }
 
-// 构造一个「单 Task」作业：单图 / 单视频 / 摄像头
+// 构造一个「单 Task」作业：单图 / 单视频 / 摄像头 / Hik
 // saveDir 为空表示本次不保存结果。
 inline DetectionJob makeSingleTaskJob( quint64 jobId, quint64 taskId,
-	FrameSourcePtr source,
+	const FrameSourceDescription& des,
 	QStringView saveDir = QString() )
 {
 	DetectionJob job;
@@ -418,11 +422,11 @@ inline DetectionJob makeSingleTaskJob( quint64 jobId, quint64 taskId,
 	auto task = std::make_unique<DetectionTask>();
 	task->taskId = taskId;
 	task->jobId = jobId;
-	task->source = std::move( source );
+	task->sourceDescription = des;
 	// 摄像头流不累积，靠 taskResult 逐帧推送
-	task->accumulateResults = (task->source && task->source->type() != FrameSourceType::Camera);
+	task->accumulateResults = (des.type != FrameSourceType::Camera && des.type != FrameSourceType::Hik);
 
-	job.type = jobTypeOf( *task );				// 先定 task.source，再派生 job.type
+	job.type = jobTypeOf( des );				// 先定 task.sourceDescription，再派生 job.type
 	job.shared = std::make_shared<TaskShared>( jobId, job.type, saveDir );
 	task->shared = job.shared;
 
@@ -432,20 +436,19 @@ inline DetectionJob makeSingleTaskJob( quint64 jobId, quint64 taskId,
 
 
 
-// 构造一个「批量」作业：每个帧源一个 Task，来源可混排
-// （认不出的路径由 ImageFrameSource 建成单图源，执行时报"图片加载失败"）
-// saveDir 为空表示本次不保存结果。
-inline DetectionJob makeBatchJob( quint64 jobId, QVector<FrameSourcePtr> sources,
+// 构造一个「批量」作业：每个帧源描述一个 Task
+// saveDir 为空表示本次不保存结果
+inline DetectionJob makeBatchJob( quint64 jobId, QVector<FrameSourceDescription> descriptions,
 	QStringView saveDir = QString() ) {
 	DetectionJob job;
 	job.jobId = jobId;
 	job.type = DetectionJobType::Batch;			// 批量无法从单个 task 派生，显式指定
 	job.shared = std::make_shared<TaskShared>( jobId, job.type, saveDir );
 
-	for (FrameSourcePtr& source : sources) {
+	for (FrameSourceDescription& des : descriptions) {
 		auto task = std::make_unique<DetectionTask>();
 		task->jobId = jobId;
-		task->source = std::move( source );
+		task->sourceDescription = des;
 		task->accumulateResults = false;
 		task->renderFrames = true;
 		task->shared = job.shared;

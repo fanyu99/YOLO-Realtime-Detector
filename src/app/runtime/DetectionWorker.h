@@ -59,6 +59,8 @@ private:
 	bool rebuildSession();
 
 	DetectionSession* createSession();	// 在 worker 线程内创建和管理会话
+	// 根据描述创建帧源（worker 线程内调用）
+	FrameSourcePtr createFrameSource(const FrameSourceDescription& des);
 	void work();					// 工作循环
 	void execute(DetectionTask& task);  // 总入口
 	bool runImage(DetectionTask& task);

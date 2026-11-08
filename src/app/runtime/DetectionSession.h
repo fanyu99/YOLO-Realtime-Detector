@@ -15,12 +15,12 @@ public:
 	~DetectionSession();
 	// 创建图片帧源（cv::imread，固定 CPU 内存）
 	FrameSourcePtr createImageFrameSource(QStringView filePath);
-	// 创建视频帧源（ffmpeg），memoryType 决定帧句柄内存类型
-	FrameSourcePtr createVideoFrameSource(QStringView filePath, MemoryType memoryType = MemoryType::CPU);
+	// 创建视频帧源（ffmpeg），内存类型由会话按当前生效模式决定
+	FrameSourcePtr createVideoFrameSource(QStringView filePath);
 	// 创建摄像头帧源(ffmpeg)
-	FrameSourcePtr createCameraFrameSource(const QString& nameOrId, const QString& formatName = QString(), MemoryType memoryType = MemoryType::CPU);
+	FrameSourcePtr createCameraFrameSource(const QString& nameOrId, const QString& formatName = QString());
 	// 创建Hik相机帧源（未注册Hik时返回nullptr）
-	FrameSourcePtr createHikCameraFrameSource(QStringView serial = {}, CameraTriggerMode mode = CameraTriggerMode::Off, MemoryType memoryType = MemoryType::CPU);
+	FrameSourcePtr createHikCameraFrameSource(QStringView serial = {}, CameraTriggerMode mode = CameraTriggerMode::Off);
 	// 执行推理流程（调用Flow的run）
 	// 返回 false 时通过 lastError() 取错误原因；
 	// Worker和manager需要在false时判断是否触发fallback(fallbackRequested)
@@ -38,6 +38,8 @@ public:
 	const QVector<DetectorWarning>& warnings() const { return m_warnings; }
 
 private:
+	// 获取当前的模式对应的内存类型
+	MemoryType getMemoryType() const;
 	void warmup();	// 预热推理流程（构造函数内自动调用，内部记录警告日志）
 
 	DetectorConfig m_config; // 配置

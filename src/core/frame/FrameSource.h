@@ -9,12 +9,34 @@
 #include <QString>
 #include <QStringList>
 #include <memory>
+#include <optional>
 #include "FrameHandle.h"
+// 相机触发模式（海康等工业相机）
+enum class CameraTriggerMode {
+	Off,      // 关闭触发,连续采集
+	Software, // 软件触发
+	Line0,    // 硬触发,使用Line0
+	Line1,    // 硬触发,使用Line1
+	Line2,    // 硬触发,使用Line2
+};
+// 帧源类型
 enum class FrameSourceType {
 	SingleImage,	// 单张照片
 	VideoFile,							 // 视频文件
-	Camera					// 摄像头/相机
+	Camera,					// 摄像头/相机
+	Hik
 };
+// 帧源描述,类型+ 路径/设备名
+// App 只提交描述，帧源由 Worker 在执行时通过 Session 创建（内存类型由 Session 按当前模式决定）
+struct FrameSourceDescription {
+	std::optional<QString>filePath;	    // 文件路径（图片/视频）
+	std::optional<QString>nameOrId;	  // 设备名（摄像头）
+	std::optional<QString>formatName;  // 摄像头输入格式（dshow/avfoundation/v4l2）
+	std::optional<QString>serial; // Hik
+	CameraTriggerMode triggerMode = CameraTriggerMode::Off;	// Hik 触发模式
+	FrameSourceType type;
+};
+
 // 抽象类
 class FrameSource {
 public:

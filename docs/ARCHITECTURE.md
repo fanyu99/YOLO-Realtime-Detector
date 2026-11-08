@@ -63,10 +63,11 @@ DetectionTask
   - `FfmpegFrameSource` 负责摄像头和视频文件的软解、硬解。
   - `HikCameraFrameSource` 负责海康相机。
   - 工厂根据输入类型创建对应帧源。
-
-后续计划：
+- App层的创建帧源函数删除，并将创建帧源的功能放置在Session中，App/Manager层只进行提交帧源描述，由Worker来进行创建对应的帧源回填到task中
 - App 层 onDetectFileClicked 中视频分支调用 makeFileSource 的问题仍在——视频会拿到 ImageFrameSource。
 后续把 App 层接入工厂时，正好可以用新的 isVideoPath → createVideoFrameSource 补上这个缺口。
+
+后续计划：
 
 - 完善 fallback 机制：
   - 暂时先不接入Job的drop和重建投递机制

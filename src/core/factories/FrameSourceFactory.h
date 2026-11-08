@@ -5,13 +5,6 @@
 #include "FrameHandle.h"
 #include "FrameSource.h"
 
-enum class CameraTriggerMode {
-	Off,      // 关闭触发,连续采集
-	Software, // 软件触发
-	Line0,    // 硬触发,使用Line0
-	Line1,    // 硬触发,使用Line1
-	Line2,    // 硬触发,使用Line2
-};
 // Hik注册器
 using HikCreator = std::function<FrameSourcePtr(QStringView serial,CameraTriggerMode mode,MemoryType memoryType)>;
 

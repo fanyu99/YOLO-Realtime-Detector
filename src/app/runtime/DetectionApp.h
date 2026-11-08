@@ -118,11 +118,10 @@ private:
 
 	void reportError(const AppError& error);								// 统一上报错误：发信号 + 写日志
 	AppError mapDetectionErrortoAppError(const DetectionError& error) const;	// 检测器错误 -> 应用层错误
-	// 帧源工厂
-	FrameSourcePtr makeFileSource(QStringView path) const;
-	FrameSourcePtr makeHikCameraSource( QStringView serial, QStringView triggerMode = QString("Off") ) const;
-	FrameSourcePtr makeFfmpegSource( QStringView filePath )const;
-	FrameSourcePtr makeFfmpegDeviceSource(const QString& deviceName, const QString& formatName = QString()) const;
+	// 由文件路径构造帧源描述，识别失败的设置为单图
+	FrameSourceDescription makeFileDescription(QStringView path) const;
+	// 触发模式字符串 -> 枚举（无效值回退 Off +记警告）
+	CameraTriggerMode str2TriggerMode( QStringView str ) const;
 
 	QString configSummary() const;											// 生成配置摘要文本(用于日志)
 	// 实际生效的保存目录：开关关掉时为空（worker 见到空目录就不保存）

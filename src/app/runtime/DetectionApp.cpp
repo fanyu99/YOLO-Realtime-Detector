@@ -7,9 +7,8 @@
 
 #include "DetectionImageProvider.h"
 #include "DetectionResultSaver.h"
-#include "ImageFrameSource.h"
 #include "HikCameraFrameSource.h"
-#include "FfmpegFrameSource.h"
+#include "FfmpegFrameSource.h"	
 #include "Logger.h"
 
 // 匿名工具函数: 帧信号通知限流
@@ -80,52 +79,24 @@ AppError DetectionApp::mapDetectionErrortoAppError( const DetectionError& error 
 	}
 }
 
-// 帧源工厂,
-// 1. 文件帧源
-FrameSourcePtr DetectionApp::makeFileSource( QStringView  path ) const {
-	if (isImagePath( path )) {
-		return ImageFrameSource::forFile(path);
-	}
-	if (isVideoPath( path ))
-		return FfmpegFrameSource::forLocalFile( path );
-	else return nullptr;
+// 帧源描述构造:
+// 由文件路径构造帧源描述
+FrameSourceDescription DetectionApp::makeFileDescription( QStringView path ) const {
+	FrameSourceDescription des;
+	des.type = isVideoPath( path ) ? FrameSourceType::VideoFile : FrameSourceType::SingleImage;
+	des.filePath = path.toString();
+	return des;
 }
 
-// 2. 海康相机帧源
-FrameSourcePtr DetectionApp::makeHikCameraSource( QStringView serial, QStringView triggerMode ) const {
-	if (triggerMode == "off") {
-		return HikCameraFrameSource::forDevices( serial, HikCameraFrameSource::TriggerMode::Off );
-	}
-	else
-		if (triggerMode == "software") {
-			return HikCameraFrameSource::forDevices( serial, HikCameraFrameSource::TriggerMode::Software );
-		}
-		else if (triggerMode == "line0") {
-			return HikCameraFrameSource::forDevices( serial, HikCameraFrameSource::TriggerMode::Line0 );
-		}
-		else if (triggerMode == "line1") {
-			return HikCameraFrameSource::forDevices( serial, HikCameraFrameSource::TriggerMode::Line1 );
-		}
-		else if (triggerMode == "line2") {
-			return HikCameraFrameSource::forDevices( serial, HikCameraFrameSource::TriggerMode::Line2 );
-		}
-		else {
-			Logger::instance()->warning( QStringLiteral( "[DetectionApp]: 海康相机触发模式无效，使用默认的连续采集模式" ) );
-			return HikCameraFrameSource::forDevices( serial, HikCameraFrameSource::TriggerMode::Off );
-		}
-
-
-}
-
-// 3. Ffmpeg帧源
-FrameSourcePtr DetectionApp::makeFfmpegSource( QStringView filePath ) const {
-	return FfmpegFrameSource::forLocalFile( filePath, MemoryType::CPU );
-}
-
-// 4. Ffmpeg设备帧源（摄像头，dshow/avfoundation/v4l2）
-FrameSourcePtr DetectionApp::makeFfmpegDeviceSource( const QString& deviceName, const QString& formatName ) const {
-	// 按友好名查找：findVideoDevice 内部做了大小写/子串容错，名字写错一个字符也能命中
-	return FfmpegFrameSource::forDevice( deviceName, formatName, MemoryType::CPU );
+// 触发模式字符串 -> 枚举（无效值回退 Off 并记警告）
+CameraTriggerMode DetectionApp::str2TriggerMode( QStringView str ) const {
+	if (str == u"software")	return CameraTriggerMode::Software;
+	if (str == u"line0")	return CameraTriggerMode::Line0;
+	if (str == u"line1")	return CameraTriggerMode::Line1;
+	if (str == u"line2")	return CameraTriggerMode::Line2;
+	if (str != u"off")
+		Logger::instance()->warning( QStringLiteral( "[DetectionApp]: 海康相机触发模式无效，使用默认的连续采集模式" ) );
+	return CameraTriggerMode::Off;
 }
 
 // 枚举在线海康相机，供 HikCameraDialog 填列表(为阻塞操作)
@@ -206,18 +177,12 @@ void DetectionApp::onDetectClicked() {
 	}
 
 	const QString path = QString::fromStdWString( m_filePath.wstring() );
-	if (isImagePath( path )) {
-		Logger::instance()->info( QStringLiteral( "[DetectionApp]: 提交图片检测: " ) + path );
-		m_currentJobId = m_manager->submitSource( makeFileSource( path ), effectiveResultsDir() );
-	}
-	else if (isVideoPath( path )) {
-		Logger::instance()->info( QStringLiteral( "[DetectionApp]: 提交视频检测: " ) + path );
-		m_currentJobId = m_manager->submitSource( makeFileSource( path ), effectiveResultsDir() );
-	}
-	else {
+	if (!isImagePath( path ) && !isVideoPath( path )) {
 		reportError( AppError( QStringLiteral( "[Detector]: 文件类型不支持!" ), AppErrorCode::InvalidFilePath ) );
 		return;
 	}
+	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 提交文件检测: " ) + path );
+	m_currentJobId = m_manager->submitSource( makeFileDescription( path ), effectiveResultsDir() );
 
 	if (m_currentJobId == 0)
 		return;						// 提交失败，Manager 已经 emit jobFailed
@@ -245,14 +210,16 @@ void DetectionApp::onDetectHikCameraClicked( const QString& serial, const QStrin
 	}
 
 	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 请求海康相机检测，设备序列号 = " ) + serial + QStringLiteral( ", 触发模式 = " ) + triggerMode );
-	// 创建帧源
-	FrameSourcePtr source = makeHikCameraSource( serial, triggerMode );
-	if (!source) {
+	if (serial.isEmpty()) {
 		reportError( AppError( QStringLiteral( "[DetectionApp]: 海康相机设备序列号无效!" ), AppErrorCode::InvalidConfig ) );
 		return;
 	}
-	// 提交检测
-	m_currentJobId = m_manager->submitSource( std::move( source ), effectiveResultsDir() );
+	// 构造帧源描述并提交（帧源由 worker 执行时经 Session 创建）
+	FrameSourceDescription des;
+	des.type = FrameSourceType::Hik;
+	des.serial = serial;
+	des.triggerMode = str2TriggerMode( triggerMode );
+	m_currentJobId = m_manager->submitSource( des, effectiveResultsDir() );
 	if (m_currentJobId == 0)
 		return;
 
@@ -283,14 +250,12 @@ void DetectionApp::onDetectFfmpegDeviceClicked( const QString& deviceName, const
 	}
 	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 请求 Ffmpeg 设备检测，设备 = " ) + deviceName
 		+ QStringLiteral( ", 格式 = " ) + (formatName.isEmpty() ? FfmpegFrameSource::defaultVideoInputFormat() : formatName) );
-	// 创建帧源（按设备名在枚举结果中匹配，匹配失败说明设备不在线/已拔出）
-	FrameSourcePtr source = makeFfmpegDeviceSource( deviceName, formatName );
-	if (!source) {
-		reportError( AppError( QStringLiteral( "[DetectionApp]: Ffmpeg 设备无效或不在线: %1" ).arg( deviceName ), AppErrorCode::InvalidConfig ) );
-		return;
-	}
-	// 提交检测
-	m_currentJobId = m_manager->submitSource( std::move( source ), effectiveResultsDir() );
+	// 构造帧源描述并提交（设备是否在线由 worker 执行时校验，失败经 taskFailed 上报）
+	FrameSourceDescription des;
+	des.type = FrameSourceType::Camera;
+	des.nameOrId = deviceName;
+	des.formatName = formatName;
+	m_currentJobId = m_manager->submitSource( des, effectiveResultsDir() );
 	if (m_currentJobId == 0)
 		return;
 	m_progress = 0.0f;
@@ -325,7 +290,7 @@ void DetectionApp::onDetectFfmpegClicked() {
 	}
 	const QString path = QString::fromStdWString( m_filePath.wstring() );
 	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 提交 Ffmpeg 检测: " ) + path );
-	m_currentJobId = m_manager->submitSource( makeFfmpegSource( path ), effectiveResultsDir() );
+	m_currentJobId = m_manager->submitSource( makeFileDescription( path ), effectiveResultsDir() );
 	if (m_currentJobId == 0)
 		return;						// 提交失败，Manager 已经 emit jobFailed
 	m_progress = 0.0f;
@@ -366,15 +331,15 @@ quint64 DetectionApp::submitBatch( const QList<QUrl>& urls ) {
 	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 提交批量检测，文件数: " )
 		+ QString::number( paths.size() ) );
 
-	// 创建帧源。认不出的后缀会由 ImageFrameSource 建成单图源，
-	// 由 worker 在执行时报"图片加载失败"，与逐个提交时的行为一致。
-	QVector<FrameSourcePtr> sources;
-	sources.reserve( paths.size() );
+	// 构造帧源描述。认不出的后缀归为单图，由 worker 执行时报"图片加载失败"，
+	// 与逐个提交时的行为一致。
+	QVector<FrameSourceDescription> descriptions;
+	descriptions.reserve( paths.size() );
 	for (const QString& path : paths)
-		sources.append( makeFileSource( path ) );
+		descriptions.append( makeFileDescription( path ) );
 
 
-	m_currentJobId = m_manager->submitBatch( std::move( sources ), effectiveResultsDir() );
+	m_currentJobId = m_manager->submitBatch( std::move( descriptions ), effectiveResultsDir() );
 	if (m_currentJobId == 0)
 		return 0;								// 提交失败，Manager 已经 emit jobFailed
 

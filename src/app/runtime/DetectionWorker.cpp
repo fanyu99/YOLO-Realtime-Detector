@@ -265,13 +265,14 @@ void DetectionWorker::execute( DetectionTask& task ) {
 		m_lastError = DetectionError( QStringLiteral( "[DetectionWorker]: 检测会话未初始化!" ),
 			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 	}
-	else if (!task.source) {
+	// 创建帧源
+	task.source = createFrameSource(task.sourceDescription);
+	 if (!task.source) {
 		m_lastError = DetectionError( QStringLiteral( "[DetectionWorker]: 帧源为空!" ),
 			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 	}
 	// 打开帧源
 	else if (!task.source->open()) {
-		// 打开失败的错误分类沿用旧实现：图片归 Image，视频/摄像头归 Detection
 		const bool isImage = (task.source->type() == FrameSourceType::SingleImage);
 		m_lastError = DetectionError( QStringLiteral( "[DetectionWorker]: " ) + task.source->lastError(),
 			isImage ? DetectionErrorCategory::Image : DetectionErrorCategory::Detection,
@@ -442,4 +443,27 @@ void DetectionWorker::reportSaveResult( const DetectionResultSaver& saver ) {
 	else if (!saver.lastError().isEmpty()) {
 		Logger::instance()->warning( QStringLiteral( "[DetectionWorker]: 结果保存失败: " ) + saver.lastError() );
 	}
+}
+
+// 为任务创建帧源
+// 会话不可用时返回nullptr,不记录错误
+FrameSourcePtr DetectionWorker::createFrameSource( const FrameSourceDescription& des ) {
+	if (!m_session) {	
+		return nullptr;
+	}
+	switch (des.type)
+	{
+	case FrameSourceType::SingleImage:
+		return des.filePath.has_value() ?m_session->createImageFrameSource(des.filePath.value()) : nullptr;
+	case FrameSourceType::VideoFile:
+		return des.filePath.has_value() ? m_session->createVideoFrameSource(des.filePath.value()) : nullptr;
+	case FrameSourceType::Camera:
+		return des.nameOrId.has_value() ? m_session->createCameraFrameSource(des.nameOrId.value(),
+			des.formatName.value_or(QString())) : nullptr;
+	case FrameSourceType::Hik :
+		return des.serial.has_value() ? m_session->createHikCameraFrameSource(des.serial.value(), des.triggerMode) : nullptr;
+	default:
+		return nullptr;
+	}
+
 }

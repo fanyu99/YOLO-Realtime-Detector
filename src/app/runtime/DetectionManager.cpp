@@ -68,22 +68,30 @@ void DetectionManager::shutdown() {
 
 // 提交作业
 
-quint64 DetectionManager::submitSource(FrameSourcePtr source, const QString& saveDir) {
-	if (!source) {
-		emit jobFailed(0, DetectionError(QStringLiteral("[DetectionManager]: 帧源为空!"),
+quint64 DetectionManager::submitSource(const FrameSourceDescription& des, const QString& saveDir) {
+	// 校验描述有效
+	bool valid = false;
+	switch (des.type) {
+	case FrameSourceType::SingleImage:
+	case FrameSourceType::VideoFile:	valid = des.filePath.has_value(); break;
+	case FrameSourceType::Camera:		valid = des.nameOrId.has_value(); break;
+	case FrameSourceType::Hik:			valid = des.serial.has_value(); break;
+	}
+	if (!valid) {
+		emit jobFailed(0, DetectionError(QStringLiteral("[DetectionManager]: 帧源描述无效!"),
 										DetectionErrorCategory::Other, DetectionErrorCode::UnknownError));
 		return 0;
 	}
-	return submit(makeSingleTaskJob(nextJobId(), nextTaskId(), std::move(source), saveDir));
+	return submit(makeSingleTaskJob(nextJobId(), nextTaskId(), des, saveDir));
 }
 
-quint64 DetectionManager::submitBatch(QVector<FrameSourcePtr> sources, const QString& saveDir) {
-	if (sources.isEmpty()) {
+quint64 DetectionManager::submitBatch(QVector<FrameSourceDescription> descriptions, const QString& saveDir) {
+	if (descriptions.isEmpty()) {
 		emit jobFailed(0, DetectionError(QStringLiteral("[DetectionManager]: 批量输入为空!"),
 										DetectionErrorCategory::Image, DetectionErrorCode::InvalidImage));
 		return 0;
 	}
-	return submit(makeBatchJob(nextJobId(), std::move(sources), saveDir));
+	return submit(makeBatchJob(nextJobId(), std::move(descriptions), saveDir));
 }
 
 quint64 DetectionManager::submit(DetectionJob job) {

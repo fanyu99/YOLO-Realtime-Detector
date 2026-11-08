@@ -9,8 +9,8 @@ namespace {
 	constexpr int kDefaultWarmupIterations = 3;
 }
 
-DetectionSession::DetectionSession(const DetectorConfig& config)
-	: m_config(config)
+DetectionSession::DetectionSession( const DetectorConfig& config )
+	: m_config( config )
 	, m_mode{ config.effectiveMode() }	// active_mode 优先，未设置时跟随 preferred_mode
 {
 	// 根据实际生效的模式创建对应的工厂
@@ -33,8 +33,8 @@ DetectionSession::DetectionSession(const DetectorConfig& config)
 		m_warnings = m_detectionFlow->warnings();
 	// 如果空指针或者ORT会话创建失败，记录错误与fallback标记，如果触发fallback，直接重建Session
 	if (!m_detectionFlow || !m_detectionFlow->isValid()) {
-		Logger::instance()->error(QStringLiteral("[DetectionSession]: 检测器初始化失败: ")
-			+ (m_detectionFlow ? m_detectionFlow->lastError().errorMessage : QStringLiteral("推理流程创建失败")));
+		Logger::instance()->error( QStringLiteral( "[DetectionSession]: 检测器初始化失败: " )
+			+ (m_detectionFlow ? m_detectionFlow->lastError().errorMessage : QStringLiteral( "推理流程创建失败" )) );
 		m_fallbackRequested = true;
 		m_lastError = m_detectionFlow ? m_detectionFlow->lastError() : DetectionError(
 			QStringLiteral( "[DetectionSession]: 推理流程创建失败" ),
@@ -49,19 +49,19 @@ DetectionSession::DetectionSession(const DetectorConfig& config)
 void DetectionSession::warmup() {
 	QElapsedTimer timer;
 	timer.start();
-	const bool warmupSuc = m_detectionFlow->warmup(kDefaultWarmupIterations);
+	const bool warmupSuc = m_detectionFlow->warmup( kDefaultWarmupIterations );
 	const quint64 duration = timer.elapsed();
 	// 构造/预热产生的警告上报
 	// 预热失败时 Detector 会追加 WarmUpFailed 警告，这里重新捕获一次
 	m_warnings = m_detectionFlow->warnings();
 	for (const DetectorWarning& warning : m_warnings) {
-		Logger::instance()->warning(warning.message);
+		Logger::instance()->warning( warning.message );
 	}
 
 	if (warmupSuc)
-		Logger::instance()->info(QStringLiteral("[DetectionSession]: 检测器预热完成，轮数: %1 耗时：%2ms  平均耗时：%3ms")
-			.arg(kDefaultWarmupIterations).arg(duration).arg(duration / kDefaultWarmupIterations));
-	Logger::instance()->info(QStringLiteral("[DetectionSession]: 检测器就绪（%1）").arg(m_config.effectiveModeText()));
+		Logger::instance()->info( QStringLiteral( "[DetectionSession]: 检测器预热完成，轮数: %1 耗时：%2ms  平均耗时：%3ms" )
+			.arg( kDefaultWarmupIterations ).arg( duration ).arg( duration / kDefaultWarmupIterations ) );
+	Logger::instance()->info( QStringLiteral( "[DetectionSession]: 检测器就绪（%1）" ).arg( m_config.effectiveModeText() ) );
 }
 
 // 创建图片帧源（cv::imread，固定 CPU 内存）
@@ -70,21 +70,21 @@ FrameSourcePtr DetectionSession::createImageFrameSource( QStringView filePath ) 
 }
 
 // 创建视频帧源（ffmpeg）
-FrameSourcePtr DetectionSession::createVideoFrameSource( QStringView filePath, MemoryType memoryType ) {
-	return m_sourceFactory->createVideoFrameSource( filePath, memoryType );
+FrameSourcePtr DetectionSession::createVideoFrameSource( QStringView filePath ) {
+	return m_sourceFactory->createVideoFrameSource( filePath, getMemoryType() );
 }
 
 // 创建摄像头帧源(ffmpeg)
-FrameSourcePtr DetectionSession::createCameraFrameSource( const QString& nameOrId, const QString& formatName, MemoryType memoryType ) {
-	return m_sourceFactory->createCameraFrameSource( nameOrId, formatName, memoryType );
+FrameSourcePtr DetectionSession::createCameraFrameSource( const QString& nameOrId, const QString& formatName ) {
+	return m_sourceFactory->createCameraFrameSource( nameOrId, formatName, getMemoryType() );
 }
 
 // 创建Hik相机帧源，未注册时返回nullptr
-FrameSourcePtr DetectionSession::createHikCameraFrameSource( QStringView serial, CameraTriggerMode mode, MemoryType memoryType ) {
-	return m_sourceFactory->createHikCameraFrameSource( serial, mode, memoryType );
+FrameSourcePtr DetectionSession::createHikCameraFrameSource( QStringView serial, CameraTriggerMode mode ) {
+	return m_sourceFactory->createHikCameraFrameSource( serial, mode, getMemoryType() );
 }
 
-// 执行推理流程（调用Flow的run，错误记录到 m_lastError 由调用方查询）
+// 执行推理流程（调用Flow的run）
 bool DetectionSession::runFlow( const FrameHandlePtr& frame, DetectionResult& outResult ) {
 	if (!m_detectionFlow) {
 		m_lastError = DetectionError(
@@ -109,4 +109,16 @@ bool DetectionSession::runFlow( const FrameHandlePtr& frame, DetectionResult& ou
 
 DetectionSession::~DetectionSession() {
 
+}
+
+// 获取内存类型
+MemoryType DetectionSession::getMemoryType()const {
+	switch (m_config.effectiveMode()) {
+	case FlowMode::CPU:
+		return MemoryType::CPU;
+	case FlowMode::GPU:
+		return MemoryType::GPU;
+	default:
+		return MemoryType::CPU;
+	}
 }
