@@ -50,8 +50,8 @@ qt_add_library(yolo_core STATIC
     frame/CpuFrameHandle.h
     frame/CpuFrameHandle.cpp
     frame/FrameSource.h
-    frame/FileFrameSource.h
-    frame/FileFrameSource.cpp
+    frame/ImageFrameSource.h
+    frame/ImageFrameSource.cpp
     frame/FfmpegDecoder.h
     frame/FfmpegDecoder.cpp
     frame/FfmpegFrameSource.h

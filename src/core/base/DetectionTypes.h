@@ -433,7 +433,7 @@ inline DetectionJob makeSingleTaskJob( quint64 jobId, quint64 taskId,
 
 
 // 构造一个「批量」作业：每个帧源一个 Task，来源可混排
-// （认不出的路径由 FileFrameSource 建成 SingleImage，执行时报"图片加载失败"）
+// （认不出的路径由 ImageFrameSource 建成单图源，执行时报"图片加载失败"）
 // saveDir 为空表示本次不保存结果。
 inline DetectionJob makeBatchJob( quint64 jobId, QVector<FrameSourcePtr> sources,
 	QStringView saveDir = QString() ) {

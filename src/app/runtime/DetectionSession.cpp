@@ -64,17 +64,22 @@ void DetectionSession::warmup() {
 	Logger::instance()->info(QStringLiteral("[DetectionSession]: 检测器就绪（%1）").arg(m_config.effectiveModeText()));
 }
 
-// 创建文件帧源（图片/视频），直接转发给帧源工厂
-FrameSourcePtr DetectionSession::createFileFrameSource( QStringView filePath, MemoryType memoryType ) {
-	return m_sourceFactory->createFileFrameSource( filePath, memoryType );
+// 创建图片帧源（cv::imread，固定 CPU 内存）
+FrameSourcePtr DetectionSession::createImageFrameSource( QStringView filePath ) {
+	return m_sourceFactory->createImageFrameSource( filePath );
 }
 
-// 创建摄像头帧源(ffmpeg)，直接转发给帧源工厂
+// 创建视频帧源（ffmpeg）
+FrameSourcePtr DetectionSession::createVideoFrameSource( QStringView filePath, MemoryType memoryType ) {
+	return m_sourceFactory->createVideoFrameSource( filePath, memoryType );
+}
+
+// 创建摄像头帧源(ffmpeg)
 FrameSourcePtr DetectionSession::createCameraFrameSource( const QString& nameOrId, const QString& formatName, MemoryType memoryType ) {
 	return m_sourceFactory->createCameraFrameSource( nameOrId, formatName, memoryType );
 }
 
-// 创建Hik相机帧源，直接转发给帧源工厂（未注册Hik时返回nullptr）
+// 创建Hik相机帧源，未注册时返回nullptr
 FrameSourcePtr DetectionSession::createHikCameraFrameSource( QStringView serial, CameraTriggerMode mode, MemoryType memoryType ) {
 	return m_sourceFactory->createHikCameraFrameSource( serial, mode, memoryType );
 }

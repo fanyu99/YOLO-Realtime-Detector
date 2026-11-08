@@ -160,14 +160,21 @@ Dialog {
 		RowLayout{
 		Layout.fillWidth:true
 		spacing: 8 
-		Label{text: "流程模式";Layout.preferredWidth: 80; color: dialog.theme ? dialog.theme.windowText : "black" }
-		Label{text: "实际生效模式: " + app.config.effectiveModeTxt; color: dialog.theme ? dialog.theme.windowText : "black" }
-		ComboBox {
-			id: flowModeCombo
-			Layout.fillWidth: true
-			currentIndex : 0
-			model: ["CPU", "GPU"]
-			}
+		Label{text:"流程模式"; color: dialog.theme ? dialog.theme.windowText : "black"}
+		ColumnLayout{
+				Label{text: "实际生效模式: " + app.config.effectiveModeTxt; color: dialog.theme ? dialog.theme.windowText : "black" }
+				RowLayout{
+					Layout.fillWidth : true
+					spacing : 8
+					Label{text: "选择模式：";Layout.preferredWidth: 80; color: dialog.theme ? dialog.theme.windowText : "black" }
+					ComboBox {
+						id: flowModeCombo
+						Layout.fillWidth: true
+						currentIndex : 0
+						model: ["CPU", "GPU"]
+						}
+					}
+				}
 		}
 
 	}

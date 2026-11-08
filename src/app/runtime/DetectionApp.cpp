@@ -7,7 +7,7 @@
 
 #include "DetectionImageProvider.h"
 #include "DetectionResultSaver.h"
-#include "FileFrameSource.h"
+#include "ImageFrameSource.h"
 #include "HikCameraFrameSource.h"
 #include "FfmpegFrameSource.h"
 #include "Logger.h"
@@ -83,12 +83,12 @@ AppError DetectionApp::mapDetectionErrortoAppError( const DetectionError& error 
 // 帧源工厂,
 // 1. 文件帧源
 FrameSourcePtr DetectionApp::makeFileSource( QStringView  path ) const {
-	return FileFrameSource::forFile( path, MemoryType::CPU );
-}
-
-FrameSourcePtr DetectionApp::makeCameraSource( int cameraId ) const {
-	// 设备号无效时返回空，由调用方按"配置无效"上报
-	return FileFrameSource::forCamera( cameraId, MemoryType::CPU );	// VideoCapture 产出 CPU 帧，GPU 分支尚未接入
+	if (isImagePath( path )) {
+		return ImageFrameSource::forFile(path);
+	}
+	if (isVideoPath( path ))
+		return FfmpegFrameSource::forLocalFile( path );
+	else return nullptr;
 }
 
 // 2. 海康相机帧源
@@ -226,39 +226,6 @@ void DetectionApp::onDetectClicked() {
 	setState( m_currentJobId, false, true );
 }
 
-// qml侧调用: 摄像头检测
-void DetectionApp::onDetectCameraClicked( int camera_id ) {
-	if (m_busy) {
-		reportError( AppError( QStringLiteral( "[DetectionApp]: 已有检测在进行中，请先停止!" ), AppErrorCode::DetectionFailed ) );
-		return;
-	}
-	if (!m_config.isValid()) {
-		reportError( AppError( QStringLiteral( "[Detector]: 配置无效!" ), AppErrorCode::InvalidConfig ) );
-		return;
-	}
-	if (!m_config.model_exists()) {
-		reportError( AppError( QStringLiteral( "[Detector]: 模型路径无效!" ), AppErrorCode::InvalidModelPath ) );
-		return;
-	}
-	if (!m_manager->start()) {
-		reportError( AppError( QStringLiteral( "[Detector]: 检测器未就绪!" ), AppErrorCode::DetectorError ) );
-		return;
-	}
-
-	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 请求摄像头检测，设备 id = " ) + QString::number( camera_id ) );
-	// 创建帧源
-	FrameSourcePtr source = makeCameraSource( camera_id );
-	if (!source) {
-		reportError( AppError( QStringLiteral( "[DetectionApp]: 摄像头设备号无效!" ), AppErrorCode::InvalidConfig ) );
-		return;
-	}
-	m_currentJobId = m_manager->submitSource( std::move( source ), effectiveResultsDir() );
-	if (m_currentJobId == 0)
-		return;
-
-	m_progress = 0.0f;
-	setState( m_currentJobId, true, true );
-}
 // qml侧调用: 海康相机检测
 void DetectionApp::onDetectHikCameraClicked( const QString& serial, const QString& triggerMode ) {
 	if (m_busy) {
@@ -399,7 +366,7 @@ quint64 DetectionApp::submitBatch( const QList<QUrl>& urls ) {
 	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 提交批量检测，文件数: " )
 		+ QString::number( paths.size() ) );
 
-	// 每个文件一个帧源。认不出的后缀会由 FileFrameSource 建成单图源，
+	// 创建帧源。认不出的后缀会由 ImageFrameSource 建成单图源，
 	// 由 worker 在执行时报"图片加载失败"，与逐个提交时的行为一致。
 	QVector<FrameSourcePtr> sources;
 	sources.reserve( paths.size() );

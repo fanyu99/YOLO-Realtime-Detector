@@ -19,8 +19,10 @@ using HikCreator = std::function<FrameSourcePtr(QStringView serial,CameraTrigger
 class FrameSourceFactory {
 public:
 	virtual ~FrameSourceFactory() = default;
-	// 1.创建文件帧源（memoryType 决定帧句柄落在 CPU/GPU 内存，默认CPU）
-	virtual FrameSourcePtr createFileFrameSource( QStringView filePath, MemoryType memoryType = MemoryType::CPU ) = 0;   // 创建文件帧源（图片/视频）
+	// 1.创建图片帧源（cv::imread 解码， CPU 帧句柄）
+	virtual FrameSourcePtr createImageFrameSource( QStringView filePath ) = 0;
+	// 创建视频帧源（ffmpeg，默认CPU）
+	virtual FrameSourcePtr createVideoFrameSource( QStringView filePath, MemoryType memoryType = MemoryType::CPU ) = 0;
 	// 创建摄像头帧源(ffmpeg)
 	virtual FrameSourcePtr createCameraFrameSource(const QString& nameOrId, const QString& formatName = QString(), MemoryType memoryType = MemoryType::CPU) = 0;
 

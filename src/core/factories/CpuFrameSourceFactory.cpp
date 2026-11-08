@@ -1,18 +1,14 @@
 #include "CpuFrameSourceFactory.h"
-#include "FileFrameSource.h"
+#include "ImageFrameSource.h"
 #include "FfmpegFrameSource.h"
 #include "CpuFrameHandle.h"
-// 创建CPU帧句柄的文件帧源（图片cv::Mat/视频ffmpeg）
-FrameSourcePtr CpuFrameSourceFactory::createFileFrameSource( QStringView filePath, MemoryType memoryType ) {
-	if (isImagePath( filePath )) {
-		// 创建含CPU帧句柄的图片帧源
-		return FileFrameSource::forFile( filePath, memoryType );
-	}
-	else if (isVideoPath( filePath )) {
-		// 创建含CPU帧句柄的视频帧源
-		return FfmpegFrameSource::forLocalFile( filePath, memoryType );
-	}
-	return nullptr;
+// 创建图片帧源（cv::imread 解码，固定 CPU 内存，忽略 memoryType）
+FrameSourcePtr CpuFrameSourceFactory::createImageFrameSource( QStringView filePath ) {
+	return ImageFrameSource::forFile( filePath );
+}
+// 创建视频帧源（含CPU帧句柄的视频帧源）
+FrameSourcePtr CpuFrameSourceFactory::createVideoFrameSource( QStringView filePath, MemoryType memoryType ) {
+	return FfmpegFrameSource::forLocalFile( filePath, memoryType );
 }
 // 创建摄像头帧源(使用ffmpeg帧源)
 FrameSourcePtr CpuFrameSourceFactory::createCameraFrameSource( const QString& nameOrId, const QString& formatName, MemoryType memoryType ) {

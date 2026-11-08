@@ -331,15 +331,9 @@ Window {
 							opacity: window.selectedFileName.length > 0 ? 1.0 : 0.55
 						}
 
-						// 摄像头检测(先弹对话框选设备 id)
-						Button {
-							text: "摄像头检测"
-							enabled: !app.busy
-							onClicked: cameraDialog.open()
-						}
-						// Ffmpeg摄像头检测(先弹对话框选设备；走 ffmpeg dshow 采集，与上面的 USB 编号不是一回事)
+						// 摄像头检测(先弹对话框选设备；走 ffmpeg dshow/avfoundation/v4l2 采集)
 						Button{
-							text:"ffmpeg摄像头检测"
+							text:"摄像头检测"
 							enabled:!app.busy
 							onClicked: ffmpegDeviceDialog.open()
 						}
@@ -624,9 +618,8 @@ Window {
 		}
 	}
 
-	// 三个模态对话框
+	// 两个模态对话框
 	ConfigDialog { id: configDialog; theme: theme; app: app }
-	CameraDialog { id: cameraDialog; theme: theme; app: app }
 	HikCameraDialog { id: hikCameraDialog; theme: theme; app: app }
 	FfmpegDeviceDialog { id: ffmpegDeviceDialog; theme: theme; app: app }
 

@@ -13,10 +13,10 @@ class DetectionSession final
 public:
 	explicit DetectionSession(const DetectorConfig& config);
 	~DetectionSession();
-	// 创建帧源（根据当前的配置中的FlowMode创建对应内存类型句柄（GPU/CPU）的帧源(根据帧源类型，image/video等)）
-	FrameSourcePtr createFrameSource(FrameSourceType sourceType);
-	// 创建文件帧源（图片/视频），memoryType 决定帧句柄内存类型
-	FrameSourcePtr createFileFrameSource(QStringView filePath, MemoryType memoryType = MemoryType::CPU);
+	// 创建图片帧源（cv::imread，固定 CPU 内存）
+	FrameSourcePtr createImageFrameSource(QStringView filePath);
+	// 创建视频帧源（ffmpeg），memoryType 决定帧句柄内存类型
+	FrameSourcePtr createVideoFrameSource(QStringView filePath, MemoryType memoryType = MemoryType::CPU);
 	// 创建摄像头帧源(ffmpeg)
 	FrameSourcePtr createCameraFrameSource(const QString& nameOrId, const QString& formatName = QString(), MemoryType memoryType = MemoryType::CPU);
 	// 创建Hik相机帧源（未注册Hik时返回nullptr）

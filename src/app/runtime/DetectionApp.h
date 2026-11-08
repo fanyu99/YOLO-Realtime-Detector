@@ -83,7 +83,6 @@ public:
 	Q_INVOKABLE void setConfig(const DetectorConfig& config);
 	Q_INVOKABLE void setConfig(const QUrl& model_path, const QStringList& class_names, float conf_confidence, float iou_threshold, int num_threads, int device_id, int input_width, int input_height,const QString& flow_mode);
 	Q_INVOKABLE void onDetectClicked();							// qml 检测按钮点击
-	Q_INVOKABLE void onDetectCameraClicked(int camera_id);		// qml 摄像头检测按钮点击(带设备 id)
 	Q_INVOKABLE void onDetectHikCameraClicked(const QString& serial, const QString& triggerMode);	// qml 海康相机检测(带序列号)
 	Q_INVOKABLE void onDetectFfmpegClicked();					// qml Ffmpeg检测按钮点击
 	Q_INVOKABLE void onDetectFfmpegDeviceClicked(const QString& deviceName, const QString& formatName = QString());	// qml Ffmpeg设备检测(带设备名)
@@ -121,7 +120,6 @@ private:
 	AppError mapDetectionErrortoAppError(const DetectionError& error) const;	// 检测器错误 -> 应用层错误
 	// 帧源工厂
 	FrameSourcePtr makeFileSource(QStringView path) const;
-	FrameSourcePtr makeCameraSource(int cameraId) const;
 	FrameSourcePtr makeHikCameraSource( QStringView serial, QStringView triggerMode = QString("Off") ) const;
 	FrameSourcePtr makeFfmpegSource( QStringView filePath )const;
 	FrameSourcePtr makeFfmpegDeviceSource(const QString& deviceName, const QString& formatName = QString()) const;

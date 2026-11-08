@@ -58,23 +58,25 @@ DetectionTask
 - 接线fallback机制，fallback信号层层上报并使用自愈机制完成配置的修正
 - 完成当前的fallback机制的QML层接线
 
-后续计划：
-
-- 完善 fallback 机制：
-  - 暂时先不接入Job的drop和重建投递机制
-
 - 调整帧源结构：
-  - `FileFrameSource` 更名为 `ImageFrameSource`，仅支持单图。
+  - `FileFrameSource` 更名为 `ImageFrameSource`，仅支持单图（固定使用CPU的opencv的imread）
   - `FfmpegFrameSource` 负责摄像头和视频文件的软解、硬解。
   - `HikCameraFrameSource` 负责海康相机。
   - 工厂根据输入类型创建对应帧源。
-- 统一管理 `FrameSource` 和 `DetectionFlow` 的生命周期、配置和配对关系。
+
+后续计划：
+- App 层 onDetectFileClicked 中视频分支调用 makeFileSource 的问题仍在——视频会拿到 ImageFrameSource。
+后续把 App 层接入工厂时，正好可以用新的 isVideoPath → createVideoFrameSource 补上这个缺口。
+
+- 完善 fallback 机制：
+  - 暂时先不接入Job的drop和重建投递机制
 - 调整执行模型：
   - Worker 以 Job 为最小执行单元，并负责 Session 管理。
   - 每个 Job 包含多个 Task，Worker 根据配置复用或创建 Session。
   - Job 完成后暂时保留 Session，支持后续复用。
   - Manager 负责 Job 和 Session 的状态管理。
 - 完善 `GpuFrameHandle`，封装 `AVFrame*` 和 CUDA/NV12 硬件帧上下文。
+- 根据前面的单图内存均为CPU，GPU预处理需要处理两种情况的句柄，如果是CPU句柄，需要将其上传到GPU内存中之后再进行GPU预处理，如果是GPU句柄，则直接进行GPU预处理
 - 完善 GPU 显示流程，在 GPU 图像数据上叠加 CPU NMS 检测框和 Qt Overlay。
 ---
 

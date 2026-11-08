@@ -228,7 +228,6 @@ set(YOLO_QML_FILES
     qml/Theme.qml
     qml/LogView.qml
     qml/ConfigDialog.qml
-    qml/CameraDialog.qml
     qml/HikCameraDialog.qml
     qml/FfmpegDeviceDialog.qml
     qml/AcceptShortcut.qml
