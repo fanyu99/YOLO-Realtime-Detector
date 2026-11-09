@@ -118,3 +118,9 @@ CudaDevice::~CudaDevice() {
 		m_stream = {};
 	}
 }
+
+// 获取单例
+CudaDevice& CudaDevice::instance() {
+	static CudaDevice instance;
+	return instance;
+}

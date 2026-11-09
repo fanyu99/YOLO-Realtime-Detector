@@ -171,6 +171,14 @@ void FfmpegDecoder::setConfig( const DecodeConfig& config ) {
 	}
 	m_config = config;
 }
+// 设置硬件解码设备,自持引用
+void FfmpegDecoder::setHwDevice( AVBufferRef* hwDevice ) {
+	if (isOpened()) {
+		m_lastError = DecodeError::InvalidConfigError( QStringLiteral( "正在解码，无法修改硬件解码设备" ) );
+		return;
+	}
+	m_hwDevice = hwDevice ? av_buffer_ref(hwDevice) : nullptr;
+}
 // 请求停止（线程安全）
 void  FfmpegDecoder::requestStop() {
 	{
@@ -203,8 +211,10 @@ DecodeStatistics FfmpegDecoder::getStatistics() const {
 void FfmpegDecoder::releaseResources() {
 	m_frame.reset();
 	m_packet.reset();
+	// hw_frames_ctx挂在codecContext上，随其释放自动unref
 	m_codecContext.reset();
 	m_formatContext.reset();
+	av_buffer_unref( &m_hwDevice );	// 自持引用，释放引用
 	m_videoStreamIndex = -1;
 	has_pendingPacket = false;
 	flushEof = false;
@@ -362,18 +372,41 @@ bool FfmpegDecoder::initDecoder() {
 	// 根据视频流创建解码器上下文
 	m_codecContext.reset( avcodec_alloc_context3( codec ) );
 	if (!m_codecContext) {
-		m_lastError = DecodeError::OpenFailedError( QStringLiteral( "无法创建解码器上下文" ) );
+		m_lastError = DecodeError::DecodedrInitFailedError( QStringLiteral( "无法创建解码器上下文" ) );
 		return false;
 	}
-	// 获取视频流
+	// 获取视频流参数到解码器上下文（hw_device_ctx需要在open2之前挂好）
 	AVStream* stream = m_formatContext->streams[m_videoStreamIndex];
 	if (int ret = avcodec_parameters_to_context( m_codecContext.get(), stream->codecpar ); ret < 0) {
 		m_lastError = DecodeError::OpenFailedError( QStringLiteral( "无法初始化解码器上下文: %1" ).arg( FfmpegDecode::ffmepegError( ret ) ) );
 		return false;
 	}
+	// GPU硬解码：注入hw_device_ctx并预建显存帧缓冲池
+	if (m_config.useGpuDecode) {
+		if (!m_hwDevice) {
+			m_lastError = DecodeError::DecodedrInitFailedError( QStringLiteral( "启用GPU解码但未设置硬件设备，请先调用setHwDevice" ) );
+			return false;
+		}
+		m_codecContext->hw_device_ctx = av_buffer_ref( m_hwDevice );
+		if (!m_codecContext->hw_device_ctx) {
+			m_lastError = DecodeError::DecodedrInitFailedError( QStringLiteral( "无法引用硬件设备上下文" ) );
+			return false;
+		}
+		// 初始化硬件帧上下文（缓冲）
+		if (!initHwFramesContext()) {
+			return false;
+		}
+	}
 	// 开启解码器
 	if (int ret = avcodec_open2( m_codecContext.get(), codec, nullptr ); ret < 0) {
 		m_lastError = DecodeError::OpenFailedError( QStringLiteral( "无法打开解码器: %1" ).arg( FfmpegDecode::ffmepegError( ret ) ) );
+		return false;
+	}
+	// 验证硬解协商结果
+	// FFmpeg会静默回退到软件解码
+	// 显示上报fallback
+	if (m_config.useGpuDecode && !m_codecContext->hw_frames_ctx) {
+		m_lastError = DecodeError::DecodedrInitFailedError( QStringLiteral( "硬解协商失败: 编解码器 %1 不支持NVDEC或回退到了软件解码" ).arg( codec->name ) );
 		return false;
 	}
 	// 分配AVPacket和AVFrame
@@ -389,6 +422,30 @@ bool FfmpegDecoder::initDecoder() {
 	}
 	// 读取并记录流信息
 	recordStreamInfo( stream, codec );
+	return true;
+}
+
+// 从借用的hwdevice派生显存帧缓冲池(控制显存占用)并挂到解码器
+// 句柄持帧时池子必须还有空闲buffer，否则解码器拿不到新buffer而阻塞/丢帧
+bool FfmpegDecoder::initHwFramesContext() {
+	// 从CudaDevice的hwdevice分配，保证和推理/预处理用同一个CUDA设备
+	AVBufferRef* derivedFrames = av_hwframe_ctx_alloc( m_hwDevice );
+	if (!derivedFrames) {
+		m_lastError = DecodeError::DecodedrInitFailedError( QStringLiteral( "无法从硬件设备分配帧缓冲池" ) );
+		return false;
+	}
+	auto* framesCtx = reinterpret_cast<AVHWFramesContext*>(derivedFrames->data);
+	framesCtx->format = AV_PIX_FMT_CUDA; // 硬件像素格式（NVDEC输出标识）
+	framesCtx->sw_format = AV_PIX_FMT_NV12; 
+	framesCtx->width = m_codecContext->width;
+	framesCtx->height = m_codecContext->height;
+	framesCtx->initial_pool_size = 10;
+	if (int ret = av_hwframe_ctx_init( derivedFrames ); ret < 0) {
+		m_lastError = DecodeError::DecodedrInitFailedError( QStringLiteral( "初始化帧缓冲池失败: %1" ).arg( FfmpegDecode::ffmepegError( ret ) ) );
+		av_buffer_unref( &derivedFrames );
+		return false;
+	}
+	m_codecContext->hw_frames_ctx = derivedFrames;
 	return true;
 }
 

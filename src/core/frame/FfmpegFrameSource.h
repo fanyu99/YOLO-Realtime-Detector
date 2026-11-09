@@ -4,6 +4,8 @@
 #include "FrameSource.h"
 #include "DecodeTypes.h"
 #include <FfmpegDecoder.h>
+#include "CudaDevice.h"
+
 class FfmpegFrameSource : public FrameSource {
 public:
 	// 创建本地文件帧源（视频文件）

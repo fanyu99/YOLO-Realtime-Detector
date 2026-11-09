@@ -171,6 +171,10 @@ bool FfmpegFrameSource::open() {
 	if (m_decoder.isOpened())
 		return true;
 	m_decoder.setConfig( m_config );
+	// 如果使用GPU，为解码器设置硬件设备上下文
+	if (m_config.useGpuDecode) {
+		m_decoder.setHwDevice( CudaDevice::instance().borrowHwDevice() );
+	}
 	if (!m_decoder.open()) {
 		m_error = fromDecodeError( m_decoder.getLastError() );
 		return false;
@@ -221,29 +225,29 @@ FfmpegFrameSource::FfmpegFrameSource( const DecodeConfig& config, MemoryType mem
 }
 // 创建本地文件帧源（视频文件）
 FrameSourcePtr FfmpegFrameSource::forLocalFile( QStringView filePath, MemoryType memoryType ) {
-	// GPU 分支预留：GPU 解码/显存句柄尚未实现
-	// TODO: 接入 GPU 解码路径后在此创建 GPU 帧句柄的帧源
-	if (memoryType != MemoryType::CPU)
-		return nullptr;
 	if (filePath.isEmpty())
 		return nullptr;
 	QUrl url = QUrl::fromLocalFile( filePath.toString() );
 	DecodeConfig config;
+	if (memoryType == MemoryType::GPU
+		) {
+		config.useGpuDecode = true;
+	}
 	config.url = url;
 	return FrameSourcePtr( new FfmpegFrameSource( config, memoryType ) );
 }
 
 // 创建设备帧源（摄像头/相机）
 FrameSourcePtr FfmpegFrameSource::forDevice( const FfmpegDeviceInfo& device, const QString& formatName, MemoryType memoryType ) {
-	// GPU 分支预留：GPU 解码/显存句柄尚未实现
-	// TODO: 接入 GPU 解码路径后在此创建 GPU 帧句柄的帧源
-	if (memoryType != MemoryType::CPU)
-		return nullptr;
 	if (device.name.isEmpty() && device.originalId.isEmpty())
 		return nullptr;
 	// 格式为空时回退到平台默认格式
 	const QString fmt = formatName.isEmpty() ? FfmpegDecoder::defaultVideoInputFormat() : formatName;
 	DecodeConfig config;
+	// 如果是GPU，设置配置GPU解码
+	if (memoryType == MemoryType::GPU) {
+		config.useGpuDecode = true;
+	}
 	// 设备输入串：友好名优先
 	config.deviceInput = FfmpegDecoder::deviceInput( device, fmt );
 	if (!config.isDevice())

@@ -131,6 +131,7 @@ struct DecodeConfig {
 	int connectTimeoutMs{ DEFAULT_DECODE_CONNECT_TIMEOUT_MS };
 	int readTimeoutMs{ DEFAULT_DECODE_READ_TIMEOUT_MS };
 	int videoStreamIndex{ -1 }; // 视频流索引，-1表示自动选择
+	bool useGpuDecode{ false }; // 是否启用GPU硬解码（NVDEC），需要配合setHwDevice传入hwdevice 到解码器
 	// 是否为采集设备源
 	[[nodiscard]] bool isDevice()const {
 		return deviceInput && !deviceInput->isEmpty();

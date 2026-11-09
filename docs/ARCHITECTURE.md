@@ -72,6 +72,8 @@ DetectionTask
    - 新增`CudaDevice`作为进程级的单例设备管理，负责将CUDA/FFmpeg的硬件上下文初始化并提供ffmpeg硬件上下文的引用`BufferRef*`
    ;注意：`CudaDevice`需要在创建Worker的时候进行创建，Worker在启动工作循环/创建Session的时候使用`CudaDevice`的`use()`设置设备
    - 新增`GpuFrameHandle`类，用于封装GPU帧数据`AVFramePtr`
+   - 新增`FfmpegDecoder`中的GPU解码路径处理（从`CudaDevice`获取hwDevice引用，并设置显存缓冲池以及硬件帧上下文到设备上下文）；
+   - 在`FfmpegFrameSource`中添加使用GPU的路径（设置decodeConfig中的useGpuDecode为true）
 
 后续计划：
 

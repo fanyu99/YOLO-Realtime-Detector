@@ -159,6 +159,8 @@ public:
 	[[nodiscard]] bool startDecodingLoop();
 	// 设置配置
 	void setConfig( const DecodeConfig& config );
+	// 设置硬件解码设备（NVDEC），自持引用
+	void setHwDevice( AVBufferRef* hwDevice );
 	// 设置回调函数
 	void setFrameCallback( const frameCallback& callback );
 
@@ -188,10 +190,13 @@ public:
 	// 清除所有资源以及重置配置信息
 	void reset();
 private:
+
 	// 打开输入（avformat_open_input + find_stream_info + 查找视频流）
 	[[nodiscard]] bool openInput();
 	// 	根据视频流初始化解码器和 packet/frame
 	[[nodiscard]] bool initDecoder();
+	// GPU硬解码：从m_hwDevice派生hw_frames_ctx（显存帧缓冲池）并挂到codecContext
+	[[nodiscard]] bool initHwFramesContext();
 	// 记录当前的流信息
 	void recordStreamInfo( AVStream* stream, const AVCodec* codec );
 	// 循环接收解码器解码packet后输出的帧
@@ -219,4 +224,5 @@ private:
 	AVCodecContextPtr m_codecContext{ nullptr }; // 编解码器上下文
 	AVPacketPtr m_packet{ nullptr }; // 压缩包
 	AVFramePtr m_frame{ nullptr }; // 解码后的帧
+	AVBufferRef* m_hwDevice{ nullptr }; // 硬件设备上下文，自持引用
 };

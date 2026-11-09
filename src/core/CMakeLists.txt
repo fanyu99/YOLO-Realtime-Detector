@@ -45,6 +45,8 @@ set(YOLO_CORE_SOURCES
     inference/CpuDetector.cpp
     inference/CpuPreprocessor.h
     inference/CpuPreprocessor.cpp
+    inference/CudaPreprocessor.h
+    inference/CudaPreprocessor.cpp
     inference/CommonPostProcessor.h
     inference/CommonPostProcessor.cpp
 
