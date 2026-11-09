@@ -24,11 +24,22 @@ namespace {
 	}
 }
 
-// 初始化设备
+// 初始化设备（幂等：已初始化直接返回true）
 bool CudaDevice::init( int deviceId ) {
 	// 幂等
-	if (isValid() || m_deviceId != -1) {
-		return false;
+	if (isValid())
+		return m_deviceId == deviceId;
+	if (m_deviceId != -1) {
+		m_lastError = DetectionError();
+		m_deviceId = -1;
+		if (m_stream) {
+			cudaStreamDestroy( m_stream );
+			m_stream = {};
+		}
+		if (m_hwDevice) {
+			av_buffer_unref( &m_hwDevice );
+			m_hwDevice = nullptr;
+		}
 	}
 	// 获取设备数量
 	int deviceCount = 0;

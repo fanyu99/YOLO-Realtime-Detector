@@ -4,7 +4,10 @@
 #include "FrameSource.h"
 #include "DecodeTypes.h"
 #include <FfmpegDecoder.h>
+
+#ifdef YOLO_HAVE_CUDA
 #include "CudaDevice.h"
+#endif
 
 class FfmpegFrameSource : public FrameSource {
 public:

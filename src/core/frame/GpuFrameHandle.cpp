@@ -1,4 +1,10 @@
 #include "GpuFrameHandle.h"
+#include "FrameConversion.h"
+
+extern "C" {
+#include <libavutil/hwcontext.h>
+#include <libswscale/swscale.h>
+}
 
 namespace {
 	// 各像素格式的plane数量，未知/不支持的格式返回0
@@ -20,7 +26,8 @@ namespace {
 	}
 }
 
-GpuFrameHandle::GpuFrameHandle( AVFrame* frame ) {
+
+GpuFrameHandle::GpuFrameHandle( const AVFrame* frame, int index ) : m_frameIndex( index ) {
 	if (frame)
 		m_frame.reset( av_frame_clone( frame ) ); // 引用计数+1，共享底层buffer
 }
@@ -124,6 +131,31 @@ const AVFrame* GpuFrameHandle::constFrame() const {
 	return m_frame.get();
 }
 
+// GPU -> CPU：硬解帧先 
+cv::Mat GpuFrameHandle::constMat() const {
+	if (!m_frame)
+		return cv::Mat();
+	const auto format = static_cast<AVPixelFormat>(m_frame->format);
+	const AVPixFmtDescriptor* descriptor = av_pix_fmt_desc_get( format );
+	// 硬件帧：下载到内存再转换
+	if (descriptor && (descriptor->flags & AV_PIX_FMT_FLAG_HWACCEL)) {
+		AVFrame* swFrame = av_frame_alloc();
+		if (!swFrame)
+			return cv::Mat();
+		// 目标格式为NV12（NVDEC显存布局对应的软件格式）
+		swFrame->format = AV_PIX_FMT_NV12;
+		if (av_hwframe_transfer_data( swFrame, m_frame.get(), 0 ) < 0) {
+			av_frame_free( &swFrame );
+			return cv::Mat();
+		}
+		const cv::Mat mat = avFrameToMat( swFrame );
+		av_frame_free( &swFrame );
+		return mat;
+	}
+	// 软件帧：直接转换
+	return avFrameToMat( m_frame.get() );
+}
+
 bool GpuFrameHandle::isValid() const {
 	return m_frame != nullptr;
 }
@@ -131,3 +163,5 @@ bool GpuFrameHandle::isValid() const {
 MemoryType GpuFrameHandle::memoryType() const {
 	return MemoryType::GPU;
 }
+
+

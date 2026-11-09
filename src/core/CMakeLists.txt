@@ -52,6 +52,7 @@ set(YOLO_CORE_SOURCES
 
     # frame/
     frame/FrameHandle.h
+    frame/FrameConversion.h
     frame/CpuFrameHandle.h
     frame/CpuFrameHandle.cpp
     frame/GpuFrameHandle.h
@@ -69,6 +70,8 @@ set(YOLO_CORE_SOURCES
     factories/FrameSourceFactory.h
     factories/CpuFrameSourceFactory.h 
     factories/CpuFrameSourceFactory.cpp
+    factories/GpuFrameSourceFactory.h
+    factories/GpuFrameSourceFactory.cpp
     # 2.推理流程工厂
     factories/DetectionFlowFactory.h
     factories/CpuDetectionFlowFactory.h

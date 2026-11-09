@@ -1,12 +1,15 @@
 #include "FfmpegFrameSource.h"
 #include "CpuFrameHandle.h"
-
+#include "GpuFrameHandle.h"
+#include "FrameConversion.h"
 extern "C" {
 #include <libavutil/error.h>
 #include <libavutil/frame.h>
 #include <libavutil/pixdesc.h>
-#include <libswscale/swscale.h>
 }
+#ifdef YOLO_HAVE_CUDA
+#include "CudaDevice.h"
+#endif
 
 // 工具
 namespace {
@@ -52,62 +55,6 @@ namespace {
 		if (const char* name = av_get_pix_fmt_name( static_cast<AVPixelFormat>(format) ))
 			return QString::fromUtf8( name );
 		return QStringLiteral( "unknown(%1)" ).arg( format );
-	}
-
-	// 复用的像素格式转换上下文：分辨率或像素格式变化时自动重建
-	class SwsContextCache {
-	public:
-		SwsContextCache() = default;
-		~SwsContextCache() {
-			if (m_context)
-				sws_freeContext( m_context );
-		}
-		SwsContextCache( const SwsContextCache& ) = delete;
-		SwsContextCache& operator=( const SwsContextCache& ) = delete;
-
-		SwsContext* get( int width, int height, AVPixelFormat srcFormat, AVPixelFormat dstFormat ) {
-			m_context = sws_getCachedContext(
-				m_context,
-				width, height, srcFormat,
-				width, height, dstFormat,
-				SWS_BILINEAR, nullptr, nullptr, nullptr );
-			return m_context;
-		}
-
-	private:
-		SwsContext* m_context{ nullptr };
-	};
-
-	// 解码出的 AVFrame -> cv::Mat（BGR 三通道）；失败返回空 Mat
-	cv::Mat avFrameToMat( const AVFrame* frame ) {
-		if (!frame || frame->width <= 0 || frame->height <= 0 || !frame->data[0])
-			return cv::Mat();
-
-		const auto sourceFormat = static_cast<AVPixelFormat>(frame->format);
-		const AVPixFmtDescriptor* descriptor = av_pix_fmt_desc_get( sourceFormat );
-		// 硬解帧（CUDA / D3D11 等）没有可直接读取的像素数据，需先 av_hwframe_transfer_data
-		if (!descriptor || (descriptor->flags & AV_PIX_FMT_FLAG_HWACCEL))
-			return cv::Mat();
-
-		thread_local SwsContextCache swsCache;
-		SwsContext* sws = swsCache.get( frame->width, frame->height, sourceFormat, AV_PIX_FMT_BGR24 );
-		if (!sws)
-			return cv::Mat();
-
-		cv::Mat mat( frame->height, frame->width, CV_8UC3 );
-		if (mat.empty())
-			return mat;
-
-		uint8_t* destinationData[4]{ mat.data, nullptr, nullptr, nullptr };
-		const int destinationLinesize[4]{ static_cast<int>(mat.step), 0, 0, 0 };
-		const int scaled = sws_scale(
-			sws,
-			frame->data, frame->linesize, 0, frame->height,
-			destinationData, destinationLinesize );
-		if (scaled <= 0)
-			return cv::Mat();
-
-		return mat;
 	}
 };
 
@@ -172,9 +119,18 @@ bool FfmpegFrameSource::open() {
 		return true;
 	m_decoder.setConfig( m_config );
 	// 如果使用GPU，为解码器设置硬件设备上下文
+#ifdef YOLO_HAVE_CUDA
 	if (m_config.useGpuDecode) {
-		m_decoder.setHwDevice( CudaDevice::instance().borrowHwDevice() );
+		auto* ref = CudaDevice::instance().borrowHwDevice();
+		if (!ref) {
+			// CUDA设备未初始化或不可用：在open阶段明确报错，让上层触发fallback
+			m_error = QStringLiteral( "[FfmpegFrameSource]: CUDA设备不可用，无法启用GPU解码" );
+			return false;
+		}
+		m_decoder.setHwDevice( ref );
+		av_buffer_unref( &ref );	// 释放借用引用（参照CudaDevice注释，调用完unref），解码器自持引用
 	}
+#endif
 	if (!m_decoder.open()) {
 		m_error = fromDecodeError( m_decoder.getLastError() );
 		return false;
@@ -184,7 +140,6 @@ bool FfmpegFrameSource::open() {
 
 // 获取帧
 FrameHandlePtr FfmpegFrameSource::getFrame() {
-
 	// 没有打开，尝试打开
 	if (!isOpened()) {
 		// 打开失败返回空指针
@@ -193,26 +148,52 @@ FrameHandlePtr FfmpegFrameSource::getFrame() {
 			return nullptr;
 		}
 	}
-	// 读取下一帧
-	ReadStatus status = m_decoder.readNextFrame();
-	// 	出现错误/EOF/停止，返回空指针
-	if (status == ReadStatus::Error) {
-		const DecodeError error = m_decoder.getLastError();
-		if (error.errorCode != DecodeErrorCode::NoError || !error.errorMessage.isEmpty()) {
-			m_error = fromDecodeError( m_decoder.getLastError() );
+	// GPU解码
+	if (m_config.useGpuDecode) {
+		// 读取下一帧
+		ReadStatus status = m_decoder.readNextFrame();
+		// 	出现错误/EOF/停止，返回空指针
+		if (status == ReadStatus::Error) {
+			const DecodeError error = m_decoder.getLastError();
+			if (error.errorCode != DecodeErrorCode::NoError || !error.errorMessage.isEmpty()) {
+				m_error = fromDecodeError( m_decoder.getLastError() );
+			}
+			return nullptr;
 		}
-		return nullptr;
+		if (status != ReadStatus::FrameReady) {
+			return nullptr;
+		}
+		const AVFrame* frame =m_decoder.getCurrentFrame();
+		if (!frame || frame->width <= 0 || frame->height <= 0 || !frame->data[0]) {
+			m_error = QStringLiteral( "[FfmpegFrameSource]: GPU解码帧无效" );
+			return nullptr;
+		}
+		return std::make_shared<GpuFrameHandle>( frame, m_decoder.decodeIndex() - 1 );
 	}
-	if (status != ReadStatus::FrameReady) {
-		return nullptr;
+	// 软解
+	else {
+
+		// 读取下一帧
+		ReadStatus status = m_decoder.readNextFrame();
+		// 	出现错误/EOF/停止，返回空指针
+		if (status == ReadStatus::Error) {
+			const DecodeError error = m_decoder.getLastError();
+			if (error.errorCode != DecodeErrorCode::NoError || !error.errorMessage.isEmpty()) {
+				m_error = fromDecodeError( m_decoder.getLastError() );
+			}
+			return nullptr;
+		}
+		if (status != ReadStatus::FrameReady) {
+			return nullptr;
+		}
+		const cv::Mat mat = avFrameToMat( m_decoder.getCurrentFrame() );
+		if (mat.empty()) {
+			m_error = QStringLiteral( "[FfmpegFrameSource]: 图像格式转换失败" );
+			return nullptr;
+		}
+		// 解码器计数从 1 起，句柄帧序号统一从 0 起
+		return std::make_shared<CpuFrameHandle>( mat, m_decoder.decodeIndex() - 1 );
 	}
-	const cv::Mat mat = avFrameToMat( m_decoder.getCurrentFrame() );
-	if (mat.empty()) {
-		m_error = QStringLiteral( "[FfmpegFrameSource]: 图像格式转换失败" );
-		return nullptr;
-	}
-	// 解码器计数从 1 起，句柄帧序号统一从 0 起
-	return std::make_shared<CpuFrameHandle>( mat, m_decoder.decodeIndex() - 1 );
 }
 // 关闭
 void FfmpegFrameSource::close() {

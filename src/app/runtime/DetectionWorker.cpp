@@ -1,5 +1,6 @@
 #include "DetectionWorker.h"
 #include "CpuFrameHandle.h"
+#include "GpuFrameHandle.h"
 #include "DetectionRenderer.h"
 #include "DetectionResultSaver.h"
 #include <vector>
@@ -7,6 +8,23 @@
 #include <opencv2/opencv.hpp>
 #include "Logger.h"
 #include <span>
+#ifdef YOLO_HAVE_CUDA
+#include "CudaDevice.h"
+#endif
+
+namespace {
+	// CPU句柄零拷贝取引用；GPU句柄下载显存帧并转 BGR（失败返回空Mat）
+	cv::Mat frameToCvMat( const FrameHandlePtr& handle ) {
+		if (!handle)
+			return {};
+		if (handle->memoryType() == MemoryType::GPU) {
+			if (const auto gpu = std::dynamic_pointer_cast<GpuFrameHandle>( handle ))
+				return gpu->constMat();
+			return {};
+		}
+		return toCvMat( handle );
+	}
+}
 
 DetectionWorker::DetectionWorker( QObject* parent ) : QObject( parent ) {}
 
@@ -154,6 +172,20 @@ bool DetectionWorker::rebuildSession() {
 
 // 工作循环
 void DetectionWorker::work() {
+#ifdef YOLO_HAVE_CUDA
+	// GPU模式：初始化进程级CUDA设备（幂等），并将当前线程绑定到该设备
+	// （CUDA runtime 的 current device 是线程属性，worker 线程内所有 CUDA/推理操作前需设置一次）
+	if (m_config.effectiveMode() == FlowMode::GPU
+		&& !CudaDevice::instance().init( m_config.device_id )) {
+		const DetectionError error = CudaDevice::instance().lastError();
+		m_lastError = error.has_error() ? error : DetectionError(
+			QStringLiteral( "[DetectionWorker]: CUDA设备初始化失败" ),
+			DetectionErrorCategory::CUDA, DetectionErrorCode::FallbackRequested );
+	}
+	else {
+		CudaDevice::instance().use();
+	}
+#endif
 	// 在 worker 线程内创建检测会话：ONNX 会话构造较重,在worker线程进行构造
 	m_session.reset( createSession() );
 	if (m_session) {
@@ -319,7 +351,7 @@ bool DetectionWorker::runImage( DetectionTask& task ) {
 			DetectionErrorCategory::Image, DetectionErrorCode::InvalidImage );
 		return false;
 	}
-	const cv::Mat frame = toCvMat( handle );
+	const cv::Mat frame = frameToCvMat( handle );
 	DetectionResult result;
 	// 执行完整的流程：预处理 + 推理 + 后处理
 	if (!m_session->runFlow( handle, result )) {
@@ -362,7 +394,7 @@ bool DetectionWorker::runStream( DetectionTask& task ) {
 		if (task.shared->cancelled())
 			break;								// 取消按正常结束处理，由 execute() 发 taskCancelled
 
-		const cv::Mat frame = toCvMat( handle );
+		const cv::Mat frame = frameToCvMat( handle );
 		DetectionResult result;
 		if (!m_session->runFlow( handle, result )) {
 			m_lastError = result.error;	// 流程失败时错误已回填到 result

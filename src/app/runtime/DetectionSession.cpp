@@ -1,6 +1,7 @@
 #include "DetectionSession.h"
 #include "CpuDetectionFlowFactory.h"
 #include "CpuFrameSourceFactory.h"
+#include "GpuFrameSourceFactory.h"
 #include "Logger.h"
 #include <QElapsedTimer>
 
@@ -20,9 +21,8 @@ DetectionSession::DetectionSession( const DetectorConfig& config )
 		m_sourceFactory = std::make_unique<CpuFrameSourceFactory>();
 		break;
 	case FlowMode::GPU:
-		// TODO: GPU 流程尚未接入，后续在此创建 GpuDetectionFlowFactory / GpuFrameSourceFactory
-		m_flowFactory = nullptr;
-		m_sourceFactory = nullptr;
+		m_sourceFactory = std::make_unique<GpuFrameSourceFactory>();
+		m_flowFactory = nullptr; // TODO:接入GPUFLowFactory
 		return;
 	}
 

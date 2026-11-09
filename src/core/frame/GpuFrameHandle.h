@@ -1,11 +1,12 @@
 #pragma once
 #include "FrameHandle.h"
 #include "FfmpegDecoder.h"
+#include <opencv2/core.hpp>
 // GPU帧句柄：内部存储FFmpeg AVFrame（引用计数持有，零拷贝共享解码器缓冲区）
 // NVDEC硬解输出(AV_PIX_FMT_CUDA)时，plane()返回显存中的NV12设备指针，供CUDA预处理器直接访问
 class GpuFrameHandle final : public FrameHandle {
 public:
-	explicit GpuFrameHandle(AVFrame* frame); // av_frame_clone引用计数接管，零拷贝
+	explicit GpuFrameHandle(const AVFrame* frame,int index); // av_frame_clone引用计数接管，零拷贝
 	GpuFrameHandle() = default;
 	~GpuFrameHandle()override;
 	void setFrameIndex( int index ) override;
@@ -19,6 +20,7 @@ public:
 	// 获取内部帧只读指针（含hw_frames_ctx，预处理器可从中取CUDA context）
 	const AVFrame* constFrame() const;
 	// 是否持有有效帧
+	cv::Mat constMat() const; // 转换为CPU Mat，失败返回空Mat
 	bool isValid() const;
 	MemoryType memoryType() const override;
 private:
