@@ -119,6 +119,7 @@ public:
 		Model,
 		Config,
 		Image,
+		CUDA,
 		Preprocess,
 		Detection,
 		Postprocess,

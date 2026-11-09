@@ -17,6 +17,8 @@
 
 #基础数据类型
 set(YOLO_CORE_BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/base")
+# CUDA设备
+set(YOLO_CORE_CUDA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cuda")
 # 推理流程库
 set(YOLO_CORE_INFERENCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/inference")
 # 帧源
@@ -27,7 +29,8 @@ set(YOLO_CORE_FACTORIES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/factories")
 option(YOLO_ENABLE_HIK "编译海康相机帧源（需要本机 MVS SDK）" ON)
 
 # ---- yolo_core：除海康外的全部核心代码 --------------------------------------
-qt_add_library(yolo_core STATIC
+# 源文件先攒进变量，CUDA 部分按顶层探测结果 YOLO_HAVE_CUDA 条件追加
+set(YOLO_CORE_SOURCES
     # base/
     base/AppError.h
     base/Box.h
@@ -49,6 +52,8 @@ qt_add_library(yolo_core STATIC
     frame/FrameHandle.h
     frame/CpuFrameHandle.h
     frame/CpuFrameHandle.cpp
+    frame/GpuFrameHandle.h
+    frame/GpuFrameHandle.cpp
     frame/FrameSource.h
     frame/ImageFrameSource.h
     frame/ImageFrameSource.cpp
@@ -64,14 +69,30 @@ qt_add_library(yolo_core STATIC
     factories/CpuFrameSourceFactory.cpp
     # 2.推理流程工厂
     factories/DetectionFlowFactory.h
-    factories/CpuDetectionFlowFactory.h 
+    factories/CpuDetectionFlowFactory.h
     factories/CpuDetectionFlowFactory.cpp
 )
+
+if(YOLO_HAVE_CUDA)
+    list(APPEND YOLO_CORE_SOURCES
+        # cuda/
+        cuda/CudaDevice.h
+        cuda/CudaDevice.cpp
+    )
+endif()
+
+qt_add_library(yolo_core STATIC ${YOLO_CORE_SOURCES})
+
+if(YOLO_HAVE_CUDA)
+    # C++ 侧 #ifdef YOLO_HAVE_CUDA 与此变量同名，一一对应
+    target_compile_definitions(yolo_core PUBLIC YOLO_HAVE_CUDA)
+endif()
 
 target_include_directories(yolo_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${YOLO_CORE_BASE_DIR}"
+    "${YOLO_CORE_CUDA_DIR}"
     "${YOLO_CORE_INFERENCE_DIR}"
     "${YOLO_CORE_FRAME_DIR}"
     "${YOLO_CORE_FACTORIES_DIR}"
@@ -92,6 +113,11 @@ target_link_libraries(yolo_core PUBLIC
     FFmpeg::avdevice
     FFmpeg::postproc
 )
+
+if(YOLO_HAVE_CUDA)
+    # cuda_runtime.h（cudaStream_t、cudaMalloc）+ cudart 链接库
+    target_link_libraries(yolo_core PUBLIC CUDA::cudart)
+endif()
 
 # ---- yolo_hik：海康相机帧源，私有依赖 MVS SDK -------------------------------
 if(YOLO_ENABLE_HIK)

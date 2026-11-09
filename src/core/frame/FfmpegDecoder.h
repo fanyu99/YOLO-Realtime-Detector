@@ -121,14 +121,14 @@ FfmpegDecoder
 	├── close()
 	└── 提供流信息和错误信息
 */
+using AVPacketPtr = FfmpegDecode::AVPacketPtr;
+using AVFramePtr = FfmpegDecode::AVFramePtr;
+using AVCodecContextPtr = FfmpegDecode::AVCodecContextPtr;
+using AVFormatContextPtr = FfmpegDecode::AVFormatContextPtr;
+using frameCallback = std::function<void( const AVFrame*, quint64 readTimeUs, quint64 decodedTimeUs )>;
 // 单独的通用的ffmpeg解码器，进行解码
 class FfmpegDecoder {
 public:
-	using AVPacketPtr = FfmpegDecode::AVPacketPtr;
-	using AVFramePtr = FfmpegDecode::AVFramePtr;
-	using AVCodecContextPtr = FfmpegDecode::AVCodecContextPtr;
-	using AVFormatContextPtr = FfmpegDecode::AVFormatContextPtr;
-	using frameCallback = std::function<void( const AVFrame*, quint64 readTimeUs, quint64 decodedTimeUs )>;
 	explicit FfmpegDecoder() = default;
 	explicit FfmpegDecoder( const DecodeConfig& config );
 	~FfmpegDecoder();
@@ -148,7 +148,7 @@ public:
 	[[nodiscard]] static QString deviceInput( const FfmpegDeviceInfo& device, const QString& formatName = QString() );
 	// 由设备信息生成打开失败时的fallback输入串（dshow 用 PNP 路径），无兜底时返回空
 	[[nodiscard]] static QString deviceFallbackInput( const FfmpegDeviceInfo& device, const QString& formatName = QString() );
-	
+
 	// 打开
 	[[nodiscard]] bool open();
 	// 是否打开
@@ -160,7 +160,7 @@ public:
 	// 设置配置
 	void setConfig( const DecodeConfig& config );
 	// 设置回调函数
-	void setFrameCallback(const frameCallback& callback);
+	void setFrameCallback( const frameCallback& callback );
 
 	// 读取下一帧，返回读取状态
 	[[nodiscard]] ReadStatus readNextFrame();
@@ -193,13 +193,13 @@ private:
 	// 	根据视频流初始化解码器和 packet/frame
 	[[nodiscard]] bool initDecoder();
 	// 记录当前的流信息
-	void recordStreamInfo(  AVStream* stream, const AVCodec* codec );
+	void recordStreamInfo( AVStream* stream, const AVCodec* codec );
 	// 循环接收解码器解码packet后输出的帧
 	[[nodiscard]] bool receiveFrames();
 	// 读取packet并解码，阻塞直到停止、EOF或出错
 	[[nodiscard]] bool readAndDecodeLoop();
 	// 帧回调
-	frameCallback m_frameCallback{nullptr};
+	frameCallback m_frameCallback{ nullptr };
 
 	StreamInfo m_streamInfo{}; // 流信息
 	DecodeConfig m_config{}; // 配置

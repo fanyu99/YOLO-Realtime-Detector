@@ -67,6 +67,12 @@ DetectionTask
 - App 层 onDetectFileClicked 中视频分支调用 makeFileSource 的问题仍在——视频会拿到 ImageFrameSource。
 后续把 App 层接入工厂时，正好可以用新的 isVideoPath → createVideoFrameSource 补上这个缺口。
 
+
+- GPU处理流程：
+   - 新增`CudaDevice`作为进程级的单例设备管理，负责将CUDA/FFmpeg的硬件上下文初始化并提供ffmpeg硬件上下文的引用`BufferRef*`
+   ;注意：`CudaDevice`需要在创建Worker的时候进行创建，Worker在启动工作循环/创建Session的时候使用`CudaDevice`的`use()`设置设备
+   - 新增`GpuFrameHandle`类，用于封装GPU帧数据`AVFramePtr`
+
 后续计划：
 
 - 完善 fallback 机制：

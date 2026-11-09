@@ -128,6 +128,34 @@ endforeach()
 
 
 
+# --------------------------------------------------------------------------
+# CUDA Toolkit（条件编译）
+#
+# 只给 yolo_core 里直接写 CUDA 代码的模块用（CudaDevice、后续 GpuMat 链路）。
+# onnxruntime 的 CUDA EP 只在运行时 LoadLibrary CUDA DLL，链接期不需要它。
+#
+# 校验逻辑：
+#   YOLO_ENABLE_CUDA=OFF          -> 跳过探测，YOLO_HAVE_CUDA=OFF
+#   YOLO_ENABLE_CUDA=ON 且找到    -> YOLO_HAVE_CUDA=ON，正常编译 CUDA 代码
+#   YOLO_ENABLE_CUDA=ON 但没找到  -> WARNING 降级，YOLO_HAVE_CUDA=OFF，
+#                                    CUDA 源文件不参与编译，工程仍可构建
+# C++ 侧配合同名宏 YOLO_HAVE_CUDA 做条件包含（target_compile_definitions 注入）。
+# --------------------------------------------------------------------------
+option(YOLO_ENABLE_CUDA "启用 CUDA 相关代码的编译（需要本机 CUDA Toolkit）" ON)
+set(YOLO_HAVE_CUDA OFF)
+if(YOLO_ENABLE_CUDA)
+    find_package(CUDAToolkit QUIET)
+    if(CUDAToolkit_FOUND)
+        set(YOLO_HAVE_CUDA ON)
+        message(STATUS "CUDA Toolkit: ${CUDAToolkit_VERSION} (${CUDAToolkit_LIBRARY_DIR})")
+    else()
+        message(WARNING
+            "YOLO_ENABLE_CUDA=ON，但找不到 CUDA Toolkit（依赖 CUDA_PATH 或 PATH）。\n"
+            "将跳过 cuda/ 目录源文件的编译；如需彻底关闭此探测，"
+            "请配置 -DYOLO_ENABLE_CUDA=OFF。")
+    endif()
+endif()
+
 find_package(OpenCV REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Core Test)
 # 海康 MVS SDK 的 find_library 在 src/core/CMakeLists.txt 中执行（yolo_hik）

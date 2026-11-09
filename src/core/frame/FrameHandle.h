@@ -19,10 +19,10 @@ enum class PixelFormat {
 	Other
 };
 struct PlaneDescriptor{
-	const uint8_t* data; // plane数据指针
-	int stride;
-	int width;
-	int height;
+	const uint8_t* data{ nullptr }; // plane数据指针
+	int stride = -1;
+	int width = -1;
+	int height = -1;
 };
 
 // 帧句柄FrameHandle，分为CPU、GPU
