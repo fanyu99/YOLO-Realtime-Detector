@@ -83,6 +83,8 @@ if(YOLO_HAVE_CUDA)
         # cuda/
         cuda/CudaDevice.h
         cuda/CudaDevice.cpp
+        cuda/CudaPreprocessKernels.h
+        cuda/CudaPreprocessKernels.cu
     )
 endif()
 

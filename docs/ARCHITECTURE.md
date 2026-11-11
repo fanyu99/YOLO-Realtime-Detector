@@ -74,6 +74,10 @@ DetectionTask
    - 新增`GpuFrameHandle`类，用于封装GPU帧数据`AVFramePtr`
    - 新增`FfmpegDecoder`中的GPU解码路径处理（从`CudaDevice`获取hwDevice引用，并设置显存缓冲池以及硬件帧上下文到设备上下文）；
    - 在`FfmpegFrameSource`中添加使用GPU的路径（设置decodeConfig中的useGpuDecode为true）
+- 完善 `GpuFrameHandle`，封装 `AVFrame*` 和 CUDA/NV12 硬件帧上下文。
+- 完成`CudaPreprocessor`与Cudakernel的封装`CudaPreprocessKernels`
+
+==重要调整： 将单图的推理模式从业务层强制变为CPU模式，如果用户选择了GPU模式，则fallback到CPU进行处理并进行提示==
 
 后续计划：
 
@@ -84,8 +88,8 @@ DetectionTask
   - 每个 Job 包含多个 Task，Worker 根据配置复用或创建 Session。
   - Job 完成后暂时保留 Session，支持后续复用。
   - Manager 负责 Job 和 Session 的状态管理。
-- 完善 `GpuFrameHandle`，封装 `AVFrame*` 和 CUDA/NV12 硬件帧上下文。
-- 根据前面的单图内存均为CPU，GPU预处理需要处理两种情况的句柄，如果是CPU句柄，需要将其上传到GPU内存中之后再进行GPU预处理，如果是GPU句柄，则直接进行GPU预处理
+- 修正：架构层中，单图仅支持CPU模式，不走GPU模式，故GPUPreprocessor无需注意CPU帧的处理；
+- 单图GPU模式直接在业务层拦截单图GPU模式并fallback到CPU进行处理（进行提醒）
 - 完善 GPU 显示流程，在 GPU 图像数据上叠加 CPU NMS 检测框和 Qt Overlay。
 ---
 

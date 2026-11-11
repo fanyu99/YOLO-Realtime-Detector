@@ -13,7 +13,8 @@
 #endif
 
 namespace {
-	// CPU句柄零拷贝取引用；GPU句柄下载显存帧并转 BGR（失败返回空Mat）
+	// CPU句柄零拷贝取引用；
+	// GPU句柄下载显存帧并转 BGR（失败返回空Mat）
 	cv::Mat frameToCvMat( const FrameHandlePtr& handle ) {
 		if (!handle)
 			return {};
