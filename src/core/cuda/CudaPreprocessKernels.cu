@@ -9,6 +9,7 @@
 // =============================================================================
 #include "CudaPreprocessKernels.h"
 #include <math.h>
+#include <cstdio>
 
 // ---- 常量 -------------------------------------------------------------------
 constexpr int kBlockDim = 16; // block 16×16，每个线程负责输出图的一个像素
@@ -123,17 +124,13 @@ __global__ void letterboxKernelNv12(
 // ---- 主机端 launcher ----------------------------------------------------------
 
 // 统一的 launch 后错误检查：捕获配置错误（如非法参数/资源不足）
-static bool checkLaunchError(const char* who, DetectionError* err) {
+static bool checkLaunchError(const char* who, CudaKernelError* err) {
 	const cudaError_t launchErr = cudaGetLastError();
 	if (launchErr != cudaSuccess) {
 		if (err) {
-			DetectionError e;
-			e.errorMessage = QStringLiteral("[%1]: kernel launch 失败: %2")
-				.arg(QString::fromLocal8Bit(who))
-				.arg(QString::fromLocal8Bit(cudaGetErrorString(launchErr)));
-			e.errorCategory = DetectionErrorCategory::CUDA;
-			e.errorCode = DetectionErrorCode::PreprocessFailed;
-			*err = e;
+			err->hasError = true;
+			snprintf(err->message, sizeof(err->message), "[%s]: kernel launch 失败: %s",
+				who, cudaGetErrorString(launchErr));
 		}
 		return false;
 	}
@@ -141,20 +138,16 @@ static bool checkLaunchError(const char* who, DetectionError* err) {
 }
 
 // 统一的参数校验
-static bool validateParams(const CudaLetterboxParams& p, DetectionError* err) {
+static bool validateParams(const CudaLetterboxParams& p, CudaKernelError* err) {
 	if (!p.dst || p.srcW <= 0 || p.srcH <= 0 || p.dstW <= 0 || p.dstH <= 0
 		|| p.newW <= 0 || p.newH <= 0
 		|| p.padX < 0 || p.padY < 0
 		|| p.padX + p.newW > p.dstW || p.padY + p.newH > p.dstH) {
 		if (err) {
-			DetectionError e;
-			e.errorMessage = QStringLiteral("[CudaPreprocessKernels]: letterbox 参数非法: ")
-				+ QStringLiteral("src=%1x%2 dst=%3x%4 new=%5x%6 pad=%7,%8")
-					.arg(p.srcW).arg(p.srcH).arg(p.dstW).arg(p.dstH)
-					.arg(p.newW).arg(p.newH).arg(p.padX).arg(p.padY);
-			e.errorCategory = DetectionErrorCategory::Preprocess;
-			e.errorCode = DetectionErrorCode::PreprocessFailed;
-			*err = e;
+			err->hasError = true;
+			snprintf(err->message, sizeof(err->message),
+				"[CudaPreprocessKernels]: letterbox 参数非法: src=%dx%d dst=%dx%d new=%dx%d pad=%d,%d",
+				p.srcW, p.srcH, p.dstW, p.dstH, p.newW, p.newH, p.padX, p.padY);
 		}
 		return false;
 	}
@@ -165,15 +158,13 @@ bool launchNv12LetterboxKernel(const uint8_t* yPlane, int yStride,
 	const uint8_t* uvPlane, int uvStride,
 	const CudaLetterboxParams& params,
 	cudaStream_t stream,
-	DetectionError* err)
+	CudaKernelError* err)
 {
 	if (!yPlane || !uvPlane || yStride <= 0 || uvStride <= 0) {
 		if (err) {
-			DetectionError e;
-			e.errorMessage = QStringLiteral("[CudaPreprocessKernels]: NV12 设备指针/stride 无效");
-			e.errorCategory = DetectionErrorCategory::Preprocess;
-			e.errorCode = DetectionErrorCode::PreprocessFailed;
-			*err = e;
+			err->hasError = true;
+			snprintf(err->message, sizeof(err->message),
+				"[CudaPreprocessKernels]: NV12 设备指针/stride 无效");
 		}
 		return false;
 	}

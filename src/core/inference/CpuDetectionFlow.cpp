@@ -81,7 +81,7 @@ bool CpuDetectionFlow::run( const FrameHandlePtr& handle, DetectionResult& outRe
 		outResult.error = m_lastError;
 		return false;
 	}
-	const qint64 duration = timer.elapsed(); // 获取推理耗时(ms)
+	const quint64 duration = timer.elapsed(); // 获取推理耗时(ms)
 	// 3. 由输出 shape 反推解析维度：输出布局为 [1, 4+num_classes, num_anchors]
 	if (output_shape.size() < 3) {
 		m_lastError = DetectionError( QStringLiteral( "[CpuDetectionFlow]: 输出张量维度异常，期望 3 维，实际 " )

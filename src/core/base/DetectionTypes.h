@@ -217,17 +217,17 @@ struct DetectionResult {
 		QML_ELEMENT
 		Q_PROPERTY( QVariantList boxes READ boxesVariant )
 		Q_PROPERTY( DetectionError error READ errorValue )
-		Q_PROPERTY( qint64 duration READ durationValue )
+		Q_PROPERTY( quint64 duration READ durationValue )
 		Q_PROPERTY( QString source READ sourceValue )
 public:
 	QVector<Box> boxes;		  // 置信框
 	DetectionError error;		 // 错误
-	long long duration = 0;	// 推理耗时(ms)
+	quint64 duration = 0;	// 推理耗时(ms)
 	quint64 taskId = 0;		// 任务ID(由 Worker 回填，0 表示未归属)
 	QString source;			// 输入来源(图片/视频路径；摄像头为空)，由 Worker 回填,用于显示
 
 	DetectionResult() = default;
-	DetectionResult( const QVector<Box>& boxes_, const DetectionError& error_, long long duration_ )
+	DetectionResult( const QVector<Box>& boxes_, const DetectionError& error_, quint64 duration_ )
 		: boxes( boxes_ ), error( error_ ), duration( duration_ ) {
 	}
 
@@ -240,7 +240,7 @@ public:
 		return list;
 	}
 	DetectionError errorValue() const { return error; }
-	qint64 durationValue() const { return static_cast<qint64>(duration); }
+	quint64 durationValue() const { return duration; }
 	QString sourceValue() const { return source; }
 };
 

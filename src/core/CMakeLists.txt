@@ -43,12 +43,8 @@ set(YOLO_CORE_SOURCES
     inference/CpuDetectionFlow.cpp
     inference/CpuDetector.h
     inference/CpuDetector.cpp
-    inference/GpuDetector.h
-    inference/GpuDetector.cpp
     inference/CpuPreprocessor.h
-    inference/CpuPreprocessor.cpp
-    inference/CudaPreprocessor.h
-    inference/CudaPreprocessor.cpp
+    inference/CpuPreprocessor.cpp    
     inference/CommonPostProcessor.h
     inference/CommonPostProcessor.cpp
 
@@ -57,8 +53,6 @@ set(YOLO_CORE_SOURCES
     frame/FrameConversion.h
     frame/CpuFrameHandle.h
     frame/CpuFrameHandle.cpp
-    frame/GpuFrameHandle.h
-    frame/GpuFrameHandle.cpp
     frame/FrameSource.h
     frame/ImageFrameSource.h
     frame/ImageFrameSource.cpp
@@ -72,8 +66,7 @@ set(YOLO_CORE_SOURCES
     factories/FrameSourceFactory.h
     factories/CpuFrameSourceFactory.h 
     factories/CpuFrameSourceFactory.cpp
-    factories/GpuFrameSourceFactory.h
-    factories/GpuFrameSourceFactory.cpp
+   
     # 2.推理流程工厂
     factories/DetectionFlowFactory.h
     factories/CpuDetectionFlowFactory.h
@@ -85,8 +78,24 @@ if(YOLO_HAVE_CUDA)
         # cuda/
         cuda/CudaDevice.h
         cuda/CudaDevice.cpp
+        cuda/CudaKernelError.h
         cuda/CudaPreprocessKernels.h
         cuda/CudaPreprocessKernels.cu
+
+        frame/GpuFrameHandle.h
+        frame/GpuFrameHandle.cpp
+
+        inference/GpuDetectionFlow.h
+        inference/GpuDetectionFlow.cpp
+        inference/GpuDetector.h
+        inference/GpuDetector.cpp
+        inference/CudaPreprocessor.h
+        inference/CudaPreprocessor.cpp
+
+        factories/GpuFrameSourceFactory.h
+        factories/GpuFrameSourceFactory.cpp
+        factories/GpuDetectionFlowFactory.h
+        factories/GpuDetectionFlowFactory.cpp
     )
 endif()
 
@@ -126,6 +135,9 @@ target_link_libraries(yolo_core PUBLIC
 if(YOLO_HAVE_CUDA)
     # cuda_runtime.h（cudaStream_t、cudaMalloc）+ cudart 链接库
     target_link_libraries(yolo_core PUBLIC CUDA::cudart)
+    # .cu 经由 DetectionTypes.h 等包含 Qt 头文件，Qt 在 MSVC 下要求 /Zc:__cplusplus
+    target_compile_options(yolo_core PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:__cplusplus>)
 endif()
 
 # ---- yolo_hik：海康相机帧源，私有依赖 MVS SDK -------------------------------

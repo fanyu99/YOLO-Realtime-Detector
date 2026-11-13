@@ -147,7 +147,10 @@ if(YOLO_ENABLE_CUDA)
     find_package(CUDAToolkit QUIET)
     if(CUDAToolkit_FOUND)
         set(YOLO_HAVE_CUDA ON)
-        message(STATUS "CUDA Toolkit: ${CUDAToolkit_VERSION} (${CUDAToolkit_LIBRARY_DIR})")
+        enable_language(CUDA)
+        set(CMAKE_CUDA_ARCHITECTURES 120)
+        set(CMAKE_CUDA_STANDARD 17)
+        message(STATUS "CUDA编译开启：CUDA Toolkit: ${CUDAToolkit_VERSION} (${CUDAToolkit_LIBRARY_DIR})")
     else()
         message(WARNING
             "YOLO_ENABLE_CUDA=ON，但找不到 CUDA Toolkit（依赖 CUDA_PATH 或 PATH）。\n"

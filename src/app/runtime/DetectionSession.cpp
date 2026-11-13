@@ -1,7 +1,11 @@
 #include "DetectionSession.h"
 #include "CpuDetectionFlowFactory.h"
 #include "CpuFrameSourceFactory.h"
+#ifdef YOLO_HAVE_CUDA
 #include "GpuFrameSourceFactory.h"
+#include "GpuDetectionFlowFactory.h"
+#include "CudaDevice.h"
+#endif
 #include "Logger.h"
 #include <QElapsedTimer>
 
@@ -16,14 +20,24 @@ DetectionSession::DetectionSession( const DetectorConfig& config )
 {
 	// 根据实际生效的模式创建对应的工厂
 	switch (m_mode) {
-	case FlowMode::CPU:
+	case FlowMode::CPU: {
 		m_flowFactory = std::make_unique<CpuDetectionFlowFactory>();
 		m_sourceFactory = std::make_unique<CpuFrameSourceFactory>();
 		break;
-	case FlowMode::GPU:
+	}
+	case FlowMode::GPU: {
+		m_flowFactory = std::make_unique<GpuDetectionFlowFactory>();
 		m_sourceFactory = std::make_unique<GpuFrameSourceFactory>();
-		m_flowFactory = nullptr; // TODO:接入GPUFLowFactory
-		return;
+#ifdef YOLO_HAVE_CUDA
+		if (CudaDevice::instance().isValid())
+			m_mode = FlowMode::GPU; // GPU模式
+#else 
+		m_mode = FlowMode::CPU;
+		m_flowFactory = std::make_unique<CpuDetectionFlowFactory>();
+		m_sourceFactory = std::make_unique<CpuFrameSourceFactory>();
+#endif
+		break;
+	}
 	}
 
 	// 创建成功后把实际生效的模式写回配置

@@ -77,6 +77,7 @@ DetectionTask
 - 完善 `GpuFrameHandle`，封装 `AVFrame*` 和 CUDA/NV12 硬件帧上下文。
 - 完成`CudaPreprocessor`与Cudakernel的封装`CudaPreprocessKernels`
 - 完成了`GpuDetector`的实现，用户的CUDA设备可用时会进行条件编译，如果不支持，将会直接返回fallback到CPU模式
+- 完成了`GpuDetectionFlow`以及`GpuDetectionFlowFactory`的实现，并将其添加到`DetectionSession`中，完成GPU模式的推理流程；新增`CudaKernelError`用于记录CUDA内核的错误，并将其传递到程序中
 
 ==重要调整： 将单图的推理模式从业务层强制变为CPU模式，如果用户选择了GPU模式，则fallback到CPU进行处理并进行提示==
 

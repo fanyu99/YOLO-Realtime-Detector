@@ -101,6 +101,13 @@ GpuDetector::GpuDetector( const DetectorConfig& config )
 {
 #ifdef YOLO_HAVE_CUDA
 	// 校验配置是否合法
+	if (!CudaDevice::instance().isValid()) {
+		m_lastError = DetectionError(
+			QStringLiteral( "[GpuDetector]: CUDA设备不可用，无法使用GPU检测器" ),
+			DetectionErrorCategory::CUDA,
+			DetectionErrorCode::FallbackRequested );
+		return;
+	}
 	if (!std::filesystem::exists( config.model_path )) {
 		m_lastError = DetectionError(
 			QStringLiteral( "[GpuDetector]: 模型路径无效: " ) + QString::fromStdU16String( config.model_path.u16string() ),
@@ -167,6 +174,10 @@ Ort::SessionOptions GpuDetector::CreateSessionOptions( int threads ) {
 
 bool GpuDetector::isValid()const {
 	return m_valid;
+}
+
+const DetectionError& GpuDetector::lastError() const {
+	return m_lastError;
 }
 
 GpuDetector::~GpuDetector() {
