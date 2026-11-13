@@ -43,6 +43,8 @@ set(YOLO_CORE_SOURCES
     inference/CpuDetectionFlow.cpp
     inference/CpuDetector.h
     inference/CpuDetector.cpp
+    inference/GpuDetector.h
+    inference/GpuDetector.cpp
     inference/CpuPreprocessor.h
     inference/CpuPreprocessor.cpp
     inference/CudaPreprocessor.h

@@ -22,6 +22,7 @@ public:
     QString describe() const;               // ID+设备名+显存
     QString deviceName() const; // 获取单独的设备名（QML显示）
 	DetectionError lastError() const;  // 获取最后一次错误
+    int deviceId() const;  // 获取设备ID
 private:
     CudaDevice() = default;
     ~CudaDevice();

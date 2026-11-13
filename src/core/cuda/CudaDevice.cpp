@@ -135,3 +135,9 @@ CudaDevice& CudaDevice::instance() {
 	static CudaDevice instance;
 	return instance;
 }
+
+
+// 获取设备ID
+int CudaDevice::deviceId() const {
+	return m_deviceId;
+}

@@ -231,9 +231,7 @@ bool CpuDetector::warmup( int iterations ) {
 		if (chw.empty())
 			return false;
 
-		QElapsedTimer timer;
 		for (int i = 0; i < iterations; ++i) {
-			timer.restart();
 			Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
 				mem_info, chw.ptr<float>(), chw.total(),
 				input_shape.data(), static_cast<size_t>( input_shape.size() ) );
