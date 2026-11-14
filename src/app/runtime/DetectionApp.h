@@ -113,6 +113,9 @@ signals:
 	void batchFinished(quint64 jobId, int totalTasks, int succeeded, int failed);		// 批量作业完成(带汇总)
 
 private:
+	// fallback自愈并发送信号
+	void onFallbackOccurred( const DetectionError& error );	
+
 	// 将字符串变为模式枚举
 	std::optional<FlowMode> str2FlowMode( QStringView str ) const;
 

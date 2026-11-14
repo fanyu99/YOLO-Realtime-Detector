@@ -32,12 +32,17 @@ DetectionApp::DetectionApp( QObject* parent ) : QObject( parent ), m_filePath( "
 	connect( m_manager.get(), &DetectionManager::detectorWarning, this, &DetectionApp::onDetectorWarning );
 	connect( m_manager.get(), &DetectionManager::jobSaved, this, &DetectionApp::onJobSaved );
 	connect( m_manager.get(), &DetectionManager::configAdjusted, this, &DetectionApp::onConfigAdjusted );
-	connect( m_manager.get(), &DetectionManager::fallbackOccurred, this, [ this ]( const DetectionError& error ) {
+	connect( m_manager.get(), &DetectionManager::fallbackOccurred, this, &DetectionApp::onFallbackOccurred );
+
+
+}
+
+void DetectionApp::onFallbackOccurred( const DetectionError& error ) {
+	if (error.errorCode == DetectionErrorCode::FallbackRequested) {
+		Logger::instance()->warning( QStringLiteral( "[DetectionApp]: 检测器已触发 fallback 自愈，当前模式已切换为 CPU 模式" ) );
 		m_config.active_mode = FlowMode::CPU;	// 自愈为 CPU 模式
 		emit configChanged();
-		} );
-
-
+	}
 }
 
 DetectionApp::~DetectionApp() {
@@ -179,6 +184,14 @@ void DetectionApp::onDetectClicked() {
 	const QString path = QString::fromStdWString( m_filePath.wstring() );
 	if (!isImagePath( path ) && !isVideoPath( path )) {
 		reportError( AppError( QStringLiteral( "[Detector]: 文件类型不支持!" ), AppErrorCode::InvalidFilePath ) );
+		return;
+	}
+	// 业务层限制: GPU模式不支持单张图像推理
+	if (isImagePath( path ) && m_config.effectiveMode() == FlowMode::GPU) {
+		Logger::instance()->warning(QStringLiteral("[DetectionApp]: GPU模式不支持单张图像推理，已触发 fallback 到 CPU 模式"));
+		onFallbackOccurred( DetectionError(
+			QStringLiteral( "[DetectionApp]: GPU模式不支持单张图像推理，已触发 fallback 到 CPU 模式" ),
+			DetectionErrorCategory::Other, DetectionErrorCode::FallbackRequested ) );
 		return;
 	}
 	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 提交文件检测: " ) + path );

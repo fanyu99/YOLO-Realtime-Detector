@@ -57,6 +57,7 @@ DetectionTask
 - 新增 `DetectionSession`，并接入 Worker 和 Manager 基线。
 - 接线fallback机制，fallback信号层层上报并使用自愈机制完成配置的修正
 - 完成当前的fallback机制的QML层接线
+- 完善了业务层的fallback机制，当前的GPU/CPU整体流程已经完成
 
 - 调整帧源结构：
   - `FileFrameSource` 更名为 `ImageFrameSource`，仅支持单图（固定使用CPU的opencv的imread）
@@ -78,11 +79,18 @@ DetectionTask
 - 完成`CudaPreprocessor`与Cudakernel的封装`CudaPreprocessKernels`
 - 完成了`GpuDetector`的实现，用户的CUDA设备可用时会进行条件编译，如果不支持，将会直接返回fallback到CPU模式
 - 完成了`GpuDetectionFlow`以及`GpuDetectionFlowFactory`的实现，并将其添加到`DetectionSession`中，完成GPU模式的推理流程；新增`CudaKernelError`用于记录CUDA内核的错误，并将其传递到程序中
+- 完成了业务层对单图片GPU模式的拦截，直接fallback到CPU模式进行处理，并进行提示
+
+- 调整App层的任务提交策略：
+- App层添加文件类型描述符，包含帧源类型以及路径和设备名，将其提交到Manager,由Manager创建Job以及Tasks并将Tasks投递给Worker执行Task
+  - App层不再直接创建帧源，而是提交帧源描述给Manager，由Manager创建Job并将Job投递给Worker
+  - Worker在执行Job时创建对应的Session，并在Session中创建对应的帧源和Flow
+  - Session负责管理帧源和Flow的生命周期，Job结束后销毁Session
+  - Manager负责管理Job的状态和fallback机制，Worker只负责执行Job中的Task
 
 ==重要调整： 将单图的推理模式从业务层强制变为CPU模式，如果用户选择了GPU模式，则fallback到CPU进行处理并进行提示==
 
 后续计划：
-- 完成`GpuDetectionFlow`的实现，并将其接入到`DetectionSession`中，完成GPU模式的推理流程
 
 - 完善 fallback 机制：
   - 暂时先不接入Job的drop和重建投递机制

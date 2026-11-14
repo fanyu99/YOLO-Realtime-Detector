@@ -46,8 +46,8 @@ Item {
 			// 避免视频 / 摄像头把日志面板刷爆。0 表示不间隔（每帧都输出）。
 			// 值直接写回 Logger 单例，Detector 侧的 infoWithInterval 立即生效。
 			Label {
-				text: "间隔"
-				opacity: 0.75
+                text: "推理日志输出间隔"
+                opacity: 0.75
 				font.pixelSize: 12
 			}
 			SpinBox {

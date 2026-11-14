@@ -34,6 +34,10 @@ public:
 	// 返回 false 表示未启动或任务为空，调用方据此上报失败。
 	bool submit(std::unique_ptr<DetectionTask> task);
 
+	// fallback机制函数，校验错误是否存在fallback，存在则返回true,并发送fallback信号以及重建Session、自愈配置
+	// 如果致命，不做自愈
+	bool fallbackIf( const DetectionError& error, bool fatal = false );
+
 signals:
 
 	void fallbackOccurred(const DetectionError& error); // 触发fallback并完成自愈，通知上层进行更改配置以及警告
@@ -50,7 +54,9 @@ signals:
 	void taskFailed(quint64 jobId, const DetectionError& error);
 	void taskCancelled(quint64 jobId);
 
+	
 private:
+
 	// 转发警告并修正尺寸
 	void reportWarnings();
 

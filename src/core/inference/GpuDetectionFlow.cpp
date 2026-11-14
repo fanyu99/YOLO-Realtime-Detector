@@ -52,6 +52,14 @@ bool GpuDetectionFlow::run( const FrameHandlePtr& handle, DetectionResult& outRe
 		outResult.error = m_lastError;
 		return false;
 	}
+	if (handle->memoryType()==MemoryType::CPU) {
+		m_lastError = DetectionError(
+			QStringLiteral( "[GpuDetectionFlow]: 检测到输入帧为CPU内存类型，正在fallback到CPU模式" ),
+			DetectionErrorCategory::Preprocess,
+			DetectionErrorCode::FallbackRequested );
+		outResult.error = m_lastError;
+		return false;
+	}
 	// 预处理
 	auto preprocessedOpt = m_preprocessor.preprocess( handle, m_detector.inputWidth(), m_detector.inputHeight() );
 	if (!preprocessedOpt.has_value()) {

@@ -1,10 +1,10 @@
 #include "CudaPreprocessor.h"
+#include <memory>
+#include "GpuFrameHandle.h"
 #ifdef YOLO_HAVE_CUDA
 #include "CudaPreprocessKernels.h"
 #include "CudaDevice.h"
 #endif
-#include <memory>
-#include "GpuFrameHandle.h"
 
 CudaPreprocessor::~CudaPreprocessor() {
 #ifdef	YOLO_HAVE_CUDA
@@ -110,7 +110,7 @@ CudaPreprocessor::preprocess( const FrameHandlePtr& frame, int dstW, int dstH ) 
 	// 取显存NV12平面的设备指针（所有权归帧句柄，kernel只读借用）
 	const auto yPlane = data->plane( 0 );
 	const auto uvPlane = data->plane( 1 );
-	// 调用CUDA kernel进行letterbox处理（kernel层为POD错误通道，这里翻译成DetectionError）
+	// 调用CUDA kernel进行letterbox处理
 	CudaKernelError kernelError;
 	if (!launchNv12LetterboxKernel( yPlane.data, yPlane.stride, uvPlane.data, uvPlane.stride, params, device.stream(), &kernelError )) {
 		m_lastError = DetectionError(

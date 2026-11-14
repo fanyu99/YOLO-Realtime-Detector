@@ -27,6 +27,21 @@ namespace {
 	}
 }
 
+// fallback机制函数,返回是否触发fallback
+bool DetectionWorker::fallbackIf( const DetectionError& error ,bool fatal ) {
+	if (fatal) {
+		emit detectorFailed( error );
+		return true;
+	}
+	if (!error.has_error())
+		return false;
+	if (error.errorCode == DetectionErrorCode::FallbackRequested) {
+		rebuildSession(); // 重建会话并发送信号以及自愈配置
+		return true;
+	}
+	return false;
+}
+
 DetectionWorker::DetectionWorker( QObject* parent ) : QObject( parent ) {}
 
 DetectionWorker::~DetectionWorker() {
@@ -153,7 +168,8 @@ bool DetectionWorker::rebuildSession() {
 		QStringLiteral( "[DetectionWorker]: 推理流程创建失败" ),
 		DetectionErrorCategory::Detection, DetectionErrorCode::FallbackRequested ) );
 	// 发送警告信号
-	emit detectorWarning( DetectorWarning( QStringLiteral( "Fallback 已触发，当前的GPU模式不可用或异常，正在切换到 CPU 模式" ), DetectorWarning::Code::FallbackRequested ) );
+	bool messsageEmpty = m_session ? m_session->lastError().errorMessage.isEmpty() : true;
+	emit detectorWarning( DetectorWarning( QStringLiteral( "Fallback 已触发，当前的GPU模式不可用或异常，正在切换到 CPU 模式，发送者错误信息： " ) + (messsageEmpty ? QStringLiteral( "无" ) : m_session->lastError().errorMessage), DetectorWarning::Code::FallbackRequested ) );
 	// 释放旧的 Session
 	m_session.reset();
 	// 修改配置为 CPU 模式
@@ -172,19 +188,21 @@ bool DetectionWorker::rebuildSession() {
 }
 
 // 工作循环
+// TODO: 进行fallback机制完善
 void DetectionWorker::work() {
 #ifdef YOLO_HAVE_CUDA
 	// GPU模式：初始化进程级CUDA设备（幂等），并将当前线程绑定到该设备
-	// （CUDA runtime 的 current device 是线程属性，worker 线程内所有 CUDA/推理操作前需设置一次）
 	if (m_config.effectiveMode() == FlowMode::GPU
 		&& !CudaDevice::instance().init( m_config.device_id )) {
 		const DetectionError error = CudaDevice::instance().lastError();
 		m_lastError = error.has_error() ? error : DetectionError(
 			QStringLiteral( "[DetectionWorker]: CUDA设备初始化失败" ),
 			DetectionErrorCategory::CUDA, DetectionErrorCode::FallbackRequested );
+		// 设备初始化失败，重建CPU会话
+		fallbackIf( m_lastError );
 	}
 	else {
-		CudaDevice::instance().use();
+		CudaDevice::instance().use();  // 使用当前的CUDA设备
 	}
 #endif
 	// 在 worker 线程内创建检测会话：ONNX 会话构造较重,在worker线程进行构造
@@ -313,7 +331,15 @@ void DetectionWorker::execute( DetectionTask& task ) {
 	}
 	else {
 		switch (task.source->type()) {
-		case FrameSourceType::SingleImage:	ok = runImage( task );  break;
+		case FrameSourceType::SingleImage:
+			// 如果是图像，进行判断是否为GPU模式，如果是直接fallback到CPU模式进行推理
+			if (m_config.effectiveMode() == FlowMode::GPU) {
+				m_lastError = DetectionError( QStringLiteral( "[DetectionWorker]: GPU模式不支持单张图像推理，已触发 fallback 到 CPU 模式" ),
+					DetectionErrorCategory::Other, DetectionErrorCode::FallbackRequested );
+				Logger::instance()->warning( QStringLiteral( "[DetectionWorker]: GPU模式不支持单张图像推理，已触发 fallback 到 CPU 模式" ) );
+				fallbackIf(m_lastError);
+			}
+			ok = runImage( task );  break;
 		case FrameSourceType::VideoFile:
 		case FrameSourceType::Camera:		ok = runStream( task ); break;
 		}
@@ -357,6 +383,7 @@ bool DetectionWorker::runImage( DetectionTask& task ) {
 	// 执行完整的流程：预处理 + 推理 + 后处理
 	if (!m_session->runFlow( handle, result )) {
 		m_lastError = result.error;	// 流程失败时错误已回填到 result
+		fallbackIf(m_lastError);
 		return false;
 	}
 	result.taskId = task.taskId;
@@ -399,6 +426,7 @@ bool DetectionWorker::runStream( DetectionTask& task ) {
 		DetectionResult result;
 		if (!m_session->runFlow( handle, result )) {
 			m_lastError = result.error;	// 流程失败时错误已回填到 result
+			fallbackIf( m_lastError );
 			return false;
 		}
 		result.taskId = task.taskId;

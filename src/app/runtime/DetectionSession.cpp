@@ -49,7 +49,7 @@ DetectionSession::DetectionSession( const DetectorConfig& config )
 	if (!m_detectionFlow || !m_detectionFlow->isValid()) {
 		Logger::instance()->error( QStringLiteral( "[DetectionSession]: 检测器初始化失败: " )
 			+ (m_detectionFlow ? m_detectionFlow->lastError().errorMessage : QStringLiteral( "推理流程创建失败" )) );
-		m_fallbackRequested = true;
+		m_fallbackRequested = m_detectionFlow  ? m_detectionFlow->lastError().errorCode == DetectionErrorCode::FallbackRequested : false; // 判断是否需要fallback
 		m_lastError = m_detectionFlow ? m_detectionFlow->lastError() : DetectionError(
 			QStringLiteral( "[DetectionSession]: 推理流程创建失败" ),
 			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
@@ -104,6 +104,13 @@ bool DetectionSession::runFlow( const FrameHandlePtr& frame, DetectionResult& ou
 		m_lastError = DetectionError(
 			QStringLiteral( "[DetectionSession]: 推理流程未创建" ),
 			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
+		return false;
+	}
+	// 如果是单图（CPU内存），自动fallback到CPU模式
+	if (frame->memoryType() == MemoryType::CPU && getMemoryType() == MemoryType::GPU) {
+		m_lastError = DetectionError(
+			QStringLiteral( "[DetectionSession]: 输入帧内存类型与会话实际模式不匹配,尝试重建会话为CPU模式" ),
+			DetectionErrorCategory::Detection, DetectionErrorCode::FallbackRequested );
 		return false;
 	}
 	const bool success = m_detectionFlow->run( frame, outResult );
