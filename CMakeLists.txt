@@ -217,8 +217,6 @@ set(YOLO_SOURCE_DIRS
 set(PROJECT_SOURCES
     src/main.cpp
 )
-# 应用内嵌资源：默认示例图片与示例模型（rcc 按 .qrc 所在目录解析相对路径）
-qt_add_resources(PROJECT_SOURCES resources/images.qrc)
 
 # -----------------------------------------------------------------------------
 # 模块库：定义在 src/core/CMakeLists.txt 与 src/app/CMakeLists.txt 中
@@ -355,6 +353,17 @@ if(WIN32)
             COMMENT "Deploying ${_dll_count} runtime DLLs next to ${PROJECT_NAME}.exe"
         )
     endif()
+endif()
+
+# 示例资源部署：examples/（示例图片 + 示例模型）随构建同步到 exe 目录，
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples"
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/examples
+        COMMENT "Deploying examples/ (sample images + models) next to ${PROJECT_NAME}.exe"
+    )
+    message(STATUS "成功找到示例资源目录： ${CMAKE_CURRENT_SOURCE_DIR}/examples")
 endif()
 
 # CUDA / cuDNN 运行时 DLL 部署。

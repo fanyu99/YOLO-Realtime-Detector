@@ -46,6 +46,8 @@ DetectionTask
 ---
 
 当前完成：
+- 新增示例文件夹 `examples/`，包含示例图片、视频、模型和类别名。
+- 添加QML端的一键示例检测按钮，直接使用示例的图片/模型文件进行检测
 
 - 新增 `FrameHandle` 抽象类及 `CpuFrameHandle`，并接入 `FrameSource`，统一帧句柄管理。
 - 新增 `CpuPreprocessor`，统一预处理流程；将 `DetectorError` 更名为 `DetectionError`，新增 `PreprocessFailed` 错误类型。

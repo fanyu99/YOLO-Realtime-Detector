@@ -288,12 +288,20 @@ Window {
 						}
 					}
 
-					// 开始检测(推理接入 UI 后生效)
+					// 开始检测(自动按文件类型选择帧源)
 					Button {
 						id:detectBtn
 						text: "开始检测"
 						Layout.fillWidth: true
-						onClicked: detectionOptionMenu.open()
+						onClicked: app.onDetectClicked()
+					}
+
+					// 一键示例检测
+					Button {
+						text: "示例检测"
+						Layout.fillWidth: true
+						enabled: !app.busy
+						onClicked: app.runSampleDetection()
 					}
 				}
 			}
@@ -382,21 +390,6 @@ Window {
 							text: "选择视频…"
 							onTriggered: { window.videoMode = true; fileDialog.open() }
 						}
-					}
-
-					// 检测选项：默认或Ffmpeg
-					Menu{
-					id:detectionOptionMenu
-					parent:detectBtn
-					y: detectBtn.height
-					MenuItem{
-						text:"默认解码(OpenCV)"
-						onTriggered:app.onDetectClicked()
-					 }
-					 MenuItem{
-					 	text:"Ffmpeg解码"
-							onTriggered:app.onDetectFfmpegClicked()
-					 }
 					}
 				}
 

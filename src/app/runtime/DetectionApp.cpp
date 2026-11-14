@@ -1,6 +1,7 @@
 #include "DetectionApp.h"
 
 #include <QFileInfo>
+#include <QCoreApplication>
 #include <QQmlEngine>
 #include <QVariantMap>
 #include <algorithm>
@@ -188,7 +189,7 @@ void DetectionApp::onDetectClicked() {
 	}
 	// 业务层限制: GPU模式不支持单张图像推理
 	if (isImagePath( path ) && m_config.effectiveMode() == FlowMode::GPU) {
-		Logger::instance()->warning(QStringLiteral("[DetectionApp]: GPU模式不支持单张图像推理，已触发 fallback 到 CPU 模式"));
+		Logger::instance()->warning(QStringLiteral("[DetectionApp]: GPU模式不支持单张图像推理，已触发 fallback 到 CPU 模式，请重试"));
 		onFallbackOccurred( DetectionError(
 			QStringLiteral( "[DetectionApp]: GPU模式不支持单张图像推理，已触发 fallback 到 CPU 模式" ),
 			DetectionErrorCategory::Other, DetectionErrorCode::FallbackRequested ) );
@@ -202,6 +203,48 @@ void DetectionApp::onDetectClicked() {
 
 	m_progress = 0.0f;
 	setState( m_currentJobId, false, true );
+}
+
+// 获取示例资源根目录
+QString DetectionApp::samplesRoot() const {
+	return QCoreApplication::applicationDirPath() + QStringLiteral( "/examples" );
+}
+
+// qml侧调用: 一键示例检测。
+void DetectionApp::runSampleDetection() {
+	const QString root = samplesRoot();
+	if (!QFileInfo::exists( root )) {
+		reportError( AppError( QStringLiteral( "[DetectionApp]: 示例资源目录不存在: " ) + root, AppErrorCode::InvalidFilePath ) );
+		return;
+	}
+
+	// 示例文件路径
+	const QUrl sampleImage = QUrl::fromLocalFile( root + QStringLiteral( "/images/1 (369).jpg" ) );
+	const QUrl sampleModel = QUrl::fromLocalFile( root + QStringLiteral( "/models/african-wildlife_best.onnx" ) );
+
+	// 类别名
+	const QStringList sampleClasses{ QStringLiteral( "buffalo" ), QStringLiteral( "elephant" ),
+									 QStringLiteral( "rhino" ), QStringLiteral( "zebra" ) };
+
+	// 示例配置
+	DetectorConfig sample = m_config;
+	sample.model_path = std::filesystem::path( sampleModel.toLocalFile().toStdWString() );
+	if (sample.class_names.isEmpty())
+		sample.class_names = sampleClasses;
+	if (sample.conf_threshold <= 0.0f || sample.conf_threshold >= 1.0f)
+		sample.conf_threshold = 0.25f;
+	if (sample.iou_threshold <= 0.0f || sample.iou_threshold >= 1.0f)
+		sample.iou_threshold = 0.45f;
+
+	setFilePath( sampleImage );
+	setConfig( sample );			// 应用成功才提交
+	if (m_config.model_path != sample.model_path || !m_config.isValid()) {
+		Logger::instance()->warning( QStringLiteral( "[DetectionApp]: 示例配置未能应用，已取消示例检测" ) );
+		return;
+	}
+	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 示例检测: " ) + sampleImage.toLocalFile() );
+	// 进行检测
+	onDetectClicked();
 }
 
 // qml侧调用: 海康相机检测
@@ -273,41 +316,6 @@ void DetectionApp::onDetectFfmpegDeviceClicked( const QString& deviceName, const
 		return;
 	m_progress = 0.0f;
 	setState( m_currentJobId, true, true );
-}
-
-// qml侧调用: Ffmpeg检测
-void DetectionApp::onDetectFfmpegClicked() {
-	if (m_busy) {
-		reportError( AppError( QStringLiteral( "[DetectionApp]: 已有检测在进行中，请先停止!" ), AppErrorCode::DetectionFailed ) );
-		return;
-	}
-	if (m_filePath.empty()) {
-		reportError( AppError( QStringLiteral( "[Detector]: 文件路径为空!" ), AppErrorCode::InvalidFilePath ) );
-		return;
-	}
-	if (!std::filesystem::exists( m_filePath )) {
-		reportError( AppError( QStringLiteral( "[Detector]: 文件路径无效!" ), AppErrorCode::InvalidFilePath ) );
-		return;
-	}
-	if (!m_config.isValid()) {
-		reportError( AppError( QStringLiteral( "[Detector]: 配置无效!" ), AppErrorCode::InvalidConfig ) );
-		return;
-	}
-	if (!m_config.model_exists()) {
-		reportError( AppError( QStringLiteral( "[Detector]: 模型路径无效!" ), AppErrorCode::InvalidModelPath ) );
-		return;
-	}
-	if (!m_manager->start()) {
-		reportError( AppError( QStringLiteral( "[Detector]: 检测器未就绪!" ), AppErrorCode::DetectorError ) );
-		return;
-	}
-	const QString path = QString::fromStdWString( m_filePath.wstring() );
-	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 提交 Ffmpeg 检测: " ) + path );
-	m_currentJobId = m_manager->submitSource( makeFileDescription( path ), effectiveResultsDir() );
-	if (m_currentJobId == 0)
-		return;						// 提交失败，Manager 已经 emit jobFailed
-	m_progress = 0.0f;
-	setState( m_currentJobId, false, true );
 }
 
 // qml侧调用: 批量检测（图片/视频可混排，一个 Job 含多个 Task）
