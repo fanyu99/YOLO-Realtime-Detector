@@ -188,7 +188,6 @@ bool DetectionWorker::rebuildSession() {
 }
 
 // 工作循环
-// TODO: 进行fallback机制完善
 void DetectionWorker::work() {
 #ifdef YOLO_HAVE_CUDA
 	// GPU模式：初始化进程级CUDA设备（幂等），并将当前线程绑定到该设备
@@ -332,13 +331,7 @@ void DetectionWorker::execute( DetectionTask& task ) {
 	else {
 		switch (task.source->type()) {
 		case FrameSourceType::SingleImage:
-			// 如果是图像，进行判断是否为GPU模式，如果是直接fallback到CPU模式进行推理
-			if (m_config.effectiveMode() == FlowMode::GPU) {
-				m_lastError = DetectionError( QStringLiteral( "[DetectionWorker]: GPU模式不支持单张图像推理，已触发 fallback 到 CPU 模式" ),
-					DetectionErrorCategory::Other, DetectionErrorCode::FallbackRequested );
-				Logger::instance()->warning( QStringLiteral( "[DetectionWorker]: GPU模式不支持单张图像推理，已触发 fallback 到 CPU 模式" ) );
-				fallbackIf(m_lastError);
-			}
+			// 单图GPU模式下由Session层上传显存后走GPU流程，无需在此fallback
 			ok = runImage( task );  break;
 		case FrameSourceType::VideoFile:
 		case FrameSourceType::Camera:		ok = runStream( task ); break;
@@ -354,6 +347,7 @@ void DetectionWorker::execute( DetectionTask& task ) {
 	}
 	else if (!ok) {		 // 执行失败（失败计数由 Manager 在收到 taskFailed 时累加）
 		shared->status.store( DetectionTaskStatus::Failed, std::memory_order_relaxed );
+
 		emit taskFailed( task.jobId, m_lastError );
 	}
 	else {

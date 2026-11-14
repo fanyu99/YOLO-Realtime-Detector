@@ -2,6 +2,7 @@
 // CUDA 预处理 kernel：letterbox + 色彩转换 + 归一化 + NCHW，一次 launch 融合完成
 //
 // 输入：NV12 显存帧（NVDEC 零拷贝，Y 平面 + 交错 UV 平面设备指针）
+//       BGR24 packed 显存帧（imread 单图上传，GpuImageFrameHandle 持有）
 //
 // 几何约定与 CpuPreprocessor::letterbox 完全同构：
 //   有效区 [padX, padX+newW) × [padY, padY+newH)，其余写 114/255，
@@ -121,6 +122,79 @@ __global__ void letterboxKernelNv12(
 	dst[2 * planeSize + idx] = b * normScale;
 }
 
+// BGR24 packed bilinear 采样：行指针按 stride 取（兼容非 width*3 的 pitch）。
+// (fx, fy) 同 NV12 版：像素中心对齐的源坐标，越界内部 clamp。
+__device__ inline void sampleBgr24Bilinear(
+	const uint8_t* src, int stride, int srcW, int srcH,
+	float fx, float fy,
+	float& r, float& g, float& b)
+{
+	const int x0i = (int)floorf(fx);
+	const int y0i = (int)floorf(fy);
+	const float dx = fx - x0i;
+	const float dy = fy - y0i;
+	const int xc = min(max(x0i, 0), srcW - 1);
+	const int yc = min(max(y0i, 0), srcH - 1);
+	const int x1i = min(x0i + 1, srcW - 1);
+	const int y1i = min(y0i + 1, srcH - 1);
+
+	// packed BGR24：像素 x 的首字节偏移 = x * 3
+	const uint8_t* row0 = src + (size_t)yc * stride;
+	const uint8_t* row1 = src + (size_t)y1i * stride;
+	const int off0 = xc * 3, off1 = x1i * 3;
+
+	float bSum = 0.0f, gSum = 0.0f, rSum = 0.0f;
+	#pragma unroll
+	for (int c = 0; c < 3; ++c) {
+		const float p00 = row0[off0 + c], p01 = row0[off1 + c];
+		const float p10 = row1[off0 + c], p11 = row1[off1 + c];
+		const float v = (p00 * (1.0f - dx) + p01 * dx) * (1.0f - dy)
+			+ (p10 * (1.0f - dx) + p11 * dx) * dy;
+		if (c == 0) bSum = v;		// BGR 内存序：byte0 = B
+		else if (c == 1) gSum = v;
+		else rSum = v;				// byte2 = R
+	}
+	b = bSum;
+	g = gSum;
+	r = rSum;
+}
+
+// ---- 融合 kernel（BGR24 packed）：几何与 NV12 版同构，仅采样与通道序不同 ----
+__global__ void letterboxKernelBgr24(
+	const uint8_t* src, int stride,
+	int srcW, int srcH,
+	int dstW, int dstH, int newW, int newH, int padX, int padY,
+	float normScale, float* dst)
+{
+	const int x = blockIdx.x * blockDim.x + threadIdx.x;
+	const int y = blockIdx.y * blockDim.y + threadIdx.y;
+	if (x >= dstW || y >= dstH)
+		return;
+
+	const int planeSize = dstW * dstH;
+
+	// letterbox padding 区域：直接写 114/255
+	if (x < padX || y < padY || x >= padX + newW || y >= padY + newH) {
+		dst[0 * planeSize + y * dstW + x] = kPadValue;
+		dst[1 * planeSize + y * dstW + x] = kPadValue;
+		dst[2 * planeSize + y * dstW + x] = kPadValue;
+		return;
+	}
+
+	// 有效区：输出坐标 → 源坐标逆映射（像素中心对齐，与 cv::INTER_LINEAR 一致）
+	const float fx = (x - padX + 0.5f) * ((float)srcW / (float)newW) - 0.5f;
+	const float fy = (y - padY + 0.5f) * ((float)srcH / (float)newH) - 0.5f;
+
+	float r, g, b;
+	sampleBgr24Bilinear(src, stride, srcW, srcH, fx, fy, r, g, b);
+
+	// RGB → NCHW：R/G/B 三个平面 + /255 归一化（与 NV12 kernel 输出语义一致）
+	const int idx = y * dstW + x;
+	dst[0 * planeSize + idx] = r * normScale;
+	dst[1 * planeSize + idx] = g * normScale;
+	dst[2 * planeSize + idx] = b * normScale;
+}
+
 // ---- 主机端 launcher ----------------------------------------------------------
 
 // 统一的 launch 后错误检查：捕获配置错误（如非法参数/资源不足）
@@ -177,6 +251,35 @@ bool launchNv12LetterboxKernel(const uint8_t* yPlane, int yStride,
 
 	letterboxKernelNv12<<<grid, block, 0, stream>>>(
 		yPlane, uvPlane, yStride, uvStride,
+		params.srcW, params.srcH,
+		params.dstW, params.dstH, params.newW, params.newH, params.padX, params.padY,
+		params.normScale, params.dst);
+
+	return checkLaunchError("CudaPreprocessKernels", err);
+}
+
+bool launchBgr24LetterboxKernel(const uint8_t* src, int stride,
+	const CudaLetterboxParams& params,
+	cudaStream_t stream,
+	CudaKernelError* err)
+{
+	if (!src || stride <= 0) {
+		if (err) {
+			err->hasError = true;
+			snprintf(err->message, sizeof(err->message),
+				"[CudaPreprocessKernels]: BGR24 设备指针/stride 无效");
+		}
+		return false;
+	}
+	if (!validateParams(params, err))
+		return false;
+
+	const dim3 block(kBlockDim, kBlockDim);
+	const dim3 grid((params.dstW + kBlockDim - 1) / kBlockDim,
+		(params.dstH + kBlockDim - 1) / kBlockDim);
+
+	letterboxKernelBgr24<<<grid, block, 0, stream>>>(
+		src, stride,
 		params.srcW, params.srcH,
 		params.dstW, params.dstH, params.newW, params.newH, params.padX, params.padY,
 		params.normScale, params.dst);

@@ -84,6 +84,8 @@ if(YOLO_HAVE_CUDA)
 
         frame/GpuFrameHandle.h
         frame/GpuFrameHandle.cpp
+        frame/GpuImageFrameHandle.h
+        frame/GpuImageFrameHandle.cpp
 
         inference/GpuDetectionFlow.h
         inference/GpuDetectionFlow.cpp

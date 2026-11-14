@@ -30,7 +30,10 @@ set(CMAKE_AUTOMOC ON)
 # Release OpenCV 的组合：Debug 下头文件会把 cv:: 放进 cv::debug_build_guard 命名
 # 空间，与 release 库的符号名不一致，会直接链接失败。
 # -----------------------------------------------------------------------------
-option(YOLO_BUILD_DEBUG "ON = Debug 构建并使用 OpenCV debug 库；OFF = Release（默认）" OFF)
+option(YOLO_BUILD_DEBUG 
+"ON = Debug 构建并使用 OpenCV debug 库；OFF = Release（默认）" 
+ON
+)
 if(YOLO_BUILD_DEBUG)
     message(STATUS "YOLO_BUILD_DEBUG= ON : Debug 构建 + OpenCV Debug 库")
 else()

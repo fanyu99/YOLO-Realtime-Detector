@@ -10,7 +10,7 @@ enum class MemoryType {
 
 // 像素格式：
 enum class PixelFormat {
-	BGR24,  
+	BGR24,
 	BGRA,
 	RGB24,
 	GRAY,
@@ -18,6 +18,19 @@ enum class PixelFormat {
 	YUV420P,
 	Other
 };
+
+// 像素格式 -> 可读名称（用于日志/错误信息）
+inline QString pixelFormatToString( PixelFormat format ) {
+	switch (format) {
+	case PixelFormat::BGR24:	return QStringLiteral( "BGR24" );
+	case PixelFormat::BGRA:		return QStringLiteral( "BGRA" );
+	case PixelFormat::RGB24:	return QStringLiteral( "RGB24" );
+	case PixelFormat::GRAY:		return QStringLiteral( "GRAY" );
+	case PixelFormat::NV12:		return QStringLiteral( "NV12" );
+	case PixelFormat::YUV420P:	return QStringLiteral( "YUV420P" );
+	default:					return QStringLiteral( "Other" );
+	}
+}
 struct PlaneDescriptor{
 	const uint8_t* data{ nullptr }; // plane数据指针
 	int stride = -1;

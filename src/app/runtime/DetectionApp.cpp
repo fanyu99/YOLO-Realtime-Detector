@@ -187,14 +187,7 @@ void DetectionApp::onDetectClicked() {
 		reportError( AppError( QStringLiteral( "[Detector]: 文件类型不支持!" ), AppErrorCode::InvalidFilePath ) );
 		return;
 	}
-	// 业务层限制: GPU模式不支持单张图像推理
-	if (isImagePath( path ) && m_config.effectiveMode() == FlowMode::GPU) {
-		Logger::instance()->warning(QStringLiteral("[DetectionApp]: GPU模式不支持单张图像推理，已触发 fallback 到 CPU 模式，请重试"));
-		onFallbackOccurred( DetectionError(
-			QStringLiteral( "[DetectionApp]: GPU模式不支持单张图像推理，已触发 fallback 到 CPU 模式" ),
-			DetectionErrorCategory::Other, DetectionErrorCode::FallbackRequested ) );
-		return;
-	}
+	// 单图在GPU模式下于Session层上传显存后走GPU流程
 	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 提交文件检测: " ) + path );
 	m_currentJobId = m_manager->submitSource( makeFileDescription( path ), effectiveResultsDir() );
 

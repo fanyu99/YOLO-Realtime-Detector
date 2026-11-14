@@ -15,7 +15,7 @@ public:
 	int channels() const override; // packed格式返回通道数；planar(NV12/YUV420P)与硬件帧返回0 表示不能按照通道访问
 	int stride() const override; // plane0的linesize(pitch)
 	int frameIndex() const override;
-	PixelFormat pixelFormat() const override; // AV_PIX_FMT_CUDA映射为NV12（显存布局即NV12）
+	PixelFormat pixelFormat() const override; // 返回像素格式
 	PlaneDescriptor plane( int planeIndex ) const override; // 硬件帧返回设备指针，需调用方自行绑定CUDA context
 	// 获取内部帧只读指针（含hw_frames_ctx，预处理器可从中取CUDA context）
 	const AVFrame* constFrame() const;

@@ -31,3 +31,11 @@ bool launchNv12LetterboxKernel(const uint8_t* yPlane, int yStride,
 	const CudaLetterboxParams& params,
 	cudaStream_t stream,
 	CudaKernelError* err = nullptr);
+
+// BGR24 packed格式的letterbox kernel（imread单图上传到显存的帧）
+//   src 为 packed BGR24 设备指针（只读，所有权归帧句柄）；stride 为行字节数
+//   内存序 BGR → 写出时转换为 RGB 平面序（与 NV12 kernel 输出语义一致，模型输入为 RGB NCHW）
+bool launchBgr24LetterboxKernel(const uint8_t* src, int stride,
+	const CudaLetterboxParams& params,
+	cudaStream_t stream,
+	CudaKernelError* err = nullptr);

@@ -90,9 +90,38 @@ DetectionTask
   - Session负责管理帧源和Flow的生命周期，Job结束后销毁Session
   - Manager负责管理Job的状态和fallback机制，Worker只负责执行Job中的Task
 
-==重要调整： 将单图的推理模式从业务层强制变为CPU模式，如果用户选择了GPU模式，则fallback到CPU进行处理并进行提示==
+  1. **明确输入契约**
+   - 第一阶段仅支持：CPU BGR24、GPU NV12。
+   - 其他格式返回明确错误，当前任务失败，不触发整个会话回退。
+
+2. **校正 GPU 帧格式识别**
+   - 根据实际硬件帧布局判断 NV12，取消 `AV_PIX_FMT_CUDA = NV12` 的假设。
+   - 检查平面指针、stride、尺寸，以及颜色范围。
+
+3. **新增 CPU BGR 上传能力**
+   - 在 GPU flow 的输入路径中接入上传组件。
+   - 复用显存缓冲，正确处理 `cv::Mat::step`，保证上传与后续计算顺序及内存生命周期。
+
+4. **新增 BGR CUDA 预处理 kernel**
+   - 完成 BGR→RGB、resize、letterbox、归一化及 NCHW 排列。
+   - 输出与现有 NV12 路径一致的 `GpuPreprocessResult`，继续复用 `GpuDetector`。
+
+5. **接通 GPU flow 的两条路径**
+   - GPU NV12 → 现有 NV12 kernel。
+   - CPU BGR → 上传 → 新增 BGR kernel。
+   - Session 允许 CPU 帧进入 GPU flow。
+
+6. **移除单图和 CPU 输入导致的全局 fallback**
+   - 清理 App、Worker、Session、Flow 中对应拦截。
+   - 保留 CUDA 不可用、GPU 会话无法建立等必要回退。
+   - 普通输入错误仅影响当前任务。
 
 后续计划：
+
+
+7. **验证后再拓展解码**
+   - 验证 GPU 单图、图片/视频混合批量、异常图片，以及与 CPU 预处理的结果一致性。
+   - 确认图片不会改变后续推理模式，再增加 FFmpeg 图片硬解路径。
 
 - 完善 fallback 机制：
   - 暂时先不接入Job的drop和重建投递机制
@@ -101,8 +130,8 @@ DetectionTask
   - 每个 Job 包含多个 Task，Worker 根据配置复用或创建 Session。
   - Job 完成后暂时保留 Session，支持后续复用。
   - Manager 负责 Job 和 Session 的状态管理。
-- 修正：架构层中，单图仅支持CPU模式，不走GPU模式，故GPUPreprocessor无需注意CPU帧的处理；
-- 单图GPU模式直接在业务层拦截单图GPU模式并fallback到CPU进行处理（进行提醒）
+- 修正：单图GPU模式下由Session层将CPU帧（imread产出）上传显存（GpuImageFrameHandle）后走GPU流程（BGR24 kernel），不再强制fallback到CPU；
+- 上传失败（CUDA设备不可用/显存不足）时触发fallback自愈重建为CPU会话，单图仍可正常推理
 - 完善 GPU 显示流程，在 GPU 图像数据上叠加 CPU NMS 检测框和 Qt Overlay。
 ---
 

@@ -22,9 +22,10 @@ public:
 	// 创建Hik相机帧源（未注册Hik时返回nullptr）
 	FrameSourcePtr createHikCameraFrameSource(QStringView serial = {}, CameraTriggerMode mode = CameraTriggerMode::Off);
 	// 执行推理流程（调用Flow的run）
-	// 返回 false 时通过 lastError() 取错误原因；
+	// CPU帧进入GPU会话时在内部上传显存后走GPU流程
+	// 返回 false 时通过 lastError() 取错误原因
 	// Worker和manager需要在false时判断是否触发fallback(fallbackRequested)
-	bool runFlow(const FrameHandlePtr& frame, DetectionResult& outResult);
+	bool runFlow(FrameHandlePtr frame, DetectionResult& outResult);
 
 	// 会话是否构造成功（构造失败时用 lastError() 取原因）
 	bool isValid() const { return m_detectionFlow && m_detectionFlow->isValid(); }

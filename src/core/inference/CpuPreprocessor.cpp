@@ -13,11 +13,14 @@ CpuPreprocessResult CpuPreprocessor::letterbox( const FrameHandlePtr& handle, in
 			DetectionErrorCategory::Preprocess, DetectionErrorCode::PreprocessFailed );
 		return result;
 	}
-	// 检查图像是否合法
-	if (cpuHandle->constMat().empty() || cpuHandle->constMat().channels() != 3) {
+	// 检查像素格式，仅支持BGR24
+	if (cpuHandle->pixelFormat() != PixelFormat::BGR24) {
 		m_lastError = DetectionError(
-			QStringLiteral( "[CpuPreprocessor]: 输入图像无效: H:" ) + QString::number( cpuHandle->height() ) + QStringLiteral( ", W:" ) + QString::number( cpuHandle->width() ) + QStringLiteral( ", channels: " ) + QString::number( cpuHandle->channels() ),
-			DetectionErrorCategory::Image,
+			QStringLiteral( "[CpuPreprocessor]: 不支持的输入像素格式: " ) + pixelFormatToString( cpuHandle->pixelFormat() )
+			+ QStringLiteral( "（H:" ) + QString::number( cpuHandle->height() )
+			+ QStringLiteral( ", W:" ) + QString::number( cpuHandle->width() )
+			+ QStringLiteral( "），仅支持BGR24" ),
+			DetectionErrorCategory::Preprocess,
 			DetectionErrorCode::InvalidImage );
 		return result;
 	}

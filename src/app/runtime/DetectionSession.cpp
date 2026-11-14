@@ -1,9 +1,11 @@
 #include "DetectionSession.h"
 #include "CpuDetectionFlowFactory.h"
 #include "CpuFrameSourceFactory.h"
+#include "CpuFrameHandle.h"
 #ifdef YOLO_HAVE_CUDA
 #include "GpuFrameSourceFactory.h"
 #include "GpuDetectionFlowFactory.h"
+#include "GpuImageFrameHandle.h"
 #include "CudaDevice.h"
 #endif
 #include "Logger.h"
@@ -99,19 +101,46 @@ FrameSourcePtr DetectionSession::createHikCameraFrameSource( QStringView serial,
 }
 
 // 执行推理流程（调用Flow的run）
-bool DetectionSession::runFlow( const FrameHandlePtr& frame, DetectionResult& outResult ) {
+bool DetectionSession::runFlow( FrameHandlePtr frame, DetectionResult& outResult ) {
 	if (!m_detectionFlow) {
 		m_lastError = DetectionError(
 			QStringLiteral( "[DetectionSession]: 推理流程未创建" ),
 			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
+		outResult.error = m_lastError;
 		return false;
 	}
-	// 如果是单图（CPU内存），自动fallback到CPU模式
+	// GPU会话收到CPU帧（单图imread产出）：上传到显存后继续走GPU流程
 	if (frame->memoryType() == MemoryType::CPU && getMemoryType() == MemoryType::GPU) {
+#ifdef YOLO_HAVE_CUDA
+		const auto cpuHandle = std::dynamic_pointer_cast<CpuFrameHandle>( frame );
+		if (!cpuHandle || cpuHandle->constMat().empty()) {
+			m_lastError = DetectionError(
+				QStringLiteral( "[DetectionSession]: CPU帧转GPU上传失败: 帧句柄无效或图像为空" ),
+				DetectionErrorCategory::Image, DetectionErrorCode::InvalidImage );
+			outResult.error = m_lastError;
+			return false;
+		}
+		auto gpuHandle = std::make_shared<GpuImageFrameHandle>( cpuHandle->constMat(), frame->frameIndex() );
+		if (!gpuHandle->isValid()) {
+			m_lastError = DetectionError(
+				QStringLiteral( "[DetectionSession]: CPU帧上传GPU显存失败，触发fallback到CPU模式；详细信息：显存数据是否为空：" ) + (gpuHandle->dataEmpty() ? QStringLiteral("是") : QStringLiteral("否"))
+				+ QStringLiteral( ", width:" ) + QString::number( gpuHandle->width() )
+				+ QStringLiteral( ", height:" ) + QString::number( gpuHandle->height() )
+				+ QStringLiteral( ", frameIndex:" ) + QString::number( frame->frameIndex() )
+				+ QStringLiteral( ", pixelFormat:" ) + pixelFormatToString( gpuHandle->pixelFormat() )
+				+QStringLiteral(" ,stride ") + QString::number( gpuHandle->stride()),
+				DetectionErrorCategory::CUDA, DetectionErrorCode::FallbackRequested );
+			outResult.error = m_lastError;
+			return false;
+		}
+		frame = std::move( gpuHandle ); // 后续流程持有GPU帧
+#else
 		m_lastError = DetectionError(
-			QStringLiteral( "[DetectionSession]: 输入帧内存类型与会话实际模式不匹配,尝试重建会话为CPU模式" ),
-			DetectionErrorCategory::Detection, DetectionErrorCode::FallbackRequested );
+			QStringLiteral( "[DetectionSession]: 非CUDA构建下GPU会话不应收到CPU帧" ),
+			DetectionErrorCategory::Config, DetectionErrorCode::FallbackRequested );
+		outResult.error = m_lastError;
 		return false;
+#endif
 	}
 	const bool success = m_detectionFlow->run( frame, outResult );
 	// 执行失败记录错误，并标记是否为fallback

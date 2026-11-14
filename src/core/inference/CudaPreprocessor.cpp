@@ -1,6 +1,7 @@
-#include "CudaPreprocessor.h"
 #include <memory>
+#include "CudaPreprocessor.h"
 #include "GpuFrameHandle.h"
+#include "GpuImageFrameHandle.h"
 #ifdef YOLO_HAVE_CUDA
 #include "CudaPreprocessKernels.h"
 #include "CudaDevice.h"
@@ -53,15 +54,38 @@ CudaPreprocessor::preprocess( const FrameHandlePtr& frame, int dstW, int dstH ) 
 			DetectionErrorCode::InvalidImage );
 		return std::nullopt;
 	}
-	if (frame->memoryType() != MemoryType::GPU || frame->pixelFormat() != PixelFormat::NV12) {
-		m_lastError = DetectionError( QStringLiteral( "[CudaPreprocessor]: 输入帧不是有效的GPU帧 / 像素格式不为NV12!" ), DetectionErrorCategory::Preprocess, DetectionErrorCode::InvalidImage );
+	// GPU帧 ：NV12 或 BGR24
+	const bool isNv12 = frame->memoryType() == MemoryType::GPU && frame->pixelFormat() == PixelFormat::NV12;
+	const bool isBgr24 = frame->memoryType() == MemoryType::GPU && frame->pixelFormat() == PixelFormat::BGR24;
+	if (!isNv12 && !isBgr24) {
+		m_lastError = DetectionError(
+			QStringLiteral( "[CudaPreprocessor]: 不支持的输入帧: memoryType=" )
+			+ (frame->memoryType() == MemoryType::GPU ? QStringLiteral( "GPU" ) : QStringLiteral( "CPU" ))
+			+ QStringLiteral( ", pixelFormat=" ) + pixelFormatToString( frame->pixelFormat() )
+			+ QStringLiteral( "，仅支持GPU显存帧 + NV12/BGR24" ),
+			DetectionErrorCategory::Preprocess,
+			DetectionErrorCode::InvalidImage );
 		return std::nullopt;
 	}
-	// 转换为GpuFrameHandle
-	auto data = std::dynamic_pointer_cast<GpuFrameHandle>(frame);
-	if (!data || !data->isValid()) {
-		m_lastError = DetectionError( QStringLiteral( "[CudaPreprocessor]: 无法转换为GPU帧句柄!" ), DetectionErrorCategory::Preprocess, DetectionErrorCode::InvalidImage );
-		return std::nullopt;
+	// NV12: plane0=Y平面 plane1=UV平面
+	//BGR24: plane0=packed BGR
+	PlaneDescriptor plane0, plane1; 
+	if (isNv12) {
+		const auto data = std::dynamic_pointer_cast<GpuFrameHandle>( frame );
+		if (!data || !data->isValid()) {
+			m_lastError = DetectionError( QStringLiteral( "[CudaPreprocessor]: 无法转换为GpuFrameHandle: pixelFormat=" ) + pixelFormatToString( frame->pixelFormat() ), DetectionErrorCategory::Preprocess, DetectionErrorCode::InvalidImage );
+			return std::nullopt;
+		}
+		plane0 = data->plane( 0 );
+		plane1 = data->plane( 1 );
+	}
+	else {
+		const auto data = std::dynamic_pointer_cast<GpuImageFrameHandle>( frame );
+		if (!data || !data->isValid()) {
+			m_lastError = DetectionError( QStringLiteral( "[CudaPreprocessor]: 无法转换为GpuImageFrameHandle: pixelFormat=" ) + pixelFormatToString( frame->pixelFormat() ), DetectionErrorCategory::Preprocess, DetectionErrorCode::InvalidImage );
+			return std::nullopt;
+		}
+		plane0 = data->plane( 0 );
 	}
 #ifdef YOLO_HAVE_CUDA
 	// 设备与工作流检查（预处理kernel与后续ORT推理共用同一条stream）
@@ -76,8 +100,8 @@ CudaPreprocessor::preprocess( const FrameHandlePtr& frame, int dstW, int dstH ) 
 		m_lastError = DetectionError( QStringLiteral( "[CudaPreprocessor]: 目标尺寸非法: H:" ) + QString::number( dstH ) + QStringLiteral( ", W:" ) + QString::number( dstW ), DetectionErrorCategory::Preprocess, DetectionErrorCode::PreprocessFailed );
 		return std::nullopt;
 	}
-	// 计算newH、newW等
-	const int w = data->width(), h = data->height();
+	// 计算newH、newW等（宽高走FrameHandle接口，与具体句柄类型无关）
+	const int w = frame->width(), h = frame->height();
 	if (h <= 0 || w <= 0) {
 		m_lastError = DetectionError( QStringLiteral( "[CudaPreprocessor]: GPU帧尺寸无效: H:" ) + QString::number( h ) + QStringLiteral( ", W:" ) + QString::number( w ), DetectionErrorCategory::Preprocess, DetectionErrorCode::InvalidImage );
 		return std::nullopt;
@@ -107,12 +131,18 @@ CudaPreprocessor::preprocess( const FrameHandlePtr& frame, int dstW, int dstH ) 
 	params.padY = iy;
 	params.scale = scale;
 	params.dst = m_inputBuffer;
-	// 取显存NV12平面的设备指针（所有权归帧句柄，kernel只读借用）
-	const auto yPlane = data->plane( 0 );
-	const auto uvPlane = data->plane( 1 );
-	// 调用CUDA kernel进行letterbox处理
+	// 按像素格式分发到对应kernel（平面设备指针所有权归帧句柄，kernel只读借用）
 	CudaKernelError kernelError;
-	if (!launchNv12LetterboxKernel( yPlane.data, yPlane.stride, uvPlane.data, uvPlane.stride, params, device.stream(), &kernelError )) {
+	bool launchOk = false;
+	if (isNv12) {
+		// NV12：Y 平面 + 交错 UV 平面
+		launchOk = launchNv12LetterboxKernel( plane0.data, plane0.stride, plane1.data, plane1.stride, params, device.stream(), &kernelError );
+	}
+	else {
+		// BGR24 packed：单一平面
+		launchOk = launchBgr24LetterboxKernel( plane0.data, plane0.stride, params, device.stream(), &kernelError );
+	}
+	if (!launchOk) {
 		m_lastError = DetectionError(
 			QString::fromLocal8Bit( kernelError.hasError ? kernelError.message : "kernel launch 失败" ),
 			DetectionErrorCategory::Preprocess,

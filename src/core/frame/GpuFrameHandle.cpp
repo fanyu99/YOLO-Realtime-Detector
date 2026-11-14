@@ -87,8 +87,15 @@ PixelFormat GpuFrameHandle::pixelFormat() const {
 	case AV_PIX_FMT_GRAY8:
 		return PixelFormat::GRAY;
 	case AV_PIX_FMT_NV12:
-	case AV_PIX_FMT_CUDA: 
 		return PixelFormat::NV12;
+	case AV_PIX_FMT_CUDA: {	 // 校验是否为NV12
+		if (m_frame->hw_frames_ctx) {
+			const auto* framesCtx = reinterpret_cast<const AVHWFramesContext*>(m_frame->hw_frames_ctx->data);
+			if (framesCtx && framesCtx->sw_format == AV_PIX_FMT_NV12)
+				return PixelFormat::NV12;
+		}
+		return PixelFormat::Other;
+	}
 	case AV_PIX_FMT_YUV420P:
 		return PixelFormat::YUV420P;
 	default:
@@ -100,6 +107,12 @@ PlaneDescriptor GpuFrameHandle::plane( int planeIndex ) const {
 	PlaneDescriptor desc{};
 	if (!m_frame)
 		return desc;
+	// 非NV12格式时直接返回空
+	if (m_frame->format == AV_PIX_FMT_CUDA && m_frame->hw_frames_ctx) {
+		const auto* framesCtx = reinterpret_cast<const AVHWFramesContext*>(m_frame->hw_frames_ctx->data);
+		if (!framesCtx || framesCtx->sw_format != AV_PIX_FMT_NV12)
+			return desc;
+	}
 	const int planeCount = planeCountOf( static_cast<AVPixelFormat>(m_frame->format) );
 	if (planeIndex < 0 || planeIndex >= planeCount)
 		return desc;
