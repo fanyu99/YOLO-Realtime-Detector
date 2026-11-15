@@ -21,6 +21,8 @@ English here, [简体中文说明请见 README.zh-CN.md](README.zh-CN.md).
 
 - [Features](#features)
 - [Architecture](#architecture)
+- [Technology stack](#technology-stack)
+- [Planned updates](#planned-updates)
 - [Directory Structure](#directory-structure)
 - [Requirements](#requirements)
 - [Build](#build)
@@ -82,56 +84,70 @@ English here, [简体中文说明请见 README.zh-CN.md](README.zh-CN.md).
 
 ## Architecture
 
-The project is deliberately layered so that the inference engine has **no dependency on the
-UI or on `QObject`**, and the QML layer never touches threads or detector internals.
+The application is split into three layers. QML owns the screen and user actions. The app layer turns those actions into jobs and keeps the worker lifecycle out of the UI. The core layer reads frames, runs the selected CPU or GPU flow, and returns detection results without depending on QML or `QObject`.
 
-```
-                      ┌──────────────────────────────────────────┐
-   QML (qml/)         │  main.qml · Theme · LogView ·            │
-                      │  ConfigDialog · CameraDialog ·           │
-                      │  HikCameraDialog                         │
-                      └───────────────┬──────────────────────────┘
-                                      │  properties / Q_INVOKABLE
-                      ┌───────────────▼──────────────────────────┐
-   App layer          │  DetectionApp      (QML façade)          │
-   (src/app/)         │  DetectionManager  (job scheduler)       │
-                      │  DetectionWorker   (worker thread)       │
-                      │  DetectionRenderer (frame → QImage)      │
-                      │  DetectionResultSaver (annotated files)  │
-                      │  DetectionImageProvider (QML image://)   │
-                      │  FrameSource factory (QML → FrameSource) │
-                      │  Logger            (qDebug bridge)       │
-                      └───────────────┬──────────────────────────┘
-                                      │  DetectorConfig / DetectionResult
-                      ┌───────────────▼──────────────────────────┐
-   Core layer         │  Detector   (ONNX session, pre/post)     │
-   (src/core/)        │  DetectionTypes · Box · AppError         │
-                      │  FrameSource (strategy) →                │
-                      │    FileFrameSource · HikCameraFrameSource│
-                      └───────────────┬──────────────────────────┘
-                                      │
-                      ┌───────────────▼──────────────────────────┐
-                      │  ONNX Runtime (CUDA / CPU) · OpenCV ·    │
-                      │  Hikvision MVS SDK (Hik camera only)     │
-                      └──────────────────────────────────────────┘
+[View the generated architecture diagram](docs/architecture.html)
+
+The current execution model is built around a `DetectionJob`. The manager creates a job from the input description, the worker executes that job, and the session created for the job keeps the matching frame sources and detection flow together. A job can contain several tasks, which is what lets a mixed batch of images and videos use one progress bar while each task keeps its own source.
+
+```text
+QML
+  -> DetectionApp
+  -> DetectionManager
+  -> DetectionWorker
+  -> DetectionSession
+  -> FrameSource + DetectionFlow
+  -> DetectionManager
+  -> DetectionApp
+  -> QML
 ```
 
-Key design decisions (documented in more depth in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)):
+### Core modules
 
-- **`Detector` is not a `QObject`.** Errors travel through `lastError()` / `warnings()` and
-  results only through return values, so it can be used on any thread without `moveToThread`.
-- **Rendering happens on the worker thread.** `cv::Mat` shares pixel buffers, so handing a
-  `Mat` to the GUI thread would race with the next frame. The worker converts to an implicitly
-  shared `QImage` instead.
-- **The review buffer never blocks inference.** The UI advances an index at its own pace over a
-  bounded ring buffer; there are no cross-thread wait/release flags.
-- **`DetectionApp` only knows an opaque `jobId`.** Threading, queueing and cancellation stay
-  inside `DetectionManager` / `DetectionWorker`.
-- **Inference is frame-source agnostic.** A `DetectionTask` holds a `FrameSourcePtr` — never a
-  path or a device id — and the worker drives it with `open()` / `getFrame()` / `close()`.
-  Files, USB cameras and Hikvision SDK cameras therefore share one execution path, and the
-  vendor SDK stays sealed inside `HikCameraFrameSource` (PIMPL: `MvCameraControl.h` is not
-  pulled into the header).
+- `DetectionApp` is the QML-facing facade. It exposes configuration, commands, progress, warnings, logs, and result images. It does not create frame sources or touch worker threads.
+- `DetectionManager` creates and tracks jobs, collects task results, handles cancellation, and owns the fallback policy reported to the UI.
+- `DetectionWorker` runs jobs on the worker thread. It creates the session for a job and executes the tasks in that job without making the QML layer wait on inference.
+- `DetectionSession` stores the job-level mode and configuration. It creates the matching frame source and keeps a `CpuDetectionFlow` or `GpuDetectionFlow` alive for the tasks that use it.
+- `FrameSource` hides where frames come from. `ImageFrameSource` reads single images, `FfmpegFrameSource` handles videos and ordinary camera devices, and `HikCameraFrameSource` keeps the Hikvision SDK details behind its own boundary.
+- `FrameHandle` hides how a frame is stored. CPU BGR frames use `CpuFrameHandle`; decoded CUDA/NV12 frames and uploaded image frames use GPU handle types. The flow receives a handle instead of depending directly on one decoder or one image library.
+- `DetectionFlow` keeps preprocessing, inference, and result preparation together. The CPU flow uses OpenCV and ONNX Runtime CPU. The GPU flow uses CUDA preprocessing, ONNX Runtime CUDA, and CPU NMS where the current path still needs it.
+- `DetectionRenderer`, `DetectionImageProvider`, and `DetectionResultSaver` keep display, review, and file output at the app boundary. The worker converts results into data that QML can consume instead of exposing `cv::Mat` or SDK objects to the UI thread.
+
+### Technology stack
+
+| Area | Technology | Use in this project |
+|---|---|---|
+| Desktop UI | Qt 6, Qt Quick, QML | Window, dialogs, themes, logs, live result review |
+| Application code | C++20, Qt Core, Qt Multimedia | Job submission, worker thread, signals, configuration, device selection |
+| Model runtime | ONNX Runtime 1.30 | CPU and CUDA execution providers for YOLO ONNX models |
+| Image processing | OpenCV 5 | Image loading, CPU preprocessing, image conversion, drawing helpers |
+| Video and camera input | FFmpeg | Video decoding, camera devices, software and CUDA decode paths |
+| GPU processing | CUDA 13, cuDNN 9, custom CUDA kernels | Device setup, GPU frame storage, BGR/NV12 preprocessing, GPU inference |
+| Industrial cameras | Hikvision MVS SDK | GigE and USB3 camera discovery, trigger modes, frame acquisition |
+| Build and packaging | CMake, Ninja, Qt Resource System | Build configuration, QML resources, runtime DLL deployment |
+
+### Current data paths
+
+The CPU path accepts CPU BGR frames, runs OpenCV preprocessing, invokes the ONNX Runtime CPU provider, and completes postprocessing before the result reaches the renderer.
+
+The GPU path has two input paths. FFmpeg can provide GPU NV12 frames for the CUDA preprocessing kernel. Single images arrive as CPU BGR frames, then the session uploads them to the GPU and uses the BGR CUDA preprocessing path. If the CUDA device, GPU session, or upload path cannot be created, the manager reports the failure and rebuilds the session in CPU mode. A normal input error only fails the current task.
+
+The UI review buffer is bounded and does not pause inference. The worker publishes reviewable images, while QML moves through the buffer with Previous, Next, and Follow live. Saving results remains an app-layer concern, so the core inference code does not need to know where files will be written.
+
+For the detailed module notes and thread decisions, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and the [architecture diagram](docs/architecture.html).
+
+### Planned updates
+
+The next changes follow the same direction already recorded in `docs/ARCHITECTURE.md` and in the open issues of the repository:
+
+1. **Complete the GPU input contract.** Validate CPU BGR24 and GPU NV12 from the actual frame layout, including plane pointers, stride, dimensions, and color range. Unsupported formats should fail the current task with a clear error.
+2. **Finish the single-image GPU path.** Keep CPU BGR upload, buffer reuse, BGR CUDA preprocessing, GPU inference, CPU NMS, and Qt overlay in one working path. A failed upload should trigger CPU session recovery instead of forcing every single image to CPU in advance.
+3. **Move the worker queue to jobs.** The worker should receive a `DetectionJob`, create or reuse a session for that job, execute its tasks, and keep session lifetime separate from individual task lifetime. The manager will remain responsible for job and session state.
+4. **Add performance monitoring.** Issue [#14](https://github.com/fanyu99/YOLO-Realtime-Detector/issues/14) proposes an injected monitor with a real implementation for upload, letterbox, detection, and NMS timings, plus an empty implementation that keeps the same RAII timing boundary for normal runs. The result should appear in a detachable non-modal panel that polls at a fixed interval.
+5. **Split acquisition, inference, and display when measurements justify it.** Issue [#1](https://github.com/fanyu99/YOLO-Realtime-Detector/issues/1) records the next performance direction: an FFmpeg CUDA acquisition thread, a bounded frame queue, an inference worker, and a UI rendering path. The project will keep the current serial path until the measured bottleneck and the handoff cost are clear.
+6. **Validate before adding more decode paths.** Test GPU single-image inference, mixed image/video batches, broken images, and CPU/GPU preprocessing consistency first. Only then add an FFmpeg image hardware decode path.
+
+The completed work behind the current design is tracked in the closed issues for the GPU inference chain, unified frame handles, FFmpeg input integration, resource-based sample assets, and the session-based execution model. The architecture document keeps the implementation details and the reasons for each change.
 
 ---
 
