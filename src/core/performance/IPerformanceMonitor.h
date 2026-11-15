@@ -1,6 +1,9 @@
 #pragma once
 #include <QElapsedTimer>
 #include <QString>
+
+struct PerformanceConfig;
+
 // 检测的当前的状态阶段
 enum class PerformanceStage {
 	ReadFrame,	   // 读取帧
@@ -23,6 +26,7 @@ public:
 	virtual bool isEnabled() const noexcept= 0;	  // 返回是否全局启用性能监控器
 	virtual void recordStage( PerformanceStage stage,quint64 nsElapsed)noexcept  = 0;		  // 记录阶段耗时，单位为ns
 	virtual void recordFrameResult( bool success ) noexcept = 0;	  // 记录一帧是否成功
+	virtual void setConfig(const PerformanceConfig&config) noexcept = 0;
 };
 
 // 将阶段枚举转换为字符串

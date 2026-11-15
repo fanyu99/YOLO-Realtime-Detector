@@ -19,7 +19,7 @@ public:
 	void recordFrameResult( bool success ) noexcept override;
 
 	// 配置更新：推导新的配置的采集掩码并重置统计窗口
-	void setConfig( const PerformanceConfig& config );
+	void setConfig( const PerformanceConfig& config ) noexcept override;
 
 	// 作业上下文
 	void setJobId( quint64 jobId ) { m_jobId = jobId; }

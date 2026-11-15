@@ -15,6 +15,7 @@ public:
 		InvalidFilePath,	// 文件路径无效
 		InvalidConfig,		// 配置无效
 		DetectionFailed,	// 检测失败
+		PerformanceMonitorError, // 性能监测器错误
 		UnknownError
 	};
 	Q_ENUM(Code)

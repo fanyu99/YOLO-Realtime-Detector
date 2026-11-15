@@ -21,7 +21,7 @@ bool PerformanceMonitor::isEnabled() const noexcept {
 }
 
 // 设置配置并重置窗口
-void PerformanceMonitor::setConfig( const PerformanceConfig& config ) {
+void PerformanceMonitor::setConfig( const PerformanceConfig& config ) noexcept {
 	m_config = config;
 
 	// 由白名单表推导采集设置
