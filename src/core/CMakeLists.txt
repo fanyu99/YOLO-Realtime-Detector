@@ -25,6 +25,8 @@ set(YOLO_CORE_INFERENCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/inference")
 set(YOLO_CORE_FRAME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/frame")
 # 工厂
 set(YOLO_CORE_FACTORIES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/factories")
+# 性能监控
+set(YOLO_CORE_PERFORMANCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/performance")
 # 是否编译MVS
 option(YOLO_ENABLE_HIK "编译海康相机帧源（需要本机 MVS SDK）" ON)
 
@@ -71,6 +73,11 @@ set(YOLO_CORE_SOURCES
     factories/DetectionFlowFactory.h
     factories/CpuDetectionFlowFactory.h
     factories/CpuDetectionFlowFactory.cpp
+
+    # performance/ 
+    performance/IPerformanceMonitor.h
+    performance/NullPerformanceMonitor.h
+    performance/ScopedStageTimer.h
 )
 
 if(YOLO_HAVE_CUDA)
@@ -116,6 +123,7 @@ target_include_directories(yolo_core PUBLIC
     "${YOLO_CORE_INFERENCE_DIR}"
     "${YOLO_CORE_FRAME_DIR}"
     "${YOLO_CORE_FACTORIES_DIR}"
+    "${YOLO_CORE_PERFORMANCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/../app/components"
 )
 

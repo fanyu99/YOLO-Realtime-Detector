@@ -32,7 +32,7 @@ set(CMAKE_AUTOMOC ON)
 # -----------------------------------------------------------------------------
 option(YOLO_BUILD_DEBUG 
 "ON = Debug 构建并使用 OpenCV debug 库；OFF = Release（默认）" 
-ON
+OFF
 )
 if(YOLO_BUILD_DEBUG)
     message(STATUS "YOLO_BUILD_DEBUG= ON : Debug 构建 + OpenCV Debug 库")

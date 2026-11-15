@@ -28,6 +28,10 @@ qt_add_library(DetectionRuntime STATIC
     components/DetectionRenderer.cpp
     components/DetectionResultSaver.h
     components/DetectionResultSaver.cpp
+    # 性能监控
+    components/PerformanceTypes.h
+    components/PerformanceMonitor.h
+    components/PerformanceMonitor.cpp
 )
 
 target_include_directories(DetectionRuntime PUBLIC

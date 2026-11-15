@@ -1,0 +1,63 @@
+#pragma once
+#include <QObject>
+#include <QTimer>
+#include <QElapsedTimer>
+#include <atomic>
+#include <mutex>
+#include "IPerformanceMonitor.h"
+#include "PerformanceTypes.h"
+
+// 性能监测器
+class PerformanceMonitor final : public QObject, public IPerformanceMonitor {
+	Q_OBJECT
+public:
+	explicit PerformanceMonitor( QObject* parent = nullptr );
+	~PerformanceMonitor() override;
+
+	bool isEnabled() const noexcept override;	// 级别为关闭 = Off
+	void recordStage( PerformanceStage stage, quint64 nsElapsed ) noexcept override;
+	void recordFrameResult( bool success ) noexcept override;
+
+	// 配置更新：推导新的配置的采集掩码并重置统计窗口
+	void setConfig( const PerformanceConfig& config );
+
+	// 作业上下文
+	void setJobId( quint64 jobId ) { m_jobId = jobId; }
+
+	// 当前生效的级别
+	PerformanceLevel level() const noexcept { return m_level.load( std::memory_order_relaxed ); }
+
+signals:
+	// 定期性能快照
+	void snapshotReady( const PerformanceSnapshot& snapshot );
+
+private:
+	void resetWindow() noexcept;	// 清空窗口和snapshotIndex 归零（调用方需已持有锁）
+	void emitSnapshot(); // 生成快照并发信号
+
+	// 采集设置（热路径原子读，setConfig 单线程写）
+	std::atomic<unsigned> m_stageMask{ 0 };	// 监控级别允许记录的阶段位掩码
+	std::atomic<bool> isMemoryRecord{ false }; // 是否采集内存占用
+	std::atomic<PerformanceLevel> m_level{ PerformanceLevel::Basic };	//监控级别
+
+	// 窗口累计数据
+	std::mutex m_mutex;// 保护窗口数据
+	struct StageRecorder {
+		uint64_t sampleCount = 0;
+		double totalMs = 0.0;
+		double maximumMs = 0.0;
+	};
+	StageRecorder m_stageRecorder[8];	// 阶段记录器，按照索引记录
+	quint64 m_windowStartNs = 0;	// 窗口起始时间ns
+	uint64_t m_successfulFrames = 0;
+	uint64_t m_failedFrames = 0;
+	double m_endToEndTotalMs = 0.0;
+	uint64_t m_endToEndSamples = 0;	// 端到端样本数
+	int m_snapshotIndex = 0;	 // 快照序号
+
+	QElapsedTimer m_clock;	// 记录起始时间
+	QTimer m_reportTimer;	// 上报定时器
+	int m_reportIntervalMs = kDefaultReportInterval;
+	PerformanceConfig m_config;	// 配置副本
+	quint64 m_jobId = 0;	// 当前作业 ID
+};
