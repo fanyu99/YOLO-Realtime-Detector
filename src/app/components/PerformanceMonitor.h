@@ -14,6 +14,7 @@ public:
 	explicit PerformanceMonitor( QObject* parent = nullptr );
 	~PerformanceMonitor() override;
 
+	bool isRunning()const noexcept { return m_isRunning; }
 	bool isEnabled() const noexcept override;	// 级别为关闭 = Off
 	bool isStageEnabled( PerformanceStage stage ) const noexcept override;	// 阶段是否被当前级别白名单允许
 	void recordStage( PerformanceStage stage, quint64 nsElapsed ) noexcept override;
@@ -24,6 +25,7 @@ public:
 
 	// 作业上下文
 	void setJobId( quint64 jobId ) { m_jobId = jobId; }
+	void setIsRunning( bool running ) { m_isRunning = running; }
 
 	// 当前生效的级别
 	PerformanceLevel level() const noexcept { return m_level.load( std::memory_order_relaxed ); }
@@ -63,4 +65,5 @@ private:
 	int m_reportIntervalMs = kDefaultReportInterval;
 	PerformanceConfig m_config;	// 配置副本
 	quint64 m_jobId = 0;	// 当前作业 ID
+	bool m_isRunning = false;	// 是否有作业在运行，有才进行快照统计和发送信号
 };

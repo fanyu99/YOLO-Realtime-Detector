@@ -31,12 +31,14 @@ void PerformanceApp::setConfig( const PerformanceConfig& config ) {
 	{
 		emit errorOccurred( AppError( QStringLiteral("[PerformanceApp]：报告间隔必须大于0"), AppErrorCode::PerformanceMonitorError));
 		Logger::instance()->error(QStringLiteral("[PerformanceApp]：报告间隔必须大于0"));
+		emit configChanged();	
 		return;
 	}
 	// 更改开关时需要进行重启生效
 	if ( ( m_config.m_level == PerformanceLevel::Off ) != ( config.m_level == PerformanceLevel::Off ) ) {
 		emit errorOccurred( AppError( QStringLiteral("[PerformanceApp]：性能监控启用/关闭状态的变更需重启程序生效"), AppErrorCode::PerformanceMonitorError ) );
 		Logger::instance()->warning( QStringLiteral("[PerformanceApp]：性能监控启用/关闭状态的变更需重启程序生效") );
+		emit configChanged();	
 		return;
 	}
 	m_config = config;
@@ -47,6 +49,28 @@ void PerformanceApp::setConfig( const PerformanceConfig& config ) {
 
 IPerformanceMonitor* PerformanceApp::monitor()  {
 	return m_monitor.get();
+}
+
+void PerformanceApp::setLevelIndex( int level ) {
+	PerformanceConfig next = m_config;
+	next.m_level = static_cast<PerformanceLevel>( level );
+	setConfig( next );
+}
+
+void PerformanceApp::setReportInterval( int interval ) {
+	PerformanceConfig next = m_config;
+	next.m_reportInterval = interval;
+	setConfig( next );
+}
+
+void PerformanceApp::setIsRunning( bool running ) {
+	if (m_isRunning != running) {
+		auto* monitor = static_cast<PerformanceMonitor*>(m_monitor.get());
+		if (monitor)
+			monitor->setIsRunning( running );
+		m_isRunning = running;
+		emit contextChanged();
+	}
 }
 
 

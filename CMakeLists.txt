@@ -264,6 +264,8 @@ set(YOLO_QML_FILES
     qml/HikCameraDialog.qml
     qml/FfmpegDeviceDialog.qml
     qml/AcceptShortcut.qml
+    qml/PerformanceRect.qml
+    qml/PerformanceView.qml
 )
 foreach(_qml IN LISTS YOLO_QML_FILES)
     get_filename_component(_qml_name "${_qml}" NAME)

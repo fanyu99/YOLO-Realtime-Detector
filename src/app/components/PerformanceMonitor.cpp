@@ -104,6 +104,8 @@ void PerformanceMonitor::resetWindow() noexcept {
 
 // 生成快照并发送信号
 void PerformanceMonitor::emitSnapshot() {
+	if (!m_isRunning)
+		return;
 	StageRecorder recorderCopy[ std::size( m_stageRecorder ) ];
 	uint64_t successfulFrames = 0;
 	uint64_t failedFrames = 0;
@@ -174,3 +176,4 @@ void PerformanceMonitor::emitSnapshot() {
 
 	emit snapshotReady( snapshot );
 }
+

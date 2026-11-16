@@ -10,7 +10,6 @@
 #include "Logger.h"
 using MonitorPtr = std::unique_ptr<IPerformanceMonitor>;
 
-// TODO: 将当前的性能监控添加到整体的流程中
 // TODO： 添加QML前端性能面板并将日志迁移到性能面板中
 
 // 性能app，管理性能监控器的生命周期，快照属性由QML绑定
@@ -31,6 +30,16 @@ class PerformanceApp : public QObject {
 	Q_PROPERTY(int snapshotIndex READ snapshotIndex NOTIFY statsChanged)				// 快照序号(切级归零)
 	Q_PROPERTY(QVariantList stageStats READ stageStats NOTIFY statsChanged)				// 阶段统计行(已按级别过滤)
 
+	// 运行上下文
+	Q_PROPERTY(bool isRunning READ isRunning NOTIFY contextChanged )
+	Q_PROPERTY(quint64 jobId READ jobId NOTIFY contextChanged)							// 当前作业ID(0=空闲)
+	Q_PROPERTY(QString preferredModeText READ preferredModeText NOTIFY contextChanged)	// 用户选择的模式
+	Q_PROPERTY(QString activeModeText READ activeModeText NOTIFY contextChanged)		// 实际生效的模式
+
+	// 配置
+	Q_PROPERTY(int levelIndex READ levelIndex WRITE setLevelIndex NOTIFY configChanged)	// 监控级别(PerformanceLevel 枚举值)
+	Q_PROPERTY(int reportInterval READ reportInterval WRITE setReportInterval NOTIFY configChanged)	// 上报间隔(ms)
+
 	// 横幅显示信息
 	Q_PROPERTY(QString bannerText READ bannerText NOTIFY bannerChanged)
 	Q_PROPERTY(BannerLevel bannerLevel READ bannerLevel NOTIFY bannerChanged)
@@ -49,8 +58,15 @@ public:
 
 	Q_INVOKABLE PerformanceConfig config() const;
 	Q_INVOKABLE void setConfig( const PerformanceConfig& config );
+	Q_INVOKABLE void dismissBanner() {
+		if (m_bannerText.isEmpty())
+			return;
+		m_bannerText.clear();
+		m_bannerLevel = BannerNone;
+		emit bannerChanged();
+	}
 
-	// 借用监测器(供组合根接线：Manager -> Worker -> Session -> ScopedStageTimer)
+	// 借用监测器
 	IPerformanceMonitor* monitor();
 
 	// 快照属性 getter
@@ -64,6 +80,33 @@ public:
 	int snapshotIndex() const { return m_snapshotIndex; }
 	QVariantList stageStats() const { return m_stageStats; }
 
+	// 运行上下文 getter
+	bool isRunning() const { return m_isRunning; }
+	quint64 jobId() const { return m_jobId; }
+	QString preferredModeText() const { return m_preferredModeText; }
+	QString activeModeText() const { return m_activeModeText; }
+
+	// 配置 getter / setter(QML 写入口)
+	int levelIndex() const { return static_cast<int>( m_config.m_level ); }
+	void setLevelIndex( int level );
+	int reportInterval() const { return m_config.m_reportInterval; }
+	void setReportInterval( int interval );
+
+	// 运行上下文
+
+	void setIsRunning( bool running );
+	void setCurrentJobId( quint64 jobId ) {
+		if (m_jobId != jobId) { m_jobId = jobId; emit contextChanged(); }
+	}
+	void setFlowModeTexts( QStringView preferred, QStringView active ) {
+		const QString p = preferred.toString(), a = active.toString();
+		if (m_preferredModeText != p || m_activeModeText != a) {
+			m_preferredModeText = p;
+			m_activeModeText = a;
+			emit contextChanged();
+		}
+	}
+
 	// 横幅 getter
 	QString bannerText() const { return m_bannerText; }
 	BannerLevel bannerLevel() const { return m_bannerLevel; }
@@ -71,6 +114,7 @@ public:
 signals:
 	void configChanged();
 	void statsChanged();	// 摊平属性刷新
+	void contextChanged();	// 运行上下文刷新(jobId / 模式)
 	void bannerChanged();	// 横幅刷新
 	void errorOccurred(const AppError& error);	// 性能监控错误进行提醒
 
@@ -96,6 +140,12 @@ private:
 	double m_windowDurationMs = 0.0;
 	int m_snapshotIndex = 0;
 	QVariantList m_stageStats;	// 阶段统计行 {name, averageMs, maximumMs, sampleCount}
+
+	// 运行上下文
+	bool m_isRunning = false; // 是否有作业运行，有才进行快照统计和发送信号
+	quint64 m_jobId = 0;					// 当前作业ID(0=空闲)
+	QString m_preferredModeText = "CPU";	// 用户选择的模式
+	QString m_activeModeText = "CPU";		// 实际生效的模式
 
 	// 横幅
 	QString m_bannerText;	// 最近一条横幅文本

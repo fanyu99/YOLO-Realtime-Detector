@@ -48,13 +48,19 @@ void DetectionApp::setPerformanceApp( QObject* perfApp ) {
 		m_manager->setMonitor( nullptr );
 		return;
 	}
-	// 借出指针
-	if (auto* perf = qobject_cast<PerformanceApp*>( perfApp ); perf && perf->monitor()) {
+	auto* perf = qobject_cast<PerformanceApp*>( perfApp );
+	if (!perf) {
+		Logger::instance()->warning( QStringLiteral( "[DetectionApp]: performanceApp 类型无效，性能监控未启用" ) );
+		return;
+	}
+	perf->setCurrentJobId( m_currentJobId );
+	perf->setFlowModeTexts( m_config.preferredModeText(), m_config.effectiveModeText() );
+	if (perf->monitor()) {
 		m_manager->setMonitor( perf->monitor() );
 		Logger::instance()->info( QStringLiteral( "[DetectionApp]: 性能监测器已注入" ) );
 	}
 	else {
-		Logger::instance()->warning( QStringLiteral( "[DetectionApp]: performanceApp 类型无效，性能监控未启用" ) );
+		Logger::instance()->warning( QStringLiteral( "[DetectionApp]: 性能监测器不可用(监控级别为Off或类型无效)" ) );
 	}
 }
 
@@ -62,6 +68,8 @@ void DetectionApp::onFallbackOccurred( const DetectionError& error ) {
 	if (error.errorCode == DetectionErrorCode::FallbackRequested) {
 		Logger::instance()->warning( QStringLiteral( "[DetectionApp]: 检测器已触发 fallback 自愈，当前模式已切换为 CPU 模式" ) );
 		m_config.active_mode = FlowMode::CPU;	// 自愈为 CPU 模式
+		if (auto* perf = qobject_cast<PerformanceApp*>( m_performanceAppObject ))
+			perf->setFlowModeTexts( m_config.preferredModeText(), m_config.effectiveModeText() );
 		emit configChanged();
 	}
 }
@@ -588,6 +596,8 @@ void DetectionApp::setFlowMode( const QString& flow_mode ) {
 	next.preferred_mode = newMode.value();
 	next.active_mode = std::nullopt;
 	setConfig( next );
+	if (auto* perf = qobject_cast<PerformanceApp*>( m_performanceAppObject ))
+		perf->setFlowModeTexts( next.preferredModeText(), next.effectiveModeText() );
 }
 // 获取当前实际生效的模式
 QString DetectionApp::effectiveFlowMode()const {
@@ -622,7 +632,7 @@ void DetectionApp::setModelPath( const QUrl& path ) {
 void DetectionApp::onJobStarted( quint64 jobId ) {
 	if (jobId != m_currentJobId)
 		return;
-	resetReview();				// 新作业从干净的回看缓冲开始
+	resetReview();	
 	setBusy( true );
 }
 
@@ -735,6 +745,8 @@ void DetectionApp::onJobFailed( quint64 jobId, const DetectionError& error ) {
 	if (m_currentJobId == 0 || jobId == m_currentJobId) {
 		m_currentJobId = 0;
 		m_progressIndeterminate = false;
+		if (auto* perf = qobject_cast<PerformanceApp*>( m_performanceAppObject ))
+			perf->setCurrentJobId( 0 );
 		setBusy( false );
 		emit progressChanged();
 	}
@@ -765,6 +777,8 @@ void DetectionApp::onJobSaved( quint64 jobId, QStringView dir, int fileCount ) {
 // 不做这一步，侧边栏会一直显示用户填的旧尺寸，而检测器实际用的是模型尺寸。
 void DetectionApp::onConfigAdjusted( const DetectorConfig& config ) {
 	this->m_config = config;
+	if (auto* perf = qobject_cast<PerformanceApp*>( m_performanceAppObject ))
+		perf->setFlowModeTexts( config.preferredModeText(), config.effectiveModeText() );
 	emit configChanged();
 	Logger::instance()->info( QStringLiteral( "[DetectionApp]: 配置已按模型对齐 -> " ) + configSummary() );
 }
@@ -772,6 +786,11 @@ void DetectionApp::onConfigAdjusted( const DetectorConfig& config ) {
 void DetectionApp::setState( quint64 currentJobId, bool progressInterminate, bool busy ) {
 	m_currentJobId = currentJobId;
 	m_progressIndeterminate = progressInterminate;
+	if (auto* perf = qobject_cast<PerformanceApp*>( m_performanceAppObject ))
+	{
+		perf->setCurrentJobId( currentJobId );
+		perf->setIsRunning( busy );	  // 在有任务在跑的时候才进行快照发送
+	}
 	setBusy( busy );
 	emit progressChanged();
 }
