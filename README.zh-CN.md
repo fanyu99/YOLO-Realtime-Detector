@@ -1,376 +1,234 @@
-# YOLO —— 实时目标检测桌面应用
+# YOLO：实时目标检测桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
-[![Qt 6](https://img.shields.io/badge/Qt-6.11-41CD52.svg)](https://www.qt.io/)
+[![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](CMakeLists.txt)
+[![Qt 6](https://img.shields.io/badge/Qt-6-41CD52.svg)](https://www.qt.io/)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-1.30-005CED.svg)](https://onnxruntime.ai/)
 [![OpenCV](https://img.shields.io/badge/OpenCV-5.0-5C3EE8.svg)](https://opencv.org/)
 
-基于 **Qt 6（Quick/QML）**、**ONNX Runtime** 与 **OpenCV** 的实时 YOLO 目标检测桌面应用。
-支持对**图片、视频文件、USB 摄像头实时流、海康（MVS）工业相机**做推理，在画面上绘制
-检测框，并可将标注后的结果落盘保存。
+[English](README.md)
 
-界面使用 QML 编写，窗口标题为「检测头」。文档提供中英双语：
-英文见 [README.md](README.md)，本篇为简体中文说明。
+这是一个使用 Qt Quick/QML 编写界面、使用 C++ 完成取帧和推理的 YOLO 目标检测桌面项目。当前支持图片、视频文件、通过 FFmpeg 接入的普通摄像头，以及通过 MVS SDK 接入的海康工业相机。
 
----
+这个项目可以用来测试自己训练并导出的 YOLO 模型，查看视频或摄像头的检测结果，回看已经处理过的画面，并保存带检测框的图片和视频。也可以通过这个项目了解 QML 与 C++ 如何交接、CPU/GPU 推理流程如何拆分，以及如何对各个阶段进行计时。当前只负责导出模型的推理，模型训练和数据集标注需要在其他工具中完成。
+
+当前的构建和依赖部署主要面向 Windows x64。CMake 中含有 Windows 库文件和 DLL 的处理逻辑，其他平台需要继续调整构建与设备接入代码。
 
 ## 目录
 
-- [功能特性](#功能特性)
-- [系统架构](#系统架构)
+- [当前完成](#当前完成)
+- [技术栈](#技术栈)
+- [项目架构](#项目架构)
+- [性能监控](#性能监控)
 - [目录结构](#目录结构)
-- [环境依赖](#环境依赖)
 - [编译构建](#编译构建)
-- [使用说明](#使用说明)
-- [配置说明](#配置说明)
-- [模型说明](#模型说明)
-- [结果输出](#结果输出)
+- [使用与配置](#使用与配置)
+- [模型与输出](#模型与输出)
+- [后续计划](#后续计划)
 - [常见问题](#常见问题)
 - [许可证](#许可证)
 
----
+## 当前完成
 
-## 功能特性
+- 完成单图片、视频、普通摄像头、海康工业相机和图片/视频混合批量检测。Manager 使用 Job 管理整体进度，Worker 执行其中的 Task。
+- 接通 CPU/GPU 两条推理流程。CPU 使用 BGR 帧；GPU 支持 FFmpeg 解码得到的 CUDA/NV12 帧，也支持将 CPU 图片上传到显存后进行推理。
+- 接入 FFmpeg 软解和 CUDA 硬解路径。海康相机的枚举、触发模式和采集逻辑封装在独立帧源中。
+- 拆分预处理、推理、解析和 NMS。CPU 使用 OpenCV 进行预处理，GPU 使用 BGR/NV12 CUDA kernel；后处理和 NMS 目前在 CPU 中完成。
+- 接通 fallback 信号和配置自愈。需要回退的错误由 Worker 重建 CPU 会话并向上同步，普通输入错误只影响当前任务。
+- 完成实时预览、有限容量的历史结果回看、任务取消，以及带检测框的图片/视频保存。
+- 新增非模态的性能监控页，显示整体统计、阶段耗时和日志。主界面目前也保留 LogView。
+- 新增一键示例检测，从程序目录下的 `examples/` 读取图片和模型。构建时会在该目录存在的情况下复制示例资源。
 
-**推理能力**
+## 技术栈
 
-- 支持任意 YOLO 系 ONNX 检测模型（输出形如 `[1, 4 + 类别数, 候选框数]`）。
-- CUDA 执行提供器，且在 CUDA / cuDNN 不可用时**自动回退 CPU**。
-- 正确的 `letterbox` 预处理，以及把预测框从填充空间映射回原图坐标。
-- 候选框数量由输出张量实际形状反推，因此**非 640 输入同样正确**
-  （640 → 8400，320 → 2100，1280 → 33600）。
-- 启动时预热（warm-up），提前烧掉 CUDA context、cuDNN handle、内存 arena 首次分配等
-  一次性开销，避免第一帧检测卡顿。
-- 输入尺寸自动对齐：当配置尺寸与模型真实输入不符时自动按模型校正，并通过横幅
-  **显式告知用户**，而不是让界面显示值与实际使用值悄悄分叉。
+| 部分 | 当前使用 |
+|---|---|
+| 语言 | 顶层 CMake 设置为 C++23；CUDA 源文件使用 C++17 |
+| 界面 | Qt 6、Qt Quick/QML、Quick Controls、Qt Multimedia |
+| 推理 | ONNX Runtime，现有依赖配置使用 1.30，包含 CPU/CUDA 执行路径 |
+| 图像处理 | OpenCV，现有配置使用 5.0，负责读图、CPU 预处理、绘制和图像转换 |
+| 视频与普通摄像头 | FFmpeg，包含软解与 CUDA 硬件上下文 |
+| GPU | CUDA Toolkit、cuDNN、自定义 BGR/NV12 预处理 kernel |
+| 工业相机 | 海康 MVS SDK，当前构建必须提供 |
+| 性能监控 | `IPerformanceMonitor`、`PerformanceMonitor`、`NullPerformanceMonitor`、`ScopedStageTimer` |
+| 构建与测试 | CMake、Ninja/MSVC、Qt Test、CTest |
 
-**输入与作业**
+## 项目架构
 
-- 单图、单视频、USB 摄像头实时流、海康（MVS）工业相机，以及**批量作业**（图片与视频可
-  混排）。
-- **帧源可插拔**（策略模式）。所有输入都是 `FrameSource`，只对外暴露
-  `open()` / `getFrame()` / `close()`；worker 只靠这三个调用驱动任务，并从 `type()`
-  推导执行路径（`runImage` / `runStream`），作业工厂也从同一个值派生作业种类。新增帧源
-  只需在应用层工厂里加一个创建函数 —— 不必新增 `submitXxx()` 入口，调度层与界面都不用改。
-- 海康相机支持 GigE 与 USB3 工业相机，按序列号发现设备，触发模式可选：连续采集（默认）、
-  软触发、或 Line0 / Line1 / Line2 硬触发。
-- 两级作业模型：一个 *Job* 对应界面上的一个进度条，内部拆成 N 个 *Task* 交由专用工作
-  线程执行。
-- 统一的进度公式，同时覆盖批量作业与单流逐帧进度。
-- 长作业（如摄像头流）可随时取消，工作线程逐单元检查取消标志。
+整体分为界面层、应用层和核心层。QML 负责提交操作和显示结果；应用层负责 Job/Task 管理、Session 生命周期、结果回传和性能监控；核心层负责帧源、帧句柄、工厂以及 CPU/GPU 推理流程，不依赖 QML。
 
-**界面**
+下面的架构图可以直接在 GitHub 的 README 页面浏览。[HTML 架构文档](docs/architecture.html) 提供手工排版的系统总览和单独的性能监控图。GitHub 中点击 HTML 文件链接会进入源码页面，下载后用浏览器打开即可查看 HTML 版本；下面的图不需要部署 GitHub Pages。
 
-- 实时标注预览，画面左上角叠加帧率 / 推理耗时。
-- **结果回看不阻塞推理**：用「上一个 / 下一个 / 回到实时」翻阅历史帧时，推理照常全速
-  运行（有界环形缓冲，不对工作线程形成背压）。
-- 进度条支持「总量未知」（摄像头流）的不确定态。
-- 配置对话框：模型路径、类别名、置信度 / NMS 阈值、线程数、CUDA 设备号、输入尺寸、
-  CUDA 开关。
-- 「保存推理结果」开关 + 输出目录选择。
-- 内置日志面板（按级别着色），侧边栏状态栏与日志同源。
-- 深色 / 浅色主题跟随系统，并支持运行时实时切换。
-
----
-
-## 系统架构
-
-项目刻意做了分层：推理内核**不依赖界面、也不是 `QObject`**，而 QML 层不接触线程与
-检测器内部细节。
-
-```
-                      ┌──────────────────────────────────────────┐
-   QML 层             │  main.qml · Theme · LogView ·            │
-   (qml/)             │  ConfigDialog · CameraDialog ·           │
-                      │  HikCameraDialog                         │
-                      └───────────────┬──────────────────────────┘
-                                      │  属性绑定 / Q_INVOKABLE
-                      ┌───────────────▼──────────────────────────┐
-   应用层             │  DetectionApp      (QML 门面)            │
-   (src/app/)         │  DetectionManager  (作业调度)            │
-                      │  DetectionWorker   (工作线程)            │
-                      │  DetectionRenderer (帧 → QImage)         │
-                      │  DetectionResultSaver (结果落盘)         │
-                      │  DetectionImageProvider (image:// 提供器)│
-                      │  帧源工厂 (QML → FrameSource)            │
-                      │  Logger            (日志桥接)            │
-                      └───────────────┬──────────────────────────┘
-                                      │  DetectorConfig / DetectionResult
-                      ┌───────────────▼──────────────────────────┐
-   核心层             │  Detector   (ONNX 会话、预处理、后处理)  │
-   (src/core/)        │  DetectionTypes · Box · AppError         │
-                      │  FrameSource (策略模式) →                │
-                      │    FileFrameSource · HikCameraFrameSource│
-                      └───────────────┬──────────────────────────┘
-                                      │
-                      ┌───────────────▼──────────────────────────┐
-                      │  ONNX Runtime (CUDA / CPU) · OpenCV ·    │
-                      │  海康 MVS SDK（仅海康相机）              │
-                      └──────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    UI["QML: main.qml and dialogs"] --> APP["DetectionApp"]
+    APP --> MAN["DetectionManager: Job state"]
+    MAN --> WORK["DetectionWorker: Task queue"]
+    WORK --> SESSION["DetectionSession: factories and Flow"]
+    SESSION --> SOURCE["FrameSource: image / FFmpeg / Hikvision"]
+    SESSION --> FLOW["DetectionFlow: CPU / GPU"]
+    SOURCE -->|FrameHandle| FLOW
+    FLOW --> RESULT["Renderer / ImageProvider / ResultSaver"]
+    RESULT -.->|QImage and progress| APP
 ```
 
-几个关键设计取舍（更详细的说明见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)）：
+### 当前执行模型
 
-- **`Detector` 不是 `QObject`。** 错误通过 `lastError()` / `warnings()` 上抛，结果只走
-  返回值通道，因此可以在任意线程使用，无需 `moveToThread`。
-- **渲染放在工作线程。** `cv::Mat` 是浅拷贝共享像素的，把 `Mat` 直接交给 GUI 线程会与下一帧
-  产生竞争；工作线程改为转成隐式共享的 `QImage`。
-- **回看缓冲绝不阻塞推理。** UI 只按自己的节奏推进索引，跨线程不存在任何「等待 / 放行」
-  标志位。
-- **`DetectionApp` 只认不透明的 `jobId`。** 线程、队列、取消这些事全部收敛在
-  `DetectionManager` / `DetectionWorker` 内部。
-- **推理过程不感知帧源。** `DetectionTask` 持有的是 `FrameSourcePtr`，而不是路径或设备号；
-  worker 只调 `open()` / `getFrame()` / `close()`。文件、USB 摄像头与海康 SDK 相机因此
-  共用同一条执行路径，厂商 SDK 也被封在 `HikCameraFrameSource` 内部（PIMPL：头文件不引入
-  `MvCameraControl.h`）。
+App 提交帧源描述，Manager 根据描述创建 Job 和 Tasks，并将 Task 投递给 Worker。当前 Worker 内部仍然是 `std::queue<std::unique_ptr<DetectionTask>>`，尚未更改为 Job 队列。
 
----
+Worker 在线程内创建并持有 Session。Session 根据 CPU/GPU 模式选择对应的工厂，创建帧源并持有 Flow。当前 Session 的创建、复用和重建跟随 Worker 的初始化与恢复流程，还没有实现每个 Job 开始时创建、结束时销毁的完整模型。Manager 管理 Job 状态并同步 fallback 信息，Worker 负责实际重建会话。
+
+| 模块 | 职责 |
+|---|---|
+| `DetectionApp` | 向 QML 提供操作接口，管理检测配置、进度、结果回看和横幅 |
+| `DetectionManager` | 创建 Job/Task，汇总 Task 事件，管理取消和 fallback 状态同步 |
+| `DetectionWorker` | 管理 Task 队列，执行检测，持有 Session，逐帧上报结果 |
+| `DetectionSession` | 保存当前模式，配对帧源工厂和 Flow 工厂，预热，以及 GPU 模式下的 CPU 图片上传 |
+| `FrameSource` / `FrameHandle` | 分离输入来源与存储方式，统一图片、FFmpeg、海康相机的帧访问接口 |
+| `CpuDetectionFlow` / `GpuDetectionFlow` | 完成预处理、ONNX 推理和通用 CPU 后处理 |
+| Renderer / ImageProvider / ResultSaver | 绘制结果，向 QML 提供 QImage 和回看缓冲，保存文件 |
+| `PerformanceApp` | 管理监测器生命周期，向 QML 提供配置和统计快照 |
+
+### CPU/GPU 流程与显示
+
+```text
+CPU：CPU BGR 帧 -> CpuPreprocessor -> CpuDetector -> CPU 后处理/NMS
+GPU 视频：CUDA/NV12 帧 -> CudaPreprocessor -> GpuDetector -> CPU 后处理/NMS
+GPU 图片：CPU BGR 帧 -> Session 上传显存 -> BGR CUDA kernel -> GpuDetector -> CPU 后处理/NMS
+显示/保存：CPU 图像 -> DetectionRenderer -> QImage / 带检测框的结果文件
+```
+
+当前 GPU 推理流程已经接通，但显示和保存仍然使用 CPU 绘制和 QImage 转换。直接使用 GPU 图像进行显示、叠加 Qt Overlay 仍然属于后续计划。
+
+## 性能监控
+
+当前使用接口加依赖注入的方式接入性能监控。`PerformanceApp` 先于 QML 界面创建，再交给 `DetectionApp`；各层借用 `IPerformanceMonitor` 指针。阶段内使用 `ScopedStageTimer`，退出作用域或主动调用 `end()` 时记录耗时，通过位掩码过滤没有启用的采集点。
+
+`PerformanceMonitor` 使用锁保护统计数据，统一生成快照，再交给 `PerformanceApp` 转换为 QML 属性。内部计时使用纳秒，到显示边界才转换为毫秒。页面可以查看阶段平均值、最大值、样本数、FPS、成功/失败帧数以及端到端统计。仅在检测运行时发送快照。
+
+目前统计的是埋点所包围的主机侧作用域耗时，不能直接当作 CUDA Event 测得的 kernel 耗时，也不能当作单独的 UI 渲染线程延迟。
+
+| 级别 | 当前采集范围 |
+|---|---|
+| Off | 使用 `NullPerformanceMonitor`，不采集阶段数据 |
+| Basic | 端到端耗时、整体帧数和 FPS，启动默认值 |
+| Detailed | Basic 加读帧、预处理、推理、后处理、绘制、保存 |
+| Full | Detailed 加上传阶段 |
+
+默认上报间隔为 300 ms。已启用状态下切换级别或调整上报间隔可以在运行时生效，并重置统计窗口。Off 与启用状态之间的切换会提示需要重启并拒绝本次修改；当前启动配置仍来自 `src/main.cpp` 的 `PerformanceConfig`，还没有持久化的开关。配置模型中已有内存/GPU 采样标记，但完整的内存采样器和 CUDA Event 计时尚未实现。
 
 ## 目录结构
 
-```
+```text
 .
-├── CMakeLists.txt              # 顶层构建脚本（目标、QML 模块、DLL 部署）
-├── CMakePresets.json           # Qt 生成的 CMake 预设
-├── LICENSE                     # MIT 许可证
-├── README.md                   # 英文说明
-├── README.zh-CN.md             # 中文说明（本文件）
-├── .gitignore
-│
+├── CMakeLists.txt
 ├── cmake/
-│   └── qt.cmake                # Qt5 / Qt6 兼容垫片
-│
-├── src/                        # C++ 源码
-│   ├── main.cpp                # 入口：主题调色板、日志接管、QML 引擎启动
-│   ├── core/                   # 推理内核 —— 无界面、无 QObject
-│   │   ├── Detector.{h,cpp}        # ONNX 会话、letterbox、YOLO 解码、NMS、视频循环
-│   │   ├── DetectionTypes.h        # DetectorConfig、错误/警告、Job/Task/Box 模型
-│   │   ├── FrameSource.h           # 帧源抽象接口（策略模式）+ 路径/类型判定工具
-│   │   ├── FileFrameSource.{h,cpp}      # 图片 / 视频文件 / USB 摄像头帧源
-│   │   ├── HikCameraFrameSource.{h,cpp} # 海康 MVS 帧源：设备枚举、触发模式
-│   │   ├── Box.h                   # 检测框值类型（Q_GADGET，可被 QML 读取）
-│   │   └── AppError.h              # 应用层错误值类型
-│   └── app/                    # Qt 应用层
-│       ├── DetectionApp.{h,cpp}        # QML 门面：属性、Q_INVOKABLE 槽、横幅提示
-│       ├── DetectionManager.{h,cpp}    # 作业调度：提交/取消，汇总 Task 事件
-│       ├── DetectionWorker.{h,cpp}     # 工作线程 + 任务队列
-│       ├── DetectionRenderer.{h,cpp}   # 画框/标签/帧率，Mat → QImage
-│       ├── DetectionResultSaver.{h,cpp}# 输出标注后的 .jpg / .mp4
-│       ├── DetectionImageProvider.{h,cpp} # image://detection 提供器 + 回看环形缓冲
-│       └── Logger.{h,cpp}              # QML 单例日志器，桥接 qDebug/qWarning
-│
-├── qml/                        # QML 界面
-│   ├── main.qml                # 主窗口：工具栏、侧边栏、结果区、日志分隔区
-│   ├── Theme.qml               # 配色 / 主题单例
-│   ├── LogView.qml             # 日志列表，按级别着色
-│   ├── ConfigDialog.qml        # 模型与检测参数对话框
-│   ├── CameraDialog.qml        # 摄像头设备选择
-│   └── HikCameraDialog.qml     # 海康相机设备选择 + 触发模式
-│
-├── resources/                  # 通过 Qt 资源系统编译进二进制的素材
-│   ├── images.qrc              # 资源清单
-│   ├── images/                 # 示例图片，内嵌为 :/image1
-│   └── models/                 # 示例 ONNX 模型，内嵌为 :/models/african-wildlifeModel
-│
-├── models/                     # 你自己的模型权重（被 git 忽略，不入库）
-├── detection_results/          # 标注结果默认输出目录（被 git 忽略）
+├── src/
+│   ├── main.cpp
+│   ├── app/
+│   │   ├── runtime/       # DetectionApp, Manager, Worker, Session, PerformanceApp
+│   │   └── components/    # Renderer, ImageProvider, ResultSaver, Logger, PerformanceMonitor
+│   └── core/
+│       ├── base/         # DetectionTypes, DecodeTypes, Box, errors
+│       ├── frame/        # FrameSource, FrameHandle, FFmpeg, image, Hikvision
+│       ├── factories/    # CPU/GPU source and flow factories
+│       ├── inference/    # CPU/GPU flows, detectors, preprocessors, postprocessor
+│       ├── cuda/         # CudaDevice, preprocessing kernels
+│       └── performance/  # Monitor interface, null implementation, timer, types
+├── qml/                  # main, dialogs, PerformanceView, LogView, Theme
+├── examples/             # Sample image and ONNX model, deployed beside the executable
+├── models/               # Local model directory
+├── tests/test_performance/
 └── docs/
-    └── ARCHITECTURE.md         # 逐模块的详细设计说明
+    ├── ARCHITECTURE.md
+    └── architecture.html
 ```
-
-> `models/` 与 `detection_results/` 刻意不入版本控制，见 [`.gitignore`](.gitignore)。
-> 保留这两个目录是为了让默认路径开箱可用。
-
----
-
-## 环境依赖
-
-主要验证平台为 **Windows 10/11 x64**。构建脚本本身是可移植的，但当前包含 Windows 专有的
-运行时 DLL 部署逻辑。
-
-| 依赖 | 使用版本 | 说明 |
-|---|---|---|
-| 编译器 | MSVC 2022 (19.51) | 需要 C++20 |
-| CMake | ≥ 3.16 | |
-| Qt | 6.11.1 | 需要 `Core`、`Quick`、`Multimedia` 模块 |
-| OpenCV | 5.0.0 | `opencv_world` 动态库版本 |
-| ONNX Runtime | 1.30.0 | GPU/CUDA 13 包；CPU 包同样可用 |
-| 生成器 | Ninja（或 NMake/JOM） | |
-| CUDA Toolkit + cuDNN | 13.x / 9.x | *可选* —— 仅 GPU 推理需要 |
-| 海康 MVS SDK | — | **编译必需** —— 提供 `MvCameraControl.h` / `MvCameraControl.lib`。SDK 根目录取自环境变量 `%MVCAM_COMMON_RUNENV%`，取不到时回退到 `D:/MVS/Development`。 |
-
-GPU 推理是可选路径：若缺少 CUDA / cuDNN 运行库，检测器会记录一条警告并自动回退到 CPU
-执行提供器。
-
-海康这条路在编译期**不是可选的**：`HikCameraFrameSource` 链接了 `MvCameraControl.lib`，
-因此可执行文件的导入表里就有 `MvCameraControl.dll`（及其依赖的 GenICam / 传输层），
-**即使你从不打开海康相机**，启动时也必须有对应架构的 MVS 运行时。下文
-`DEPLOY_MVS_RUNTIME` 会处理这件事。
-
----
 
 ## 编译构建
 
-1. 克隆仓库：
+使用支持项目 C++23 代码的 MSVC 开发者终端，准备 Qt 6（Core、Gui、Qml、Quick、QuickControls2、Multimedia、Test）、OpenCV、ONNX Runtime、FFmpeg 开发包，以及海康 MVS SDK。GPU 编译和运行还需要 CUDA Toolkit、cuDNN。下面沿用现有依赖路径作为示例，需要按自己的安装位置修改。
 
-   ```bash
-   git clone https://github.com/<你的账号>/<你的仓库>.git
-   cd <你的仓库>
-   ```
+```powershell
+git clone https://github.com/fanyu99/YOLO-Realtime-Detector.git
+cd YOLO-Realtime-Detector
+$env:MVCAM_COMMON_RUNENV = "D:/MVS/Development"
+cmake -S . -B build -G Ninja `
+  -DCMAKE_PREFIX_PATH="D:/Qt/6.11.1/msvc2022_64" `
+  -DYOLO_OPENCV_RELEASE_DIR="D:/opencv/build" `
+  -Donnxruntime_DIR="D:/onnxruntime-win-x64-gpu_cuda13-1.30.0/lib/cmake/onnxruntime" `
+  -DFFMPEG_ROOT="D:/ffmpeg" `
+  -DYOLO_BUILD_DEBUG=OFF
+cmake --build build --parallel
+.\build\YOLO.exe
+```
 
-2. 配置。把 CMake 指向你本机的 Qt、OpenCV 与 ONNX Runtime：
+当前 CMake 会根据 `YOLO_OPENCV_RELEASE_DIR` 或 `YOLO_OPENCV_DEBUG_DIR` 强制设置 `OpenCV_DIR`，因此应设置前两者。Debug 构建需要匹配的 OpenCV Debug 库，并传入 `-DYOLO_BUILD_DEBUG=ON`。
 
-   ```bash
-   cmake -S . -B build -G Ninja ^
-     -DCMAKE_BUILD_TYPE=Release ^
-     -DCMAKE_PREFIX_PATH="D:/Qt/6.11.1/msvc2022_64" ^
-     -DOpenCV_DIR="D:/opencv/build" ^
-     -Donnxruntime_DIR="D:/onnxruntime-win-x64-gpu_cuda13-1.30.0/lib/cmake/onnxruntime"
-   ```
-
-   > Linux / macOS 下把 `^` 换成 `\`。`CMAKE_PREFIX_PATH` 指向 Qt 的 `lib/cmake` 所在
-   > 目录；`OpenCV_DIR` 指向包含 `OpenCVConfig.cmake` 的目录。
-   >
-   > 海康 MVS SDK 的根目录取自环境变量 `MVCAM_COMMON_RUNENV`（安装 MVS 时会自动设置）。
-   > 取不到时 CMake 回退到 `D:/MVS/Development`；若你的 SDK 装在别处，请导出该环境变量，
-   > 或修改 `CMakeLists.txt` 顶部的 `MVS_SDK_ROOT`。找不到 `MvCameraControl` 会直接
-   > 配置失败。
-
-3. 编译：
-
-   ```bash
-   cmake --build build --parallel
-   ```
-
-4. 运行。可执行文件输出在构建目录下，所需的运行时 DLL（OpenCV、ONNX Runtime、
-   CUDA/cuDNN）会自动复制到其旁边：
-
-   ```
-   build/YOLO.exe
-   ```
-
-### 构建选项
-
-| 选项 | 默认值 | 说明 |
-|---|---|---|
-| `DEPLOY_CUDA_RUNTIME` | `ON` | 是否把 CUDA/cuDNN 运行库复制到可执行文件旁。若已通过 `PATH` 提供，可用 `-DDEPLOY_CUDA_RUNTIME=OFF` 关闭。 |
-| `DEPLOY_MVS_RUNTIME` | `ON` | 是否把海康 MVS 运行时（`MvCameraControl.dll` 及 GenICam / 传输层 DLL，约 110 MB）复制到可执行文件旁。会自动从 SDK 根目录与常见的 `MVS/Runtime/Win64_x64` 位置探测；非标准安装可用 `-DMVS_RUNTIME_DIR=<目录>` 指定，或 `-DDEPLOY_MVS_RUNTIME=OFF` 自行保证 `PATH`。 |
-
----
-
-## 使用说明
-
-启动 `YOLO.exe` 后：
-
-1. **配置模型** —— 点击 **修改配置**，选择 `.onnx` 模型文件，填写类别名（每行一个或用逗号
-   分隔），设置阈值与输入尺寸，点 **确定** 生效。
-
-   > 提交有效配置后即开始准备推理；更换模型或阈值会重建 ONNX 会话。
-
-2. **选择输入**
-
-   | 按钮 | 作用 |
-   |---|---|
-   | **选择文件 ▾** | 选择单张图片或单个视频 |
-   | **摄像头检测** | 选择设备号并启动实时流 |
-   | **海康相机检测** | 枚举海康工业相机，按序列号选择设备、选择触发模式后启动实时流 |
-   | **批量检测** | 多选图片 / 视频，作为一个作业依次跑完 |
-   | **停止检测** | 取消当前作业（仅作业运行中可用） |
-
-   > **海康相机检测**与**摄像头检测**是两条不同的路径：前者通过海康 MVS SDK 与 GigE /
-   > USB3 工业相机通信，后者走 OpenCV 的设备编号。两者最终都是同一种作业，因此进度、
-   > 回看、取消与结果保存的行为完全一致。
-   >
-   > 触发模式：*off*（连续采集，默认）、*software*（软触发）、*line0* / *line1* /
-   > *line2*（硬触发）。传入了无法识别的取值会记一条警告并回退到 *off*；设备本身不支持的
-   > 模式会在启动流时报错到日志。
-
-3. **查看结果** —— 标注后的画面显示在结果区。用 **上一个** / **下一个** 翻阅缓冲结果，
-   用 **回到实时** 恢复跟随实时画面。回看过程不会暂停推理。
-
-4. **保存结果（可选）** —— 勾选 **保存推理结果** 并选择目录。标注图片写为 `.jpg`，
-   视频 / 摄像头流写为 `.mp4`，统一放在 `<目录>/detection_results/` 下。
-
-底部日志面板按级别着色显示全部日志，侧边栏状态框与日志同源，展示最近一条。
-
----
-
-## 配置说明
-
-检测参数在运行时通过 **修改配置** 对话框设置：
-
-| 参数 | 含义 |
+| 选项 | 默认值或作用 |
 |---|---|
-| 模型路径 | `.onnx` 模型文件路径 |
-| 类别名 | 每行一个（或逗号分隔）；顺序必须与模型输出一致 |
-| 置信度阈值 | 保留检测框的最低分数（0.01–0.99） |
-| NMS 阈值 | 非极大值抑制的 IoU 阈值 |
-| 线程数 | 算子内部线程数（`0` 表示使用 ORT 默认值） |
-| CUDA 设备号 | CUDA 执行提供器使用的 GPU 序号 |
-| 输入宽 / 高 | 网络输入尺寸；与模型不符时会自动校正 |
-| 启用 CUDA | 尝试启用 CUDA EP；不可用时自动回退 CPU |
+| `YOLO_BUILD_DEBUG` | `OFF`，使用 Release 和对应的 OpenCV 包 |
+| `YOLO_OPENCV_RELEASE_DIR` | `D:/opencv/build` |
+| `YOLO_OPENCV_DEBUG_DIR` | `D:/opencv/build-official-20261023` |
+| `FFMPEG_ROOT` | 优先读取 `FFMPEG_DIR` 环境变量，否则使用 `D:/ffmpeg`；目录需要含 `include/`、`lib/`、`bin/` |
+| `YOLO_ENABLE_CUDA` | `ON`；未找到 Toolkit 时跳过 CUDA 源文件，设为 `OFF` 可关闭自定义 CUDA 代码编译 |
+| `BUILD_TESTS` | `ON`，接入 `tests/test_performance` |
+| `DEPLOY_CUDA_RUNTIME` | `ON`，尝试部署 CUDA/cuDNN DLL |
+| `DEPLOY_MVS_RUNTIME` | `ON`，尝试部署 MVS 运行库；可用 `MVS_RUNTIME_DIR` 指定位置 |
 
-**示例模型路径**硬编码在 `src/main.cpp`（`AfricanWildlife_model_path`、`People_model_path`），
-指向作者本机的训练产物，仅供已注释掉的演示函数使用 —— 请替换或删除。
+当前脚本将 `CMAKE_CUDA_ARCHITECTURES` 固定为 `120`。需要根据目标 GPU 检查并调整该设置，不能假设生成的程序适用于所有 NVIDIA GPU。关闭 CUDA 编译仍然需要 FFmpeg 和 MVS。MVS SDK 路径从 `MVCAM_COMMON_RUNENV` 获取，找不到时使用 `D:/MVS/Development`；当前不是普通的缓存覆盖参数。
 
----
+构建会复制部分运行库，并将 `examples/` 放到程序目录。将程序移到其他电脑之前，需要确认对应的运行库也已部署。
 
-## 模型说明
+完成构建后，可以运行已注册的测试：
 
-任何导出为 ONNX 的 YOLO 检测模型都应当可用，前提是：
-
-- 输入为单个 `float32` 张量，形状 `[1, 3, H, W]`（支持动态 `H`/`W`）；
-- 输出为 `[1, 4 + 类别数, 候选框数]`，坐标 `(cx, cy, w, h)` 位于 letterbox 空间。
-
-填写的类别名顺序必须与模型训练数据完全一致。
-
-`resources/images.qrc` 内嵌了两份示例素材：
-
-- `:/image1` —— 示例图片；
-- `:/models/african-wildlifeModel` —— 一个小型的非洲野生动物检测模型。
-
-它们只是方便试用应用的默认素材；实际推理所用模型来自配置对话框。
-
----
-
-## 结果输出
-
-开启 **保存推理结果** 后，结果写入：
-
-```
-<所选目录>/
-└── detection_results/
-    ├── <原文件名>.jpg     # 图片任务
-    └── <原文件名>.mp4     # 视频 / 摄像头任务
+```powershell
+ctest --test-dir build --output-on-failure
 ```
 
-只保存「画了框的画面」，不写 labels —— 用途是视觉查看，而非训练或评估。保存失败时错误
-会上报一次，但**检测会继续**，不会中断。
+本次文档更新不代表已经在当前机器完成编译、测试或 GPU 运行验证。
 
----
+## 使用与配置
+
+1. 启动 `YOLO.exe`，通过 `修改配置` 选择 ONNX 模型，填写类别名、阈值、输入尺寸、线程数以及 CUDA 设备/模式。修改检测配置前需要先停止检测。
+2. 选择单文件或混合批量文件，也可以通过 FFmpeg 设备对话框选择普通摄像头，或选择海康设备和触发模式。示例文件存在时，`示例检测` 会应用示例配置并运行示例图片。
+3. 通过上一个、下一个、回到实时查看历史结果。回看缓冲不会主动暂停推理；停止检测可以取消当前流或批量任务。
+4. 点击 `性能监控` 打开非模态的统计与日志窗口。需要观察阶段耗时时切换到 Detailed 或 Full。
+5. 需要保存结果时，启用 `保存推理结果` 并选择输出目录。
+
+检测配置包括模型路径、按训练顺序排列的类别名、置信度阈值、IoU/NMS 阈值、输入宽高、推理线程数、CUDA 设备编号以及 CPU/GPU 偏好。模型的固定输入尺寸可能覆盖手动配置并产生提示。统一配置文件、读取类和 QML 配置编辑器还在计划中。
+
+## 模型与输出
+
+当前解析器针对单个 float32 NCHW 输入 `[1, 3, H, W]` 和 `[1, 4 + 类别数, 锚点数]` 输出的 YOLO 检测模型。类别数和锚点数从输出形状推导。其他检测头格式、分割、姿态模型或带内置 NMS 的导出模型，需要修改解析逻辑。类别名顺序必须与训练一致。
+
+示例按钮读取程序旁的 `examples/images/1 (369).jpg` 和 `examples/models/african-wildlife_best.onnx`。目前使用文件系统中的示例资源，旧的 `resources/images.qrc` 路径不再是这里的使用方式。请检查本地或部署目录是否包含这些文件。
+
+带检测框的结果保存在 `<所选目录>/detection_results/` 下，图片为 `.jpg`，视频为 `.mp4`。这些文件用于结果回看，不包含训练标签和评估指标。写入失败会记录错误并停止当前任务的保存，检测继续进行。
+
+## 后续计划
+
+- 新增统一配置文件和 `ConfigHelper`。启动时读取检测和监控配置，再通过 QML 对话框修改，替换当前写在代码里的默认值。
+- 调整 Worker 执行模型，将 Task 队列改为 Job 队列。围绕兼容的 Job 创建或复用 Session，并保持 Manager 状态与 Worker 实际持有的会话一致。
+- 完善 GPU 显示，在 GPU 图像上叠加 CPU NMS 检测框和 Qt Overlay，减少完整图像传回 CPU 以及 CPU 绘制。
+- 继续验证 GPU 单图、图片/视频混合批量、异常输入、stride/颜色处理，以及 CPU/GPU 预处理结果一致性，再拓展图片解码路径。
+- 根据 [issue #1](https://github.com/fanyu99/YOLO-Realtime-Detector/issues/1) 中的性能优化方向，在实测瓶颈后拆分采集、推理与 UI 交付，并使用有界队列。Job 丢弃/重建投递和独立后处理线程仍属于后续设计。
+- 继续完善性能监控。[Issue #14](https://github.com/fanyu99/YOLO-Realtime-Detector/issues/14) 记录了该方向；当前代码已经接入接口、依赖注入、阶段计时、快照和非模态页面，后面继续补充采样与验证。
+
+详细开发记录见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)。文档开头同时保留了历史过程和后续设想，上面的当前架构按代码描述。
 
 ## 常见问题
 
-| 现象 | 可能原因 / 处理 |
+| 问题 | 检查方向 |
 |---|---|
-| 配置阶段报 `Could NOT find OpenCV` | `OpenCV_DIR` 指向了用其它工具链（如 MinGW）构建的包。请指向包含 `x64/vc16/lib` 的 MSVC 构建。 |
-| 程序启动失败、缺少 `*.dll` | 运行时 DLL 未部署。确认构建后复制步骤已执行，或把 OpenCV / ONNX Runtime 的 `bin` 目录加入 `PATH`。 |
-| 检测框位置偏移或缩放不对 | 输入尺寸与模型不匹配。查看警告横幅 —— 应用会自动对齐并提示改动。 |
-| 没有用上 CUDA | 未找到 CUDA / cuDNN 运行库。设置 `CUDA_PATH`/`CUDNN_PATH`（或 `PATH`）以便 `DEPLOY_CUDA_RUNTIME` 找到它们；否则会使用 CPU EP。 |
-| 首次推理很慢 | 属正常现象 —— 启动时已预热会话，但换模型后的第一帧仍需付出会话创建成本。 |
-| 配置阶段找不到 `MvCameraControl` | 未找到海康 MVS SDK。请安装 MVS SDK（会设置 `MVCAM_COMMON_RUNENV`），或修改 `CMakeLists.txt` 顶部的 `MVS_SDK_ROOT`。`MVS_CAMERA_CONTROL_LIB` 是 `find_library` 的必需项，因此这是硬性配置错误。 |
-| 加入海康相机支持后程序完全起不来 | MVS 运行时缺失 —— exe 的导入表里有 `MvCameraControl.dll`，缺了它是启动失败，而不是「海康功能不可用」。`DEPLOY_MVS_RUNTIME` 本应把它复制到 exe 旁；若自动探测没找到，请传 `-DMVS_RUNTIME_DIR=<目录>`，或把正确架构的 MVS 运行时目录加入 `PATH`。注意 MVS 同时会安装 **32 位**运行时并加进 `PATH`：按 `PATH` 顺序先命中的那份架构不对，就是直接加载失败，不会继续往后找。 |
-| **海康相机检测**列表为空 | 相机未上电、GigE 不在同一网段 / USB3 未连接、MVS 运行时缺失，或相机已被其它进程占用（例如 MVS 客户端 —— 同一时刻只能有一个进程取流）。排除后点 **刷新**，并查看日志里的 SDK 错误码。 |
-
----
+| OpenCV 配置或链接失败 | 通过 `YOLO_OPENCV_*_DIR` 选择匹配的 Debug/Release 包，并保持编译器与位数一致 |
+| 找不到 FFmpeg 头文件或库 | 检查 `FFMPEG_ROOT` 下的头文件、lib，以及脚本需要的开发导入库 |
+| 找不到 `MvCameraControl` 或启动缺 DLL | 检查 x64 MVS SDK/运行库和部署或 PATH；当前即使不使用海康相机也会链接它 |
+| GPU 模式回退 | 检查编译支持、CUDA/cuDNN/ORT 运行库兼容性、GPU 架构和 fallback 日志 |
+| 没有阶段统计 | Basic 只采集端到端数据，切换 Detailed/Full 并运行检测 |
+| 无法切换监控开关 | 启动时决定监测器类型，切换需要重启；当前配置仍在源码中 |
+| 示例检测没有结果 | 检查程序旁 `examples/` 下是否存在图片和模型 |
+| 框位置或类别不正确 | 检查模型检测头、输入尺寸、类别顺序以及预处理警告 |
 
 ## 许可证
 
-本项目基于 [MIT 许可证](LICENSE) 发布。
-
-第三方组件各自遵循其原有许可证：
-
-- **Qt** —— LGPLv3 / 商业许可（详见你的 Qt 安装）；
-- **OpenCV** —— Apache-2.0；
-- **ONNX Runtime** —— MIT。
+项目使用 [MIT](LICENSE) 许可证。Qt、OpenCV、ONNX Runtime、FFmpeg、CUDA/cuDNN 和 MVS SDK 保留各自的许可与分发要求，发布程序时需要检查所使用依赖包的具体许可证。
