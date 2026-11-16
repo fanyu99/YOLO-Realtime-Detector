@@ -74,7 +74,8 @@ set(YOLO_CORE_SOURCES
     factories/CpuDetectionFlowFactory.h
     factories/CpuDetectionFlowFactory.cpp
 
-    # performance/ 
+    # performance/
+    performance/PerformanceTypes.h
     performance/IPerformanceMonitor.h
     performance/NullPerformanceMonitor.h
     performance/ScopedStageTimer.h
@@ -109,6 +110,22 @@ if(YOLO_HAVE_CUDA)
 endif()
 
 qt_add_library(yolo_core STATIC ${YOLO_CORE_SOURCES})
+
+# base/ 下的 Q_GADGET 头文件同时被根 CMakeLists 的 qt_add_qml_module(exe)
+# 登记为 QML 模块 SOURCES，由 exe 侧 AUTOMOC 生成 metatype 与注册代码。
+# 若本库再 AUTOMOC 一份，链接时 staticMetaObject / qt_static_metacall
+# 双份定义会直接 LNK2005。这里对它们关掉 AUTOMOC，moc 只做一次。
+set(YOLO_CORE_QML_GADGET_HEADERS
+    base/AppError.h
+    base/Box.h
+    base/DecodeTypes.h
+    base/DetectionTypes.h
+)
+foreach(_hdr IN LISTS YOLO_CORE_QML_GADGET_HEADERS)
+    set_source_files_properties("${_hdr}" PROPERTIES
+        SKIP_AUTOMOC ON
+        SKIP_AUTOGEN ON)
+endforeach()
 
 if(YOLO_HAVE_CUDA)
     # C++ 侧 #ifdef YOLO_HAVE_CUDA 与此变量同名，一一对应

@@ -15,6 +15,7 @@ public:
 	~PerformanceMonitor() override;
 
 	bool isEnabled() const noexcept override;	// 级别为关闭 = Off
+	bool isStageEnabled( PerformanceStage stage ) const noexcept override;	// 阶段是否被当前级别白名单允许
 	void recordStage( PerformanceStage stage, quint64 nsElapsed ) noexcept override;
 	void recordFrameResult( bool success ) noexcept override;
 

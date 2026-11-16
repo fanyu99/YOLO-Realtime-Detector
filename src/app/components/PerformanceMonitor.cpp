@@ -20,6 +20,12 @@ bool PerformanceMonitor::isEnabled() const noexcept {
 	return m_level.load( std::memory_order_relaxed ) != PerformanceLevel::Off;
 }
 
+// 阶段位掩码判断该阶段是否允许记录
+bool PerformanceMonitor::isStageEnabled( PerformanceStage stage ) const noexcept {
+	const unsigned mask = m_stageMask.load( std::memory_order_relaxed );
+	return ( mask & ( 1u << static_cast<unsigned>( stage ) ) ) != 0;
+}
+
 // 设置配置并重置窗口
 void PerformanceMonitor::setConfig( const PerformanceConfig& config ) noexcept {
 	m_config = config;

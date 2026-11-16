@@ -3,11 +3,38 @@
 #include <QVector>
 #include <QObject>
 #include "DetectionTypes.h"
-#include  "IPerformanceMonitor.h"
 
 namespace {
 	// 默认的性能监控上报间隔（单位：毫秒）
 	constexpr int kDefaultReportInterval = 300;
+}
+
+// 检测的当前的状态阶段
+enum class PerformanceStage {
+	ReadFrame,	   // 读取帧
+	Upload,		  // 上传到GPU
+	Preprocessing,		// 预处理
+	Inference, // 推理
+	Postprocessing,	 // 后处理
+	RenderImage,					// 渲染图片
+	Save, // 保存图像
+	endToend		 // 端到端总耗时
+};
+
+// 将阶段枚举转换为字符串
+inline QString stageToString( PerformanceStage stage ) {
+	switch (stage) {
+	case PerformanceStage::ReadFrame: return QStringLiteral( "读帧(ReadFrame)" );
+	case PerformanceStage::Upload: return QStringLiteral( "上传(Upload)" );
+	case PerformanceStage::Preprocessing: return QStringLiteral( "预处理(Preprocessing)" );
+	case PerformanceStage::Inference: return QStringLiteral( "推理(Inference)" );
+	case PerformanceStage::Postprocessing: return QStringLiteral( "后处理(Postprocessing)" );
+	case PerformanceStage::RenderImage: return QStringLiteral( "渲染图像(RenderImage)" );
+	case PerformanceStage::Save: return QStringLiteral( "保存(Save)" );
+	case PerformanceStage::endToend: return QStringLiteral( "端到端(endToend)" );
+	default:
+		return QStringLiteral( "未知(Unknown)" );
+	}
 }
 
  // 性能监控配置
@@ -44,7 +71,7 @@ using PerformanceLevel = PerformanceConfig::PerformanceLevel;
 struct CollectorSettings {
 	unsigned stageMask = 0;		// 阶段位掩码
 	bool enableMemoryRecord = false;	// 是否启用内存占用采样
-	bool recordGpuStages = false;	// 是否跟踪 GPU 侧的性能如Upload 
+	bool recordGpuStages = false;	// 是否跟踪 GPU 侧的性能如Upload
 };
 
 // 计算级别 ：采集点的白名单表

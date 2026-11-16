@@ -10,6 +10,9 @@
 #include "Logger.h"
 using MonitorPtr = std::unique_ptr<IPerformanceMonitor>;
 
+// TODO: 将当前的性能监控添加到整体的流程中
+// TODO： 添加QML前端性能面板并将日志迁移到性能面板中
+
 // 性能app，管理性能监控器的生命周期，快照属性由QML绑定
 // 错误使用banner进行提醒
 class PerformanceApp : public QObject {

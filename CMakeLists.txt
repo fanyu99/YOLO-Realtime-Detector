@@ -43,6 +43,7 @@ endif()
 set(YOLO_OPENCV_RELEASE_DIR "D:/opencv/build" CACHE PATH "OpenCV Release 包根目录（含 OpenCVConfig.cmake）")
 set(YOLO_OPENCV_DEBUG_DIR "D:/opencv/build-official-20261023" CACHE PATH "OpenCV Debug 包根目录（含 OpenCVConfig.cmake）")
 
+
 if(YOLO_BUILD_DEBUG)
     set(_yolo_build_type "Debug")
     set(_yolo_opencv_dir "${YOLO_OPENCV_DEBUG_DIR}")
