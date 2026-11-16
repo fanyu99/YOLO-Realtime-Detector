@@ -53,6 +53,7 @@ bool DetectionManager::start() {
 	connect(m_worker.get(),&DetectionWorker::fallbackOccurred,this,&DetectionManager::onFallback);
 
 	m_worker->setConfig(m_config);
+	m_worker->setMonitor(m_monitor);	// 创建worker时进行借用检测器
 	return m_worker->start();
 }
 
@@ -238,8 +239,7 @@ void DetectionManager::onTaskCompleted(quint64 jobId, const QVector<DetectionRes
 }
 
 void DetectionManager::onTaskFailed(quint64 jobId, const DetectionError& error) {
-	// 单个 Task 失败不再直接宣告整个作业失败：批量作业里一个坏文件
-	// 不该让剩下的几十个文件全部作废。失败先计数，等作业收尾时再判断。
+	// 单个任务失败仅警告
 	Logger::instance()->warning(QStringLiteral("[DetectionManager]: 作业 ") + QString::number(jobId)
 		+ QStringLiteral(" 中有一个任务失败: ") + error.errorMessage);
 	settleTask(jobId, true, false, error, {});

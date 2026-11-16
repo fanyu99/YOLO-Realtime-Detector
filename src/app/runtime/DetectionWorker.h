@@ -12,6 +12,7 @@
 #include "DetectionTypes.h"
 #include "FrameSource.h"
 #include "DetectionSession.h"
+#include "IPerformanceMonitor.h"
 
 class DetectionResultSaver;
 
@@ -33,6 +34,9 @@ public:
 	// 投递任务（由 Manager 调用，线程安全）。
 	// 返回 false 表示未启动或任务为空，调用方据此上报失败。
 	bool submit(std::unique_ptr<DetectionTask> task);
+
+	// 借用检测器
+	void setMonitor(IPerformanceMonitor* monitor) { m_monitor = monitor; }
 
 	// fallback机制函数，校验错误是否存在fallback，存在则返回true,并发送fallback信号以及重建Session、自愈配置
 	// 如果致命，不做自愈
@@ -79,6 +83,7 @@ private:
 	std::unique_ptr<DetectionSession> m_session;	// 检测会话（持有推理流程与帧源工厂），由Worker管理生命周期
 	DetectorConfig m_config;					   // 保存内部的Detector配置
 	DetectionError m_lastError;					// 只在 worker 线程内写
+	IPerformanceMonitor* m_monitor = nullptr;	// 性能监测器(借用)
 
 	std::queue<std::unique_ptr<DetectionTask>> m_queue;
 	mutable std::mutex m_mutex;					// 保护 m_queue

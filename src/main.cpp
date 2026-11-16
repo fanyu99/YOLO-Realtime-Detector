@@ -1,9 +1,12 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
+#include <QQmlContext>
 #include <QPalette>
 #include <QStyleHints>
 #include <qDebug>
 #include "Logger.h"
+#include "PerformanceApp.h"
+#include "PerformanceTypes.h"
 
 // 深色配色：深灰背景 + 高对比度白色文字
 QPalette makeDarkPalette() {
@@ -82,8 +85,8 @@ int main(int argc, char* argv[])
 	qputenv("QT_QUICK_CONTROLS_STYLE", "Fusion");
 
 	QGuiApplication app(argc, argv);
-	// 尽早创建日志器单例：接管 qDebug/qInfo/qWarning 等输出，保证启动阶段的日志也能进入 QML 日志面板
-	Logger::instance();
+
+	Logger::instance();	  // 创建日志实例
 
 	// 依据系统主题应用调色板，并跟随系统主题变化实时切换
 	auto applyTheme = [](Qt::ColorScheme scheme) {
@@ -94,6 +97,11 @@ int main(int argc, char* argv[])
 
 	try {
 		QQmlApplicationEngine engine;
+		// 通过上下文属性暴露给 QML，由 main.qml 绑定进 DetectionApp 完成注入
+		// TODO: 配置改由综合配置文件提供
+		const PerformanceConfig perfConfig;	// 暂用默认配置(Basic 级别)
+		auto* perfApp = new PerformanceApp(perfConfig, &app);
+		engine.rootContext()->setContextProperty(QStringLiteral("perfApp"), perfApp);	 // 将当前的性能App设置为全局的qml上下文
 		engine.load(QUrl(QStringLiteral("qrc:/qt/qml/yolo/main.qml")));
 		if (engine.rootObjects().isEmpty())
 			return -1;

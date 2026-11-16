@@ -6,6 +6,7 @@
 
 #include "DetectionTypes.h"
 #include "DetectionWorker.h"
+#include "IPerformanceMonitor.h"
 
 // 调度层。
 //   对上：给 App 提供「提交作业 / 取消 / 查进度」的接口与作业级信号。
@@ -27,6 +28,8 @@ public:
 
 	void shutdown();								// 停止 worker 并清理全部作业
 	const DetectorConfig& config() const { return m_config; }
+	// 借用性能监测器
+	void setMonitor(IPerformanceMonitor* monitor) { m_monitor = monitor; }
 
 	// 提交作业：只提交帧源描述，帧源由 Worker 经 Session 创建
 	quint64 submitSource(const FrameSourceDescription& des, const QString& saveDir = QString());
@@ -81,4 +84,5 @@ private:
 	quint64 m_nextJobId = 0;
 	quint64 m_nextTaskId = 0;
 	DetectorConfig m_config;
+	IPerformanceMonitor* m_monitor = nullptr;	// 性能监测器(借用)
 };

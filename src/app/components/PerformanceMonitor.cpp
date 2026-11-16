@@ -59,61 +59,69 @@ void PerformanceMonitor::recordStage( PerformanceStage stage, quint64 nsElapsed 
 	if ( ( mask & stageBit ) == 0 )
 		return;
 
-	// 记录当前的阶段信息（掩码过滤在锁外完成，被过滤的调用完全无锁）
-	const double ms = static_cast<double>( nsElapsed ) * ns2ms;
-	std::lock_guard<std::mutex> lock( m_mutex );
+	// 记录当前的阶段信息
+	std::lock_guard<std::mutex> lock( m_mutex );  // 加锁防止脏读
 	auto& acc = m_stageRecorder[ static_cast<size_t>( stage ) ];
 	++acc.sampleCount;
-	acc.totalMs += ms;
-	if ( ms > acc.maximumMs )
-		acc.maximumMs = ms;
+	acc.totalNs += nsElapsed;
+	if ( nsElapsed > acc.maximumNs )
+		acc.maximumNs = nsElapsed;
 
-	// 端到端单独记录
+	// 端到端记录
 	if ( stage == PerformanceStage::endToend ) {
-		m_endToEndTotalMs += ms;
-		++m_endToEndSamples;
+		m_narrowEndToEndTotalNs += nsElapsed;
+		++m_narrowEndToEndSamples;
 	}
 }
 
-void PerformanceMonitor::recordFrameResult( bool success ) noexcept {
+// 记录一帧的结果；frameTotalNs 为该帧从读帧开始的累计耗时(广义端到端)
+void PerformanceMonitor::recordFrameResult( bool success, quint64 frameTotalNs ) noexcept {
 	std::lock_guard<std::mutex> lock( m_mutex );
 	if ( success )
-		++m_successfulFrames ;
+		++m_successfulFrames;
 	else
 		++m_failedFrames;
+	m_broadEndToEndTotalNs += frameTotalNs;
+	++m_broadEndToEndSamples;
 }
 
 // 重置窗口并刷新起始时间
 void PerformanceMonitor::resetWindow() noexcept {
 	for ( auto& acc : m_stageRecorder ) {
 		acc.sampleCount = 0;
-		acc.totalMs = 0.0;
-		acc.maximumMs = 0.0;
+		acc.totalNs = 0;
+		acc.maximumNs = 0;
 	}
 	m_successfulFrames = 0;
 	m_failedFrames = 0;
-	m_endToEndTotalMs = 0.0;
-	m_endToEndSamples = 0;
+	m_narrowEndToEndTotalNs = 0;
+	m_narrowEndToEndSamples = 0;
+	m_broadEndToEndTotalNs = 0;
+	m_broadEndToEndSamples = 0;
 	// 重置后记录新窗口的起始时间
 	m_windowStartNs = static_cast<quint64>( m_clock.nsecsElapsed() );
 }
 
 // 生成快照并发送信号
 void PerformanceMonitor::emitSnapshot() {
-	// 锁内只做拷贝，聚合计算放在锁外，缩短与工作线程的互斥窗口
 	StageRecorder recorderCopy[ std::size( m_stageRecorder ) ];
 	uint64_t successfulFrames = 0;
 	uint64_t failedFrames = 0;
-	double endToEndTotalMs = 0.0;
-	uint64_t endToEndSamples = 0;
+	uint64_t narrowTotalNs = 0;
+	uint64_t narrowSamples = 0;
+	uint64_t broadTotalNs = 0;
+	uint64_t broadSamples = 0;
 	quint64 windowStartNs = 0;
+	// 用锁拷贝数据到快照，防止一读一写脏数据
 	{
 		std::lock_guard<std::mutex> lock( m_mutex );
 		std::copy( std::begin( m_stageRecorder ), std::end( m_stageRecorder ), std::begin( recorderCopy ) );
 		successfulFrames = m_successfulFrames;
 		failedFrames = m_failedFrames;
-		endToEndTotalMs = m_endToEndTotalMs;
-		endToEndSamples = m_endToEndSamples;
+		narrowTotalNs = m_narrowEndToEndTotalNs;
+		narrowSamples = m_narrowEndToEndSamples;
+		broadTotalNs = m_broadEndToEndTotalNs;
+		broadSamples = m_broadEndToEndSamples;
 		windowStartNs = m_windowStartNs;
 	}
 
@@ -132,8 +140,11 @@ void PerformanceMonitor::emitSnapshot() {
 	snapshot.m_overall.overallFPS = snapshot.m_context.windowDurationMs > 0.0
 		? static_cast<float>( recorded * 1000.0 / snapshot.m_context.windowDurationMs )
 		: 0.0f;
-	if ( endToEndSamples > 0 ) {
-		snapshot.m_overall.averageEndToEndMs = endToEndTotalMs / static_cast<double>( endToEndSamples );
+	if ( narrowSamples > 0 ) {
+		snapshot.m_overall.narrowEndToEndNs = narrowTotalNs / narrowSamples;
+	}
+	if ( broadSamples > 0 ) {
+		snapshot.m_overall.broadEndToEndNs = broadTotalNs / broadSamples;
 	}
 
 	// 阶段统计
@@ -149,8 +160,8 @@ void PerformanceMonitor::emitSnapshot() {
 		StageStatistics stat;
 		stat.stage = static_cast<PerformanceStage>( i );
 		stat.sampleCount = acc.sampleCount;
-		stat.averageMs = acc.totalMs / static_cast<double>( acc.sampleCount );
-		stat.maximumMs = acc.maximumMs;
+		stat.averageNs = acc.totalNs / acc.sampleCount;
+		stat.maximumNs = acc.maximumNs;
 		snapshot.m_stages.append( stat );
 	}
 

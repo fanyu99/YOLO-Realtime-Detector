@@ -123,17 +123,19 @@ struct ContextInfo {
 };
 
 // 阶段统计信息
+// 统一使用ns作为时间单位
 struct StageStatistics {
 	PerformanceStage stage = PerformanceStage::endToend; // 阶段
 	uint64_t sampleCount = 0; // 样本数
-	double averageMs = 0.0;	 // 平均耗时
-	double maximumMs = 0.0;		// 最大耗时
+	uint64_t averageNs = 0;	// 平均耗时
+	uint64_t maximumNs = 0;		// 最大耗时
 };
 
 // 整体计数
 struct OverallStatistics{
 	float overallFPS = 0.0f;	// 处理帧率(等于成功处理的帧数除以统计窗口时长)
-	float averageEndToEndMs = 0.0;	// 单帧端到端平均耗时
+	uint64_t narrowEndToEndNs = 0;	// 从读帧到推理完成的平均耗时
+	uint64_t broadEndToEndNs = 0;	// // 从读帧到一帧完成显示的平均耗时
 	int recordedFrames = 0;	// 统计窗口内记录的帧数(成功+失败)
 	int successfulFrames = 0;	// 成功处理的帧数
 	int failedFrames = 0;		// 失败的帧数

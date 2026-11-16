@@ -31,15 +31,21 @@ public:
     }
 
     ~ScopedStageTimer() noexcept {
+        end();
+    }
+
+    // 提前结束计时并记录
+    void end() noexcept {
         if (m_active) {
+            m_active = false;  // 失效，避免析构重新计时
             const qint64 elapsedNs = m_timer.nsecsElapsed();
-            m_monitor->recordStage( m_stage, elapsedNs );  // 退出时自动记录耗时
+            m_monitor->recordStage( m_stage, elapsedNs );  // 记录阶段耗时
         }
     }
 
 private:
     IPerformanceMonitor* m_monitor;
     PerformanceStage m_stage;
-    bool m_active = false;	// 当前的阶段是否激活了
+    bool m_active = false;	// 当前的阶段是否激活了(防重复记录)
     QElapsedTimer m_timer;
 };

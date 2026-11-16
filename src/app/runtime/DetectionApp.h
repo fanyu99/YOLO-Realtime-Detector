@@ -39,6 +39,7 @@ class DetectionApp : public QObject, public QQmlParserStatus
 	Q_PROPERTY(int resultIndex READ resultIndex NOTIFY reviewChanged)						// 当前回看位置(-1=跟随实时)
 	Q_PROPERTY(bool reviewing READ reviewing NOTIFY reviewChanged)							// 是否处于回看模式
 	Q_PROPERTY(QString resultInfo READ resultInfo NOTIFY reviewChanged)						// 回看条目的说明文字
+	Q_PROPERTY(QObject* performanceApp WRITE setPerformanceApp MEMBER m_performanceAppObject)	// 性能App(由QML绑定注入，只用于转发monitor)
 
 public:
 	// 横幅级别：决定 QML 侧的配色。一条横幅槽位，避免多条堆叠。
@@ -91,6 +92,7 @@ public:
 	Q_INVOKABLE quint64 submitBatch(const QList<QUrl>& urls);	// qml 批量检测：一个 Job 含多个 Task
 	Q_INVOKABLE void cancelCurrentJob();						// qml 停止按钮
 	Q_INVOKABLE void dismissBanner();							// qml 关闭横幅
+	Q_INVOKABLE void setPerformanceApp(QObject* perfApp);		// qml 绑定注入 PerformanceApp，取出 monitor 交给 Manager
 	Q_INVOKABLE QString frameSource() const;					// "image://detection/latest?rev=N"
 	Q_INVOKABLE void setSaveOptions(bool enabled, const QUrl& dir);	// 设置"保存推理结果"开关与目录
 	Q_INVOKABLE void nextResult();
@@ -152,6 +154,7 @@ private:
 	void onConfigAdjusted(const DetectorConfig& config);		// 检测器对齐了配置尺寸 -> 同步本地副本
 
 	std::unique_ptr<DetectionManager> m_manager;
+	QObject* m_performanceAppObject = nullptr;				// QML 绑定的 PerformanceApp(仅用于注入期，不使用)
 	DetectionImageProvider* m_frameProvider = nullptr;		// 帧提供器,所有权归 QML engine
 
 	// 结果回看条目。帧本身存在 DetectionImageProvider 的有界缓冲里（按 seq 索引）

@@ -1,5 +1,6 @@
 #include "DetectionApp.h"
 
+#include "PerformanceApp.h"
 #include <QFileInfo>
 #include <QCoreApplication>
 #include <QQmlEngine>
@@ -36,6 +37,25 @@ DetectionApp::DetectionApp( QObject* parent ) : QObject( parent ), m_filePath( "
 	connect( m_manager.get(), &DetectionManager::fallbackOccurred, this, &DetectionApp::onFallbackOccurred );
 
 
+}
+
+// QML 绑定注入 PerformanceApp：取出其内部的监测器交给 Manager
+void DetectionApp::setPerformanceApp( QObject* perfApp ) {
+	if (m_performanceAppObject == perfApp)
+		return;
+	m_performanceAppObject = perfApp;
+	if (!perfApp) {
+		m_manager->setMonitor( nullptr );
+		return;
+	}
+	// 借出指针
+	if (auto* perf = qobject_cast<PerformanceApp*>( perfApp ); perf && perf->monitor()) {
+		m_manager->setMonitor( perf->monitor() );
+		Logger::instance()->info( QStringLiteral( "[DetectionApp]: 性能监测器已注入" ) );
+	}
+	else {
+		Logger::instance()->warning( QStringLiteral( "[DetectionApp]: performanceApp 类型无效，性能监控未启用" ) );
+	}
 }
 
 void DetectionApp::onFallbackOccurred( const DetectionError& error ) {

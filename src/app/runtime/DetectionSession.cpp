@@ -9,6 +9,7 @@
 #include "CudaDevice.h"
 #endif
 #include "Logger.h"
+#include "ScopedStageTimer.h"
 #include <QElapsedTimer>
 
 namespace {
@@ -16,8 +17,9 @@ namespace {
 	constexpr int kDefaultWarmupIterations = 3;
 }
 
-DetectionSession::DetectionSession( const DetectorConfig& config )
+DetectionSession::DetectionSession( const DetectorConfig& config, IPerformanceMonitor* monitor )
 	: m_config( config )
+	, m_monitor( monitor )
 	, m_mode{ config.effectiveMode() }	// active_mode 优先，未设置时跟随 preferred_mode
 {
 	// 根据实际生效的模式创建对应的工厂
@@ -44,7 +46,7 @@ DetectionSession::DetectionSession( const DetectorConfig& config )
 
 	// 创建成功后把实际生效的模式写回配置
 	m_config.active_mode = m_mode;
-	m_detectionFlow = m_flowFactory->createDetectionFlow( m_config );
+	m_detectionFlow = m_flowFactory->createDetectionFlow( m_config, m_monitor );
 	if (m_detectionFlow)
 		m_warnings = m_detectionFlow->warnings();
 	// 如果空指针或者ORT会话创建失败，记录错误与fallback标记，如果触发fallback，直接重建Session
@@ -120,7 +122,12 @@ bool DetectionSession::runFlow( FrameHandlePtr frame, DetectionResult& outResult
 			outResult.error = m_lastError;
 			return false;
 		}
-		auto gpuHandle = std::make_shared<GpuImageFrameHandle>( cpuHandle->constMat(), frame->frameIndex() );
+		// 单图路径的显存上传计时(仅此一处测 Upload；GPU视频链路的解码+上传在decoder内部完成，包含在 ReadFrame 中)
+		std::shared_ptr<GpuImageFrameHandle> gpuHandle;
+		{
+			ScopedStageTimer uploadTimer( m_monitor, PerformanceStage::Upload );
+			gpuHandle = std::make_shared<GpuImageFrameHandle>( cpuHandle->constMat(), frame->frameIndex() );
+		}
 		if (!gpuHandle->isValid()) {
 			m_lastError = DetectionError(
 				QStringLiteral( "[DetectionSession]: CPU帧上传GPU显存失败，触发fallback到CPU模式；详细信息：显存数据是否为空：" ) + (gpuHandle->dataEmpty() ? QStringLiteral("是") : QStringLiteral("否"))

@@ -22,7 +22,11 @@ Window {
 
 	// 主题(跟随系统) 与 后端门面
 	Theme { id: theme }
-	DetectionApp { id: app } // 后端App,负责将QML与C++桥接，提供配置、日志、检测等功能
+	// 后端App,负责将QML与C++桥接，提供配置、日志、检测等功能
+	DetectionApp {
+		id: app
+		performanceApp: perfApp // 全局的性能上下文注入
+	}
 
 	// ---- 界面状态 ----
 	property string selectedFileName: ""		// 已选文件名(仅显示)

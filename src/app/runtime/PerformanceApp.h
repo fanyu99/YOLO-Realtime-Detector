@@ -22,7 +22,8 @@ class PerformanceApp : public QObject {
 
 	// QML绑定属性
 	Q_PROPERTY(float overallFPS READ overallFPS NOTIFY statsChanged)					// 整体帧率
-	Q_PROPERTY(double averageEndToEndMs READ averageEndToEndMs NOTIFY statsChanged)		// 单帧端到端平均耗时
+	Q_PROPERTY(double narrowEndToEndMs READ narrowEndToEndMs NOTIFY statsChanged)		// 狭义端到端平均耗时(读帧->推理流程返回)
+	Q_PROPERTY(double broadEndToEndMs READ broadEndToEndMs NOTIFY statsChanged)		// 广义端到端平均耗时(读帧->渲染/保存完成)
 	Q_PROPERTY(int recordedFrames READ recordedFrames NOTIFY statsChanged)				// 窗口内记录帧数(成功+失败)
 	Q_PROPERTY(int successfulFrames READ successfulFrames NOTIFY statsChanged)			// 成功帧数
 	Q_PROPERTY(int failedFrames READ failedFrames NOTIFY statsChanged)					// 失败帧数
@@ -54,7 +55,8 @@ public:
 
 	// 快照属性 getter
 	float overallFPS() const { return m_overallFPS; }
-	double averageEndToEndMs() const { return m_averageEndToEndMs; }
+	double narrowEndToEndMs() const { return m_narrowEndToEndMs; }
+	double broadEndToEndMs() const { return m_broadEndToEndMs; }
 	int recordedFrames() const { return m_recordedFrames; }
 	int successfulFrames() const { return m_successfulFrames; }
 	int failedFrames() const { return m_failedFrames; }
@@ -86,7 +88,8 @@ private:
 
 	// 摊平后的快照数据
 	float m_overallFPS = 0.0f;
-	double m_averageEndToEndMs = 0.0;
+	double m_narrowEndToEndMs = 0.0;
+	double m_broadEndToEndMs = 0.0;
 	int m_recordedFrames = 0;
 	int m_successfulFrames = 0;
 	int m_failedFrames = 0;

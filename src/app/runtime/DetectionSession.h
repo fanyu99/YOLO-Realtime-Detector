@@ -2,6 +2,7 @@
 #include "DetectionFlowFactory.h"
 #include "FrameSourceFactory.h"
 #include "DetectionTypes.h"
+#include "IPerformanceMonitor.h"
 
 // 会话，统一管理 FrameSource 和 DetectionFlow 的生命周期以及配置和配对
 // 由Worker统一管理Session生命周期，Manager管理Session状态
@@ -11,7 +12,7 @@
 class DetectionSession final
 {
 public:
-	explicit DetectionSession(const DetectorConfig& config);
+	explicit DetectionSession(const DetectorConfig& config, IPerformanceMonitor* monitor = nullptr);
 	~DetectionSession();
 	// 创建图片帧源（cv::imread，固定 CPU 内存）
 	FrameSourcePtr createImageFrameSource(QStringView filePath);
@@ -52,4 +53,5 @@ private:
 	// 推理流程和帧源工厂
 	DetectionFlowFactoryPtr m_flowFactory;
 	FrameSourceFactoryPtr m_sourceFactory;
+	IPerformanceMonitor* m_monitor = nullptr;	// 性能监测器(借用)
 };

@@ -51,9 +51,10 @@ IPerformanceMonitor* PerformanceApp::monitor()  {
 
 
 void PerformanceApp::onSnapshotReady( const PerformanceSnapshot& snapshot ) {
-	// 整体计数
+	// 整体计数（ns -> ms：展示边界才转换单位）
 	m_overallFPS = snapshot.m_overall.overallFPS;
-	m_averageEndToEndMs = snapshot.m_overall.averageEndToEndMs;
+	m_narrowEndToEndMs = static_cast<double>( snapshot.m_overall.narrowEndToEndNs ) * 1.0e-6;
+	m_broadEndToEndMs = static_cast<double>( snapshot.m_overall.broadEndToEndNs ) * 1.0e-6;
 	m_recordedFrames = snapshot.m_overall.recordedFrames;
 	m_successfulFrames = snapshot.m_overall.successfulFrames;
 	m_failedFrames = snapshot.m_overall.failedFrames;
@@ -68,8 +69,8 @@ void PerformanceApp::onSnapshotReady( const PerformanceSnapshot& snapshot ) {
 	for (const StageStatistics& stat : snapshot.m_stages) {
 		QVariantMap row;
 		row[QStringLiteral("name")] = stageToString( stat.stage );
-		row[QStringLiteral("averageMs")] = stat.averageMs;
-		row[QStringLiteral("maximumMs")] = stat.maximumMs;
+		row[QStringLiteral("averageMs")] = static_cast<double>( stat.averageNs ) * 1.0e-6;
+		row[QStringLiteral("maximumMs")] = static_cast<double>( stat.maximumNs ) * 1.0e-6;
 		row[QStringLiteral("sampleCount")] = static_cast<qint64>( stat.sampleCount );
 		m_stageStats.append( row );
 	}

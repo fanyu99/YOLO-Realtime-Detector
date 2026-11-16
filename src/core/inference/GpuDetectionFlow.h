@@ -6,6 +6,7 @@
 #endif
 #include "DetectionTypes.h"
 #include "CommonPostProcessor.h"
+#include "IPerformanceMonitor.h"
 #include <QVector>
 #include <QString>
 // Gpu推理流程
@@ -13,7 +14,7 @@ class GpuDetectionFlow : public DetectionFlow {
 public:
 	GpuDetectionFlow() = default;
 	// 创建检测器时如果出现fallback，设置错误fallback
-	explicit GpuDetectionFlow( const DetectorConfig& config );
+	explicit GpuDetectionFlow( const DetectorConfig& config, IPerformanceMonitor* monitor = nullptr );
 	~GpuDetectionFlow() override = default;
 
 	// 执行完整的GPU处理流程：预处理 + 推理  出参为outResult
@@ -48,6 +49,7 @@ private:
 	CommonPostProcessor m_postprocessor;	// 通用后处理器
 	DetectorConfig m_config;	// 配置副本(供流程校验与阈值传递)
 	DetectionError m_lastError;
+	IPerformanceMonitor* m_monitor = nullptr;	// 性能监测器(借用)
 	FlowMode m_activeMode = FlowMode::GPU;	// 当前流程的实际的计算模式：GPU
 	FlowMode m_preferredMode = FlowMode::GPU;	// 首选模式：GPU
 };

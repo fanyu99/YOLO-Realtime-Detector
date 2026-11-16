@@ -5,5 +5,5 @@ class CpuDetectionFlowFactory : public DetectionFlowFactory {
 public:
 	explicit CpuDetectionFlowFactory() = default;
 	~CpuDetectionFlowFactory() override = default;
-	DetectionFlowPtr createDetectionFlow( const DetectorConfig& config ) override;
+	DetectionFlowPtr createDetectionFlow( const DetectorConfig& config, IPerformanceMonitor* monitor = nullptr ) override;
 };

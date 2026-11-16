@@ -17,7 +17,7 @@ public:
 	bool isEnabled() const noexcept override;	// 级别为关闭 = Off
 	bool isStageEnabled( PerformanceStage stage ) const noexcept override;	// 阶段是否被当前级别白名单允许
 	void recordStage( PerformanceStage stage, quint64 nsElapsed ) noexcept override;
-	void recordFrameResult( bool success ) noexcept override;
+	void recordFrameResult( bool success, quint64 frameTotalNs ) noexcept override;
 
 	// 配置更新：推导新的配置的采集掩码并重置统计窗口
 	void setConfig( const PerformanceConfig& config ) noexcept override;
@@ -45,15 +45,17 @@ private:
 	std::mutex m_mutex;// 保护窗口数据
 	struct StageRecorder {
 		uint64_t sampleCount = 0;
-		double totalMs = 0.0;
-		double maximumMs = 0.0;
+		uint64_t totalNs = 0;
+		uint64_t maximumNs = 0;
 	};
 	StageRecorder m_stageRecorder[8];	// 阶段记录器，按照索引记录
 	quint64 m_windowStartNs = 0;	// 窗口起始时间ns
 	uint64_t m_successfulFrames = 0;
 	uint64_t m_failedFrames = 0;
-	double m_endToEndTotalMs = 0.0;
-	uint64_t m_endToEndSamples = 0;	// 端到端样本数
+	uint64_t m_narrowEndToEndTotalNs = 0;	// 狭义端到端总耗时
+	uint64_t m_narrowEndToEndSamples = 0;	// 狭义端到端样本数
+	uint64_t m_broadEndToEndTotalNs = 0;	// 广义端到端总耗时
+	uint64_t m_broadEndToEndSamples = 0;	// 广义端到端样本数
 	int m_snapshotIndex = 0;	 // 快照序号
 
 	QElapsedTimer m_clock;	// 记录起始时间

@@ -13,6 +13,7 @@ public:
 	// 返回该阶段是否在当前监控级别下允许记录（monitor内部依据级别掩码过滤）
 	virtual bool isStageEnabled( PerformanceStage stage ) const noexcept = 0;
 	virtual void recordStage( PerformanceStage stage, quint64 nsElapsed ) noexcept = 0;		  // 记录阶段耗时，单位为ns
-	virtual void recordFrameResult( bool success ) noexcept = 0;	  // 记录一帧是否成功
+	// 记录一帧的结果与广义端到端耗时(读帧到显示/保存完成的耗时)
+	virtual void recordFrameResult( bool success, quint64 frameTotalNs ) noexcept = 0;
 	virtual void setConfig(const PerformanceConfig& config) noexcept = 0;
 };

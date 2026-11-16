@@ -1,12 +1,14 @@
 #include  "GpuDetectionFlow.h"
+#include "ScopedStageTimer.h"
 #include "Logger.h"
 #include <QElapsedTimer>
 
-GpuDetectionFlow::GpuDetectionFlow( const DetectorConfig& config )
+GpuDetectionFlow::GpuDetectionFlow( const DetectorConfig& config, IPerformanceMonitor* monitor )
 	: m_config( config )
 	, m_detector( config )
 	, m_preprocessor()
 	,m_postprocessor()
+	,m_monitor( monitor )
 {
 	m_lastError = m_detector.lastError();
 }
@@ -60,8 +62,12 @@ bool GpuDetectionFlow::run( const FrameHandlePtr& handle, DetectionResult& outRe
 		outResult.error = m_lastError;
 		return false;
 	}
-	// 预处理
-	auto preprocessedOpt = m_preprocessor.preprocess( handle, m_detector.inputWidth(), m_detector.inputHeight() );
+	// 预处理(阶段计时)
+	std::optional<GpuPreprocessResult> preprocessedOpt;
+	{
+		ScopedStageTimer timer( m_monitor, PerformanceStage::Preprocessing );
+		preprocessedOpt = m_preprocessor.preprocess( handle, m_detector.inputWidth(), m_detector.inputHeight() );
+	}
 	if (!preprocessedOpt.has_value()) {
 		m_lastError = m_preprocessor.lastError();
 		if (!m_lastError.has_error()) { // 兜底错误
@@ -71,11 +77,12 @@ bool GpuDetectionFlow::run( const FrameHandlePtr& handle, DetectionResult& outRe
 		return false;
 	}
 	const auto& preprocessed = preprocessedOpt.value();
-	// 推理
+	// 推理(阶段计时；QElapsedTimer 为结果展示用ms计时，与性能统计互不影响)
 	std::vector<float> output_data;
 	std::vector<int64_t> output_shape;
 	QElapsedTimer timer;
 	timer.start();
+	ScopedStageTimer inferTimer( m_monitor, PerformanceStage::Inference );
 	if (!m_detector.infer( preprocessed, output_data, output_shape )) {
 		m_lastError = m_detector.lastError();
 		if (!m_lastError.has_error()) { // 兜底错误
@@ -85,6 +92,7 @@ bool GpuDetectionFlow::run( const FrameHandlePtr& handle, DetectionResult& outRe
 		return false;
 	}
 	const quint64 duration = timer.elapsed();
+	inferTimer.end();	// 结束推理阶段计时(不含输出校验与后处理)
 	// 校验结果
 	if (output_shape.size() < 3) {
 		m_lastError = DetectionError(
@@ -104,16 +112,19 @@ bool GpuDetectionFlow::run( const FrameHandlePtr& handle, DetectionResult& outRe
 		outResult.error = m_lastError;
 		return false;
 	}
-	// 进行后处理
+	// 进行后处理(阶段计时)
 	std::vector<Box>boxes;
-	if (!m_postprocessor.postProcess( output_data.data(), num_classes, num_anchors,
-		preprocessedOpt->letterboxInfo, m_config.conf_threshold, m_config.iou_threshold, boxes ) ) {
-		m_lastError = m_postprocessor.lastError();
-		if (!m_lastError.has_error()) { // 兜底错误
-			m_lastError = DetectionError( QStringLiteral( "[GpuDetectionFlow]: 后处理失败" ), DetectionErrorCategory::Postprocess, DetectionErrorCode::PostprocessFailed );
+	{
+		ScopedStageTimer timer( m_monitor, PerformanceStage::Postprocessing );
+		if (!m_postprocessor.postProcess( output_data.data(), num_classes, num_anchors,
+			preprocessedOpt->letterboxInfo, m_config.conf_threshold, m_config.iou_threshold, boxes ) ) {
+			m_lastError = m_postprocessor.lastError();
+			if (!m_lastError.has_error()) { // 兜底错误
+				m_lastError = DetectionError( QStringLiteral( "[GpuDetectionFlow]: 后处理失败" ), DetectionErrorCategory::Postprocess, DetectionErrorCode::PostprocessFailed );
+			}
+			outResult.error = m_lastError;
+			return false;
 		}
-		outResult.error = m_lastError;
-		return false;	
 	}
 	// 最后总结结果
 	outResult.boxes = QVector<Box>(boxes.begin(), boxes.end());
