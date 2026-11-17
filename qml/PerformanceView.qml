@@ -15,10 +15,10 @@ Window {
     visible: false
     modality: Qt.NonModal
     title: "性能监控页"
-    width: 1180
-    height: 700
-    minimumWidth: 940
-    minimumHeight: 560
+    width: 800
+    height: 640
+    minimumWidth: 400 
+    minimumHeight: 320
     color: performanceView.theme.window
 
     property var theme: null		// 由外部注入的主题对象(Theme.qml)

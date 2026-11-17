@@ -571,15 +571,21 @@ void DetectionApp::setConfig( const QUrl& model_path, const QStringList& class_n
 	config.input_height = input_height;
 	auto  newMode = str2FlowMode( flow_mode );
 	if (!newMode.has_value()) {
-		// 无效模式，忽略并警告
+		// 无效保留当前模式
+		config.preferred_mode = m_config.preferred_mode;
+		config.active_mode = m_config.active_mode;
 		onDetectorWarning( DetectorWarning( QStringLiteral( "[DetectionApp]: 无效的流模式: " ) + flow_mode , DetectorWarning::Code::InvalidFlowMode ) );
-	 }
-	// 懒设置，只有与当前实际生效的模式不同时才进行更改
-	else if (m_config.effectiveMode() != newMode.value()) {
+	}
+	else {
 		config.preferred_mode = newMode.value();
 		config.active_mode = std::nullopt;
 	}
 	setConfig( config );
+}
+
+// 设置默认配置
+void DetectionApp::setInitialConfig(const DetectorConfig& config) {
+	setConfig ( config );
 }
 
 // 设置模式

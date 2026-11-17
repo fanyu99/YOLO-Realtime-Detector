@@ -26,6 +26,7 @@ class DetectionApp : public QObject, public QQmlParserStatus
 	Q_PROPERTY(QUrl filePath READ filePath WRITE setFilePath NOTIFY filePathChanged)			// 当前选择的文件(图片/视频)
 	Q_PROPERTY(QUrl modelPath READ modelPath WRITE setModelPath NOTIFY modelPathChanged)		// 当前模型路径
 	Q_PROPERTY(DetectorConfig config READ config NOTIFY configChanged)							// 当前配置(供侧边栏展示)
+	Q_PROPERTY(DetectorConfig initialConfig WRITE setInitialConfig)								// 设置初始配置
 	Q_PROPERTY(QStringList classNames READ classNames NOTIFY configChanged)						// 类别名列表
 	Q_PROPERTY(float progress READ progress NOTIFY progressChanged)								// 当前作业进度 0..1
 	Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)											// 是否有作业在跑
@@ -83,6 +84,7 @@ public:
 	Q_INVOKABLE void setFilePath(const QUrl& path);
 	Q_INVOKABLE void setConfig(const DetectorConfig& config);
 	Q_INVOKABLE void setConfig(const QUrl& model_path, const QStringList& class_names, float conf_confidence, float iou_threshold, int num_threads, int device_id, int input_width, int input_height,const QString& flow_mode);
+	Q_INVOKABLE void setInitialConfig ( const DetectorConfig& config );
 	Q_INVOKABLE void onDetectClicked();							// qml 检测按钮点击
 	Q_INVOKABLE void runSampleDetection();						// 一键示例检测
 	Q_INVOKABLE void onDetectHikCameraClicked(const QString& serial, const QString& triggerMode);	// qml 海康相机检测(带序列号)

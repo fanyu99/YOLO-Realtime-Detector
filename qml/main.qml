@@ -27,7 +27,8 @@ Window {
     // 后端App,负责将QML与C++桥接，提供配置、日志、检测等功能
     DetectionApp {
         id: app
-        performanceApp: perfApp // 全局的性能上下文注入
+        performanceApp: perfApp // 性能监测器
+        initialConfig: appConfig.detectorConfig // 配置在perfApp创建后再注入，不然会出现空指针访问
     }
 
     // ---- 界面状态 ----
@@ -681,5 +682,10 @@ Window {
         }
     }
 
-    Component.onCompleted: Logger.info("[UI]: 界面已就绪，等待选择图片 / 视频")
+    Component.onCompleted: {
+        const warns = appConfig ? appConfig.warnings : []
+        for (let i = 0; i < warns.length; ++i)
+            Logger.warning(warns[i])
+        Logger.info("[UI]: 界面已就绪，等待选择图片 / 视频")
+    }
 }

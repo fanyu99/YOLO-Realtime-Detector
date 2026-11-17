@@ -38,6 +38,7 @@ set(YOLO_CORE_SOURCES
     base/Box.h
     base/DecodeTypes.h
     base/DetectionTypes.h
+    base/PerformanceTypes.h
 
     # inference/
     inference/DetectionFlow.h
@@ -75,7 +76,6 @@ set(YOLO_CORE_SOURCES
     factories/CpuDetectionFlowFactory.cpp
 
     # performance/
-    performance/PerformanceTypes.h
     performance/IPerformanceMonitor.h
     performance/NullPerformanceMonitor.h
     performance/ScopedStageTimer.h

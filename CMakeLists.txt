@@ -32,7 +32,7 @@ set(CMAKE_AUTOMOC ON)
 # -----------------------------------------------------------------------------
 option(YOLO_BUILD_DEBUG 
 "ON = Debug 构建并使用 OpenCV debug 库；OFF = Release（默认）" 
-OFF
+ON
 )
 if(YOLO_BUILD_DEBUG)
     message(STATUS "YOLO_BUILD_DEBUG= ON : Debug 构建 + OpenCV Debug 库")
@@ -213,10 +213,11 @@ set(YOLO_SOURCE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/frame"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app/runtime"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app/components"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/app/configs"
 )
 
 # -----------------------------------------------------------------------------
-# 可执行程序入口 + 内嵌资源
+# 可执行程序入口 
 # -----------------------------------------------------------------------------
 set(PROJECT_SOURCES
     src/main.cpp
@@ -289,6 +290,7 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             src/core/base/DecodeTypes.h
             src/core/base/Box.h
             src/core/base/AppError.h
+            src/app/configs/AppConfig.h
     )
 endif()
 
@@ -371,6 +373,19 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples")
         COMMENT "Deploying examples/ (sample images + models) next to ${PROJECT_NAME}.exe"
     )
     message(STATUS "成功找到示例资源目录： ${CMAKE_CURRENT_SOURCE_DIR}/examples")
+endif()
+
+# 应用配置部署：settings/（app.json）随构建同步到 exe 目录，
+# main.cpp 优先从 exe 目录查找 settings/app.json，这样无论从 IDE 还是
+# 命令行启动（工作目录各不相同）都能读到同一份配置。
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/settings")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/settings"
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/settings
+        COMMENT "Deploying settings/ (app.json) next to ${PROJECT_NAME}.exe"
+    )
+    message(STATUS "成功找到配置目录： ${CMAKE_CURRENT_SOURCE_DIR}/settings")
 endif()
 
 # CUDA / cuDNN 运行时 DLL 部署。

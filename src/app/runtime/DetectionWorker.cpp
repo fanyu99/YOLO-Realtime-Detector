@@ -383,7 +383,8 @@ bool DetectionWorker::runImage( DetectionTask& task ) {
 				: task.source->lastError();
 			m_lastError = DetectionError( QStringLiteral( "[DetectionWorker]: " ) + message,
 				DetectionErrorCategory::Image, DetectionErrorCode::InvalidImage );
-			m_monitor->recordFrameResult( false, static_cast<quint64>(frameClock.nsecsElapsed()) );
+			if (auto* mon = m_monitor)
+				mon->recordFrameResult( false, static_cast<quint64>(frameClock.nsecsElapsed()) );
 			return false;
 		}
 		frame = frameToCvMat( handle );
@@ -391,7 +392,8 @@ bool DetectionWorker::runImage( DetectionTask& task ) {
 		if (!m_session->runFlow( handle, result )) {
 			m_lastError = result.error;	// 流程失败时错误已回填到 result
 			fallbackIf( m_lastError );
-			m_monitor->recordFrameResult( false, static_cast<quint64>(frameClock.nsecsElapsed()) );
+			if (auto* mon = m_monitor)
+				mon->recordFrameResult( false, static_cast<quint64>(frameClock.nsecsElapsed()) );
 			return false;
 		}
 	}
@@ -405,7 +407,8 @@ bool DetectionWorker::runImage( DetectionTask& task ) {
 		Logger::instance()->warning( QStringLiteral( "[DetectionWorker]: " ) + saver.lastError() );
 	finishUnit( task, frame, result, saver );
 	// 广义的端到端（包括渲染和保存时间）
-	m_monitor->recordFrameResult( true, static_cast<quint64>(frameClock.nsecsElapsed()) );
+	if (auto* mon = m_monitor)
+		mon->recordFrameResult( true, static_cast<quint64>(frameClock.nsecsElapsed()) );
 	reportSaveResult( saver );
 	return true;
 }
@@ -454,7 +457,8 @@ bool DetectionWorker::runStream( DetectionTask& task ) {
 			if (!m_session->runFlow( handle, result )) {
 				m_lastError = result.error;	// 流程失败时错误已回填到 result
 				fallbackIf( m_lastError );
-				m_monitor->recordFrameResult( false, static_cast<quint64>(frameClock.nsecsElapsed()) );
+				if (auto* mon = m_monitor)
+					mon->recordFrameResult( false, static_cast<quint64>(frameClock.nsecsElapsed()) );
 				return false;
 			}
 		}
@@ -462,7 +466,8 @@ bool DetectionWorker::runStream( DetectionTask& task ) {
 		result.source = source.displayName();
 		finishUnit( task, frame, result, saver );
 		// 整体的端到端计时
-		m_monitor->recordFrameResult( true, static_cast<quint64>(frameClock.nsecsElapsed()) );
+		if (auto* mon = m_monitor)
+			mon->recordFrameResult( true, static_cast<quint64>(frameClock.nsecsElapsed()) );
 		++processed;
 	}
 

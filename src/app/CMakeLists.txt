@@ -28,6 +28,9 @@ qt_add_library(DetectionRuntime STATIC
     components/DetectionRenderer.cpp
     components/DetectionResultSaver.h
     components/DetectionResultSaver.cpp
+    # configs/
+    configs/AppConfig.h
+    configs/AppConfigLoader.h    
     # 性能监控
     components/PerformanceMonitor.h
     components/PerformanceMonitor.cpp
@@ -37,6 +40,12 @@ target_include_directories(DetectionRuntime PUBLIC
     "${YOLO_APP_RUNTIME_DIR}"
     "${YOLO_APP_COMPONENTS_DIR}"
 )
+
+# configs/AppConfig.h 的 Q_OBJECT 由根 CMakeLists 的 qt_add_qml_module(exe)
+# 统一 moc（与 core/base 下的 Q_GADGET 头同一策略），本库不再 moc 一份。
+set_source_files_properties(configs/AppConfig.h PROPERTIES
+    SKIP_AUTOMOC ON
+    SKIP_AUTOGEN ON)
 
 target_link_libraries(DetectionRuntime PUBLIC
     yolo_core
