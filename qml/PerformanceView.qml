@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 
 // ============================================================================
 //  性能监控页(非模态窗口)
@@ -151,8 +152,16 @@ Window {
                             model: performanceView.levelOptions
                             currentIndex: performanceView.perf ? performanceView.perf.levelIndex : 1
                             onActivated: function (idx) {
-                                if (performanceView.perf)
-                                    performanceView.perf.levelIndex = idx;
+                                if(!performanceView.perf) return;
+                                // 校验是否为On/Off
+                                const cur = performanceView.perf.levelIndex;
+                                if((idx===0)!==(cur===0)){
+                                    restartDialog.pendingIndex=idx;
+                                    restartDialog.open();
+                                    return; // 取消退出
+                                }
+                                // 不是on<->off就直接应用
+                                performanceView.perf.levelIndex = idx;
                             }
                         }
                         // 设置上报间隔
@@ -376,5 +385,24 @@ Window {
                 theme: performanceView.theme
             }
         }
+    }
+    // 提醒重启应用弹窗
+    MessageDialog {
+    id: restartDialog
+    visible:false
+    property bool restarting: false
+    property int pendingIndex: -1
+    title: "关闭/启动性能监控需要重启应用"
+    text: "为了使更改生效，需要重启应用。"
+    buttons: MessageDialog.Ok | MessageDialog.Cancel
+    onAccepted: {
+        if (restartDialog.restarting) return;
+        restartDialog.restarting = true;
+        performanceView.perf.levelIndex = restartDialog.pendingIndex; // 确定设置级别
+        appHelper.restart();
+     }
+     onRejected:{
+        levelCombo.currentIndex = performanceView.perf ? performanceView.perf.levelIndex : 0;
+     }
     }
 }

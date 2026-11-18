@@ -46,15 +46,27 @@ DetectionTask
 ---
 
 ### 正在进行的更改：
-- 添加程序退出时的配置文件写入（保证最后未能保存的配置能够被保存）
-- 添加必须重启的perfApp中的弹窗，点击后直接重启应用
+更改任务模型：
+- 完善 fallback 机制：
+  - 暂时先不接入Job的drop和重建投递机制
+- 调整执行模型：
+  - Worker 以 Job 为最小执行单元，并负责 Session 管理。
+  - 每个 Job 包含多个 Task，Worker 根据配置复用或创建 Session。
+  - Job 完成后暂时保留 Session，支持后续复用。
+  - Manager 负责 Job 和 Session 的状态管理。
+- 完善 GPU 显示流程，在 GPU 图像数据上叠加 CPU NMS 检测框和 Qt Overlay。
+
 ---
 
 当前完成：
+- 添加必须重启的perfApp中的弹窗，点击后直接重启应用
 - 再各个模块修改配置时，全局配置文件的同步写入逻辑
 - 在未检测到配置文件时，将自动创建默认的配置文件
 - 重构`PerformanceApp`以及`DetectionApp`的生命周期，将其设置为C++后端单例，生命周期全部交给后端进行管理，
 - `DetectionApp`作为QML_SINGLETON，`PerformanceApp`作为C++单例，通过全局上下文注入到qml中
+
+- 修正：单图GPU模式下由Session层将CPU帧（imread产出）上传显存（GpuImageFrameHandle）后走GPU流程（BGR24 kernel），不再强制fallback到CPU；
+- 上传失败（CUDA设备不可用/显存不足）时触发fallback自愈重建为CPU会话，单图仍可正常推理
 
 - 新增全局的配置文件与配置文件读取类`ConfigHelper`进行配置读取和修改，新增QML端的dialog进行配置的更改
 - 将全局的配置文件读取与修改的逻辑添加到程序中：
@@ -153,16 +165,7 @@ DetectionTask
    - 验证 GPU 单图、图片/视频混合批量、异常图片，以及与 CPU 预处理的结果一致性。
    - 确认图片不会改变后续推理模式，再增加 FFmpeg 图片硬解路径。
 
-- 完善 fallback 机制：
-  - 暂时先不接入Job的drop和重建投递机制
-- 调整执行模型：
-  - Worker 以 Job 为最小执行单元，并负责 Session 管理。
-  - 每个 Job 包含多个 Task，Worker 根据配置复用或创建 Session。
-  - Job 完成后暂时保留 Session，支持后续复用。
-  - Manager 负责 Job 和 Session 的状态管理。
-- 修正：单图GPU模式下由Session层将CPU帧（imread产出）上传显存（GpuImageFrameHandle）后走GPU流程（BGR24 kernel），不再强制fallback到CPU；
-- 上传失败（CUDA设备不可用/显存不足）时触发fallback自愈重建为CPU会话，单图仍可正常推理
-- 完善 GPU 显示流程，在 GPU 图像数据上叠加 CPU NMS 检测框和 Qt Overlay。
+
 ---
 
 ## 1. 分层

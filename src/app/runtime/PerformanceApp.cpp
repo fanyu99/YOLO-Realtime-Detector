@@ -43,7 +43,6 @@ PerformanceApp::PerformanceApp ( const PerformanceConfig& config, QObject* paren
 	m_monitor->setConfig ( config );
 }
 
-
 PerformanceConfig PerformanceApp::config () const {
 	return m_config;
 }

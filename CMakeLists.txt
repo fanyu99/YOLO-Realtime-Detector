@@ -281,6 +281,7 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
         QML_FILES
             ${YOLO_QML_FILES}
         SOURCES
+            src/app/runtime/AppHelper.h
             src/app/runtime/PerformanceApp.h   src/app/runtime/PerformanceApp.cpp
             src/app/runtime/DetectionApp.cpp           src/app/runtime/DetectionApp.h
             src/app/runtime/DetectionManager.cpp       src/app/runtime/DetectionManager.h

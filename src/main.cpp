@@ -7,6 +7,7 @@
 #include <optional>
 #include <qDebug>
 #include "Logger.h"
+#include "AppHelper.h"
 #include "AppConfigWriter.h"
 #include "PerformanceApp.h"
 #include "DetectionApp.h"
@@ -101,6 +102,7 @@ int main ( int argc, char* argv[] )
 	AppConfigWriter::initialize ( configPath	);	// 初始化配置写入器
 	AppConfig* appConfig = AppConfigLoader::loadAppConfig ( configPath, &app );
 
+	std::unique_ptr<AppHelper> appHelper = std::make_unique<AppHelper> ();
 	// 依据系统主题应用调色板，并跟随系统主题变化实时切换
 	auto applyTheme = [ ] ( Qt::ColorScheme scheme ) {
 		qApp->setPalette ( scheme == Qt::ColorScheme::Dark ? makeDarkPalette () : makeLightPalette () );
@@ -114,11 +116,12 @@ int main ( int argc, char* argv[] )
 	// 初始化设置运行上下文
 	perfApp->setFlowModeTexts ( initialConfig.preferredModeText (), initialConfig.effectiveModeText () );
 
-	DetectionApp::initialize ( initialConfig, perfApp );
+	DetectionApp::initialize ( initialConfig, perfApp );   // 初始化App
 	try {
 		QQmlApplicationEngine engine;
 		engine.rootContext ()->setContextProperty ( QStringLiteral ( "perfApp" ), perfApp );	 // 将当前的性能App设置为全局的qml上下文
 		engine.rootContext ()->setContextProperty ( QStringLiteral ( "appConfig" ), appConfig );
+		engine.rootContext ()->setContextProperty (QStringLiteral("appHelper"), appHelper.get());
 		engine.load ( QUrl ( QStringLiteral ( "qrc:/qt/qml/yolo/main.qml" ) ) );
 		Logger::instance ()->success ( QStringLiteral ( "[App]: 应用配置已加载 -> " ) + configPath );
 		if (engine.rootObjects ().isEmpty ())
