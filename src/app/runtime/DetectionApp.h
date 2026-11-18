@@ -118,6 +118,8 @@ private:
 	void setPerformanceApp ( PerformanceApp* perfApp );
 	// 设置初始化配置
 	void setInitialConfig ( const DetectorConfig& config );
+	// 应用配置并写入配置文件中，persist判断是否需要写入
+	void applyDetectorConfig ( const DetectorConfig& config, bool persist );
 
 	// fallback自愈并发送信号
 	void onFallbackOccurred( const DetectionError& error );	

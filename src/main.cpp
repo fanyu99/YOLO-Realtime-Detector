@@ -7,6 +7,7 @@
 #include <optional>
 #include <qDebug>
 #include "Logger.h"
+#include "AppConfigWriter.h"
 #include "PerformanceApp.h"
 #include "DetectionApp.h"
 #include "PerformanceTypes.h"
@@ -97,6 +98,7 @@ int main ( int argc, char* argv[] )
 	const QString configPath = QFileInfo::exists ( exeConfigPath )
 		? exeConfigPath
 		: QStringLiteral ( "settings/app.json" );
+	AppConfigWriter::initialize ( configPath	);	// 初始化配置写入器
 	AppConfig* appConfig = AppConfigLoader::loadAppConfig ( configPath, &app );
 
 	// 依据系统主题应用调色板，并跟随系统主题变化实时切换

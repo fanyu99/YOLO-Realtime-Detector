@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QVariantMap>
 #include <algorithm>
+#include "AppConfigWriter.h"
 #include "DetectionImageProvider.h"
 #include "DetectionResultSaver.h"
 #include "HikCameraFrameSource.h"
@@ -15,6 +16,19 @@ namespace {
 	// 帧通知的最小间隔：视频/摄像头 30fps 时逐帧通知 QML 会压满 GUI 线程，
 	// 按 ~60fps 封顶。帧本身仍然每次都更新，只是信号"通知"被限流。
 	constexpr int kFrameNotifyIntervalMs = 16;
+
+	// 判断是否重复，放置重复配置
+	bool sameDetectorConfig ( const DetectorConfig& a, const DetectorConfig& b ) {
+		return a.model_path == b.model_path
+			&& a.class_names == b.class_names
+			&& a.conf_threshold == b.conf_threshold
+			&& a.iou_threshold == b.iou_threshold
+			&& a.num_threads == b.num_threads
+			&& a.device_id == b.device_id
+			&& a.input_width == b.input_width
+			&& a.input_height == b.input_height
+			&& a.preferred_mode == b.preferred_mode;
+	}
 }
 
 DetectionApp::DetectionApp ( QObject* parent ) : QObject ( parent ), m_filePath ( "" ), m_config{}
@@ -536,6 +550,11 @@ void DetectionApp::setFilePath ( const QUrl& path ) {
 }
 
 void DetectionApp::setConfig ( const DetectorConfig& config ) {
+	applyDetectorConfig ( config, true );
+}
+
+// 应用配置
+void DetectionApp::applyDetectorConfig ( const DetectorConfig& config, bool persist ) {
 	// 运行中不允许改配置：换了模型需要重建 ONNX 会话，而重建意味着必须先停
 	if (m_busy) {
 		reportError ( AppError ( QStringLiteral ( "[DetectionApp]: 检测进行中，无法修改配置，请先停止!" ), AppErrorCode::InvalidConfig ) );
@@ -550,9 +569,10 @@ void DetectionApp::setConfig ( const DetectorConfig& config ) {
 		return;
 	}
 
-	// 先让 Manager 应用，成功了才提交本地配置。
-	// 这样 App 的 m_config 和 Manager 的 m_config 不会分叉 ——
-	// 反过来写（先改本地再通知）会出现"本地已改、执行层没改"的静默不一致。
+	// 判断是否重复
+	const bool configDiffers = !sameDetectorConfig ( m_config, config );
+
+	// manager应用成功后再本地保存
 	if (!m_manager->applyConfig ( config )) {
 		reportError ( AppError ( QStringLiteral ( "[DetectionApp]: 配置未能应用（配置无效或检测进行中）!" ), AppErrorCode::InvalidConfig ) );
 		return;
@@ -565,6 +585,14 @@ void DetectionApp::setConfig ( const DetectorConfig& config ) {
 		emit modelPathChanged ();
 	emit configChanged ();		// 纯通知：让 QML 侧边栏刷新
 	Logger::instance ()->info ( QStringLiteral ( "[DetectionApp]: 检测器已就绪 -> " ) + configSummary () );
+
+	// 配置保存失败进行提醒上报
+	if (!persist || !configDiffers)
+		return;
+	AppConfigWriter* writer = AppConfigWriter::instance ();
+	if (!writer->writeDetectorConfig ( config ))
+		reportError ( AppError ( QStringLiteral ( "[DetectionApp]: 配置已生效，但写入配置文件失败: " )
+			+ writer->errorMessage (), AppErrorCode::ConfigWriteFailed ) );
 }
 
 void DetectionApp::setConfig ( const QUrl& model_path, const QStringList& class_names, float conf_confidence, float iou_threshold, int num_threads, int device_id, int input_width, int input_height, const QString& flow_mode ) {
@@ -593,7 +621,8 @@ void DetectionApp::setConfig ( const QUrl& model_path, const QStringList& class_
 
 // 设置默认配置
 void DetectionApp::setInitialConfig ( const DetectorConfig& config ) {
-	setConfig ( config );
+	// 初始化应用配置
+	applyDetectorConfig ( config, false );
 }
 
 // 设置模式

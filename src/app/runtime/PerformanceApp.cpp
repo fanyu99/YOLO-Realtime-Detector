@@ -1,4 +1,5 @@
 #include "PerformanceApp.h"
+#include "AppConfigWriter.h"
 #include "PerformanceMonitor.h"
 #include "NullPerformanceMonitor.h"
 
@@ -55,17 +56,25 @@ void PerformanceApp::setConfig ( const PerformanceConfig& config ) {
 		emit configChanged ();
 		return;
 	}
-	// 更改开关时需要进行重启生效
-	if ((m_config.m_level == PerformanceLevel::Off) != (config.m_level == PerformanceLevel::Off)) {
-		emit errorOccurred ( AppError ( QStringLiteral ( "[PerformanceApp]：性能监控启用/关闭状态的变更需重启程序生效" ), AppErrorCode::PerformanceMonitorError ) );
-		Logger::instance ()->warning ( QStringLiteral ( "[PerformanceApp]：性能监控启用/关闭状态的变更需重启程序生效" ) );
+	// 防重复修改
+	if (m_config.m_level == config.m_level && m_config.m_reportInterval == config.m_reportInterval) {
 		emit configChanged ();
 		return;
+	}
+	// 更改开关时需要进行重启生效
+	if ((m_config.m_level == PerformanceLevel::Off) != (config.m_level == PerformanceLevel::Off)) {
+		Logger::instance ()->warning ( QStringLiteral ( "[PerformanceApp]：性能监控启用/关闭状态的变更需重启程序生效" ) );
 	}
 	m_config = config;
 	if (m_monitor)
 		m_monitor->setConfig ( config );
 	emit configChanged ();
+
+	// 写入配置文件，失败只进行提醒
+	AppConfigWriter* writer = AppConfigWriter::instance ();
+	if (!writer->writePerformanceConfig ( config ))
+		emit errorOccurred ( AppError ( QStringLiteral ( "[PerformanceApp]: 配置已生效，但写入配置文件失败: " )
+			+ writer->errorMessage (), AppErrorCode::ConfigWriteFailed ) );
 }
 
 IPerformanceMonitor* PerformanceApp::monitor () {

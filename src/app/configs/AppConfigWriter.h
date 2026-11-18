@@ -1,0 +1,38 @@
+#pragma once
+#include <memory>
+#include <mutex>
+#include <QString>
+#include <QUrl>
+#include "AppConfig.h"
+#include "DetectionTypes.h"
+#include "PerformanceTypes.h"
+
+// 配置写入器
+class AppConfigWriter {
+public:
+	using AppConfigWriterPtr = std::unique_ptr<AppConfigWriter>;
+	static AppConfigWriter* instance ();
+	static AppConfigWriter* initialize ( QStringView filePath );
+	AppConfigWriter ( const AppConfigWriter& other ) = delete;
+	AppConfigWriter& operator= ( const AppConfigWriter& other ) = delete;
+	~AppConfigWriter () = default;
+
+	// 写入整份配置
+	bool writeAppConfig(const AppConfig& config);
+	bool writeDetectorConfig(const DetectorConfig& config);
+	// 只写入 performance 节：detector 与其它键按文件中的原样保留
+	bool writePerformanceConfig ( const PerformanceConfig& config );
+	void setConfigFilePath ( const QUrl& path);
+	// 最近一次写入失败的原因(成功时为空)
+	QString errorMessage () const;
+
+private:
+	inline static AppConfigWriterPtr m_instance{nullptr};
+	explicit AppConfigWriter ( QStringView filePath );
+	// 记录失败原因 + 写日志，统一返回 false
+	bool fail ( const QString& reason );
+
+	mutable std::mutex m_mutex; // 互斥锁，保护写入与错误信息
+	QUrl configFilePath;	// 配置文件路径
+	QString m_errorMessage{}; // 最近的写入错误信息
+};

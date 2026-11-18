@@ -15,6 +15,7 @@ public:
 		InvalidModelPath,	// 模型路径无效
 		InvalidFilePath,	// 文件路径无效
 		InvalidConfig,		// 配置无效
+		ConfigWriteFailed , // 配置写入失败	
 		DetectionFailed,	// 检测失败
 		PerformanceMonitorError, // 性能监测器错误
 		UnknownError

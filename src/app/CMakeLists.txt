@@ -31,6 +31,8 @@ qt_add_library(DetectionRuntime STATIC
     # configs/
     configs/AppConfig.h
     configs/AppConfigLoader.h    
+    configs/AppConfigWriter.h
+    configs/AppConfigWriter.cpp
     # 性能监控
     components/PerformanceMonitor.h
     components/PerformanceMonitor.cpp
