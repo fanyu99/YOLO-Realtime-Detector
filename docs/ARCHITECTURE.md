@@ -46,20 +46,25 @@ DetectionTask
 ---
 
 ### 正在进行的更改：
+- 再各个模块修改配置时，全局配置文件的同步写入逻辑
+- 在未检测到配置文件时，将自动创建默认的配置文件
+---
+
+当前完成：
+- 重构`PerformanceApp`以及`DetectionApp`的生命周期，将其设置为C++后端单例，生命周期全部交给后端进行管理，
+- `DetectionApp`作为QML_SINGLETON，`PerformanceApp`作为C++单例，通过全局上下文注入到qml中
 
 - 新增全局的配置文件与配置文件读取类`ConfigHelper`进行配置读取和修改，新增QML端的dialog进行配置的更改
 - 将全局的配置文件读取与修改的逻辑添加到程序中：
     - 1.PerformanceApp进行获取PerformanceConfig进行读取性能配置并创建对应的监测器 
     - 2.App读取配置，获取DetectorConfig等配置
----
-
-当前完成：
+    - 
 - 完成QML端的性能监控页面设计
 - 将当前的日志LogView迁移到我的性能监控页面并将其与主界面进行分离
 - 修正快照计时模式，仅运行中进行记录
 
 - 将当前的性能计时添加到每个阶段中
-- 将PerformanceApp作为全局上下文注入到QML中，先于App创建
+- 将PerformanceApp作为全局上下文(`perfApp`)注入到QML中；其本身是C++后端单例(`initialize()` + `instance()`)，运行上下文由 main 在注入前初始化，之后由 `DetectionApp` 的 `setState` / 配置变更点维护
 - App各层以及各个阶段的计时器均借用全局的监测器Monitor的指针进行上报，有锁进行读取与记录生成快照，将其传给QML进行显示
 - 使用**策略模式+依赖注入+模块化**设计当前的性能监控模块，使用依赖倒置原则，`IPerformanceMonitor`作为接口，`PerformanceMonitor`作为实现
 - 创建作用域计时器`ScopedStageTimer`，退出作用域自动记录耗时并将其上报给检测器
@@ -287,8 +292,10 @@ ONNX 会话的封装，负责预处理、推理与后处理。
 
 把 QML 的交互转为对 `DetectionManager` 的调用，并把进度 / 结果 / 错误 / 状态 / 日志回传 QML。
 
-- 实现 `QQmlParserStatus`：必须等 `componentComplete()`
-  才能拿到 engine 注册 image provider。
+- 以 `QML_SINGLETON` 注册为 QML 全局单例，QML 侧直接以 `DetectionApp.xxx` 访问，不再实例化。
+- 生命周期归 C++：`initialize(config, perfApp)` 创建实例并完成 perf 借用与初始配置，`instance()` 未初始化时返回 `nullptr`，因此**首次使用必须先 `initialize()`**。
+- image provider（`image://detection/latest`）在 `create(QQmlEngine*)` 中注册 —— 单例不走 QML 组件生命周期，`componentComplete()` 不会再被调用。
+- `initialize()` 内的顺序固定为「借用 perf + 注入 monitor → 应用初始配置」：`DetectionManager::applyConfig()` 会立刻建 worker 并把当时的 monitor 传下去，晚注入对已建 worker 无效。
 - 内部只接触作业的JobId，不接触具体的`DetectionTask`、`DetectionJob`等Worker核心层的对象。
 - 内部记录回看条目（`ReviewItem`）,内部保存序列号以及文件名等基础信息，降低内存使用。
 

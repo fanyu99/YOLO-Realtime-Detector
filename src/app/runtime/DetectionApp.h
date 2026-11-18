@@ -4,29 +4,29 @@
 #include <QObject>
 #include <QStringList>
 #include <QUrl>
-#include <QQmlParserStatus>
 #include <QtQmlIntegration/QtQmlIntegration>
+#include <QQmlEngine>
+#include <QJSEngine>
 #include <filesystem>
 #include <memory>
-
 #include "AppError.h"
 #include "DetectionManager.h"
-#include "DetectionResultSaver.h"		// resultsDirFor()：结果目录约定的唯一定义
+#include "DetectionResultSaver.h"		
 #include "DetectionTypes.h"
 
 class DetectionImageProvider;
+class PerformanceApp;
 
-// 应用层门面：把 QML 的交互翻译成对 DetectionManager 的调用，
-// 并把作业进度 / 结果 / 错误 / 日志回传给 QML。
-class DetectionApp : public QObject, public QQmlParserStatus
+// 对接QML和下层的Manager
+// 把作业进度 / 结果 / 错误 / 日志回传给 QML。
+class DetectionApp : public QObject
 {
 	Q_OBJECT
 	QML_ELEMENT
-	Q_INTERFACES(QQmlParserStatus)
+	QML_SINGLETON
 	Q_PROPERTY(QUrl filePath READ filePath WRITE setFilePath NOTIFY filePathChanged)			// 当前选择的文件(图片/视频)
 	Q_PROPERTY(QUrl modelPath READ modelPath WRITE setModelPath NOTIFY modelPathChanged)		// 当前模型路径
 	Q_PROPERTY(DetectorConfig config READ config NOTIFY configChanged)							// 当前配置(供侧边栏展示)
-	Q_PROPERTY(DetectorConfig initialConfig WRITE setInitialConfig)								// 设置初始配置
 	Q_PROPERTY(QStringList classNames READ classNames NOTIFY configChanged)						// 类别名列表
 	Q_PROPERTY(float progress READ progress NOTIFY progressChanged)								// 当前作业进度 0..1
 	Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)											// 是否有作业在跑
@@ -40,9 +40,13 @@ class DetectionApp : public QObject, public QQmlParserStatus
 	Q_PROPERTY(int resultIndex READ resultIndex NOTIFY reviewChanged)						// 当前回看位置(-1=跟随实时)
 	Q_PROPERTY(bool reviewing READ reviewing NOTIFY reviewChanged)							// 是否处于回看模式
 	Q_PROPERTY(QString resultInfo READ resultInfo NOTIFY reviewChanged)						// 回看条目的说明文字
-	Q_PROPERTY(QObject* performanceApp WRITE setPerformanceApp MEMBER m_performanceAppObject)	// 性能App(由QML绑定注入，只用于转发monitor)
 
 public:
+	using  AppPtr = std::unique_ptr<DetectionApp>;
+	// 获取单例，注意，先调用initialize()初始化配置后才能调用instance()
+	static DetectionApp* initialize ( const DetectorConfig& config , PerformanceApp* perfApp);	// 初始化配置
+	static DetectionApp* instance ();	// 未初始化返回nullptr
+	static DetectionApp* create ( QQmlEngine* qmlEngine, QJSEngine* jsEngine );
 	// 横幅级别：决定 QML 侧的配色。一条横幅槽位，避免多条堆叠。
 	enum BannerLevel {
 		BannerNone = 0,
@@ -51,13 +55,7 @@ public:
 	};
 	Q_ENUM(BannerLevel)
 
-	explicit DetectionApp(QObject* parent = nullptr);
 	~DetectionApp() override;
-
-	// QQmlParserStatus：构造函数里对象还没和 engine 关联，
-	// 必须等 componentComplete() 才能拿到 engine 去注册 image provider
-	void classBegin() override {}
-	void componentComplete() override;
 
 	// Getter
 	QUrl modelPath() const;
@@ -84,7 +82,7 @@ public:
 	Q_INVOKABLE void setFilePath(const QUrl& path);
 	Q_INVOKABLE void setConfig(const DetectorConfig& config);
 	Q_INVOKABLE void setConfig(const QUrl& model_path, const QStringList& class_names, float conf_confidence, float iou_threshold, int num_threads, int device_id, int input_width, int input_height,const QString& flow_mode);
-	Q_INVOKABLE void setInitialConfig ( const DetectorConfig& config );
+
 	Q_INVOKABLE void onDetectClicked();							// qml 检测按钮点击
 	Q_INVOKABLE void runSampleDetection();						// 一键示例检测
 	Q_INVOKABLE void onDetectHikCameraClicked(const QString& serial, const QString& triggerMode);	// qml 海康相机检测(带序列号)
@@ -94,7 +92,6 @@ public:
 	Q_INVOKABLE quint64 submitBatch(const QList<QUrl>& urls);	// qml 批量检测：一个 Job 含多个 Task
 	Q_INVOKABLE void cancelCurrentJob();						// qml 停止按钮
 	Q_INVOKABLE void dismissBanner();							// qml 关闭横幅
-	Q_INVOKABLE void setPerformanceApp(QObject* perfApp);		// qml 绑定注入 PerformanceApp，取出 monitor 交给 Manager
 	Q_INVOKABLE QString frameSource() const;					// "image://detection/latest?rev=N"
 	Q_INVOKABLE void setSaveOptions(bool enabled, const QUrl& dir);	// 设置"保存推理结果"开关与目录
 	Q_INVOKABLE void nextResult();
@@ -117,6 +114,11 @@ signals:
 	void batchFinished(quint64 jobId, int totalTasks, int succeeded, int failed);		// 批量作业完成(带汇总)
 
 private:
+	// 借用PerformanceApp并注入其监测器，需要在初始化配置前
+	void setPerformanceApp ( PerformanceApp* perfApp );
+	// 设置初始化配置
+	void setInitialConfig ( const DetectorConfig& config );
+
 	// fallback自愈并发送信号
 	void onFallbackOccurred( const DetectionError& error );	
 
@@ -155,8 +157,12 @@ private:
 	void showBanner(QStringView text, BannerLevel level);	// 统一的横幅出口
 	void onConfigAdjusted(const DetectorConfig& config);		// 检测器对齐了配置尺寸 -> 同步本地副本
 
+
+	explicit DetectionApp ( QObject* parent = nullptr );
+	inline static  AppPtr m_instance;  // 单例智能指针
+
 	std::unique_ptr<DetectionManager> m_manager;
-	QObject* m_performanceAppObject = nullptr;				// QML 绑定的 PerformanceApp(仅用于注入期，不使用)
+	PerformanceApp* m_performanceApp = nullptr;			 //绑定的性能App，借用指针
 	DetectionImageProvider* m_frameProvider = nullptr;		// 帧提供器,所有权归 QML engine
 
 	// 结果回看条目。帧本身存在 DetectionImageProvider 的有界缓冲里（按 seq 索引）

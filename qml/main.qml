@@ -24,12 +24,7 @@ Window {
     Theme {
         id: theme
     }
-    // 后端App,负责将QML与C++桥接，提供配置、日志、检测等功能
-    DetectionApp {
-        id: app
-        performanceApp: perfApp // 性能监测器
-        initialConfig: appConfig.detectorConfig // 配置在perfApp创建后再注入，不然会出现空指针访问
-    }
+    // 后端App(全局单例),负责将QML与C++桥接，提供配置、日志、检测等功能
 
     // ---- 界面状态 ----
     property string selectedFileName: ""		// 已选文件名(仅显示)
@@ -52,7 +47,7 @@ Window {
     // 把"保存开关 + 目录"一起交给后端。后端在开关关闭时会忽略目录，
     // 所以这里不需要自己拼 detection_results —— 那是后端的约定。
     function applySaveOptions() {
-        app.setSaveOptions(saveCheck.checked, saveDirDialog.selectedFolder);
+        DetectionApp.setSaveOptions(saveCheck.checked, saveDirDialog.selectedFolder);
     }
 
     ColumnLayout {
@@ -91,8 +86,8 @@ Window {
             id: warningBanner
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? 34 : 0
-            visible: app.bannerText.length > 0
-            readonly property bool isSuccess: app.bannerLevel === DetectionApp.BannerSuccess
+            visible: DetectionApp.bannerText.length > 0
+            readonly property bool isSuccess: DetectionApp.bannerLevel === DetectionApp.BannerSuccess
             color: isSuccess ? (theme.dark ? "#0d3321" : "#e3f7ec") : (theme.dark ? "#3d3208" : "#fff4d6")
             border.color: isSuccess ? theme.logSuccess : theme.logWarning
             border.width: 1
@@ -113,7 +108,7 @@ Window {
 
                 Label {
                     Layout.fillWidth: true
-                    text: app.bannerText
+                    text: DetectionApp.bannerText
                     elide: Text.ElideMiddle
                     color: warningBanner.isSuccess ? (theme.dark ? "#9fe1cb" : "#0f5132") : (theme.dark ? "#ffd9a0" : "#7a4a00")
                     font.pixelSize: 12
@@ -122,7 +117,7 @@ Window {
                 Button {
                     text: "知道了"
                     flat: true
-                    onClicked: app.dismissBanner()
+                    onClicked: DetectionApp.dismissBanner()
                 }
             }
         }
@@ -158,7 +153,7 @@ Window {
                         font.pixelSize: 14
                     }
 
-                    // 配置项列表：标签 + 值(跟随 app.config 自动刷新)
+                    // 配置项列表：标签 + 值(跟随 DetectionApp.config 自动刷新)
                     Column {
                         Layout.fillWidth: true
                         spacing: 8
@@ -167,43 +162,43 @@ Window {
                             model: [
                                 {
                                     "k": "模型",
-                                    "v": app.config.modelPath
+                                    "v": DetectionApp.config.modelPath
                                 },
                                 {
                                     "k": "类别",
-                                    "v": app.config.classNames.join(", ")
+                                    "v": DetectionApp.config.classNames.join(", ")
                                 },
                                 {
                                     "k": "置信度",
-                                    "v": app.config.confThreshold.toFixed(2)
+                                    "v": DetectionApp.config.confThreshold.toFixed(2)
                                 },
                                 {
                                     "k": "NMS",
-                                    "v": app.config.iouThreshold.toFixed(2)
+                                    "v": DetectionApp.config.iouThreshold.toFixed(2)
                                 },
                                 {
                                     "k": "输入尺寸",
-                                    "v": app.config.inputWidth + "×" + app.config.inputHeight
+                                    "v": DetectionApp.config.inputWidth + "×" + DetectionApp.config.inputHeight
                                 },
                                 {
                                     "k": "线程数",
-                                    "v": String(app.config.numThreads)
+                                    "v": String(DetectionApp.config.numThreads)
                                 },
                                 {
                                     "k": "设备号",
-                                    "v": String(app.config.deviceId)
+                                    "v": String(DetectionApp.config.deviceId)
                                 },
                                 {
                                     "k": "模型存在",
-                                    "v": app.config.modelExists ? "是" : "否"
+                                    "v": DetectionApp.config.modelExists ? "是" : "否"
                                 },
                                 {
                                     "k": "用户设置模式",
-                                    "v": app.config.preferredModeText()
+                                    "v": DetectionApp.config.preferredModeText()
                                 },
                                 {
                                     "k": "实际生效模式",
-                                    "v": app.config.effectiveModeText()
+                                    "v": DetectionApp.config.effectiveModeText()
                                 }
                             ]
 
@@ -246,7 +241,7 @@ Window {
                         CheckBox {
                             id: saveCheck
                             text: "保存推理结果"
-                            enabled: !app.busy
+                            enabled: !DetectionApp.busy
                             onToggled: {
                                 // 还没选目录就先弹目录选择，选完自动勾上
                                 if (checked && saveDirDialog.selectedFolder.toString().length === 0) {
@@ -266,13 +261,13 @@ Window {
                                 Layout.fillWidth: true
                                 elide: Text.ElideMiddle
                                 font.pixelSize: 12
-                                opacity: app.saveDir.toString().length > 0 ? 1.0 : 0.55
-                                text: app.saveDir.toString().length > 0 ? window.fileNameFromUrl(app.saveDir) : "未选择保存目录"
+                                opacity: DetectionApp.saveDir.toString().length > 0 ? 1.0 : 0.55
+                                text: DetectionApp.saveDir.toString().length > 0 ? window.fileNameFromUrl(DetectionApp.saveDir) : "未选择保存目录"
                             }
 
                             Button {
                                 text: "选择…"
-                                enabled: !app.busy
+                                enabled: !DetectionApp.busy
                                 onClicked: saveDirDialog.open()
                             }
                         }
@@ -327,15 +322,15 @@ Window {
                         id: detectBtn
                         text: "开始检测"
                         Layout.fillWidth: true
-                        onClicked: app.onDetectClicked()
+                        onClicked: DetectionApp.onDetectClicked()
                     }
 
                     // 一键示例检测
                     Button {
                         text: "示例检测"
                         Layout.fillWidth: true
-                        enabled: !app.busy
-                        onClicked: app.runSampleDetection()
+                        enabled: !DetectionApp.busy
+                        onClicked: DetectionApp.runSampleDetection()
                     }
                 }
             }
@@ -359,7 +354,7 @@ Window {
                         Button {
                             id: fileSelectBtn
                             text: "选择文件  ▾"
-                            enabled: !app.busy
+                            enabled: !DetectionApp.busy
                             onClicked: fileMenu.open()
                         }
                         // 已选文件名
@@ -374,37 +369,37 @@ Window {
                         // 摄像头检测(先弹对话框选设备；走 ffmpeg dshow/avfoundation/v4l2 采集)
                         Button {
                             text: "摄像头检测"
-                            enabled: !app.busy
+                            enabled: !DetectionApp.busy
                             onClicked: ffmpegDeviceDialog.open()
                         }
 
                         // 海康工业相机检测(先弹对话框选设备；走 MVS SDK，与上面的 USB 编号不是一回事)
                         Button {
                             text: "海康相机检测"
-                            enabled: !app.busy
+                            enabled: !DetectionApp.busy
                             onClicked: hikCameraDialog.open()
                         }
 
                         // 批量检测(多选图片/视频，一个作业顺序跑完再汇总)
                         Button {
                             text: "批量检测"
-                            enabled: !app.busy
+                            enabled: !DetectionApp.busy
                             onClicked: batchDialog.open()
                         }
 
                         // 停止当前检测(仅作业运行中可用)
                         Button {
                             text: "停止检测"
-                            enabled: app.busy
-                            onClicked: app.cancelCurrentJob()
+                            enabled: DetectionApp.busy
+                            onClicked: DetectionApp.cancelCurrentJob()
                         }
 
                         // 修改配置(弹出模态配置对话框)
                         Button {
                             text: "修改配置"
                             highlighted: true
-                            enabled: !app.busy
-                            onClicked: configDialog.openWith(app.config, app.modelPath)
+                            enabled: !DetectionApp.busy
+                            onClicked: configDialog.openWith(DetectionApp.config, DetectionApp.modelPath)
                         }
 
                         // 性能监控页(非模态窗口)
@@ -471,9 +466,9 @@ Window {
                                     Layout.leftMargin: 12
                                     from: 0
                                     to: 1
-                                    value: app.progress
-                                    indeterminate: app.progressIndeterminate
-                                    visible: app.busy
+                                    value: DetectionApp.progress
+                                    indeterminate: DetectionApp.progressIndeterminate
+                                    visible: DetectionApp.busy
                                 }
 
                                 // ---- 结果回看 ----
@@ -481,27 +476,27 @@ Window {
                                 // 看得慢只是有界缓冲里少留几帧。所以"下一个"是即时响应的，
                                 // 取消 / 停止 / 关窗也都不受影响。
                                 Label {
-                                    text: app.resultInfo
+                                    text: DetectionApp.resultInfo
                                     opacity: 0.6
                                     font.pixelSize: 12
                                 }
 
                                 Button {
                                     text: "上一个"
-                                    enabled: app.resultCount > 0 && (!app.reviewing || app.resultIndex > 0)
-                                    onClicked: app.prevResult()
+                                    enabled: DetectionApp.resultCount > 0 && (!DetectionApp.reviewing || DetectionApp.resultIndex > 0)
+                                    onClicked: DetectionApp.prevResult()
                                 }
 
                                 Button {
                                     text: "下一个"
-                                    enabled: app.resultCount > 0 && (!app.reviewing || app.resultIndex < app.resultCount - 1)
-                                    onClicked: app.nextResult()
+                                    enabled: DetectionApp.resultCount > 0 && (!DetectionApp.reviewing || DetectionApp.resultIndex < DetectionApp.resultCount - 1)
+                                    onClicked: DetectionApp.nextResult()
                                 }
 
                                 Button {
                                     text: "回到实时"
-                                    visible: app.reviewing
-                                    onClicked: app.followLatest()
+                                    visible: DetectionApp.reviewing
+                                    onClicked: DetectionApp.followLatest()
                                 }
                             }
 
@@ -525,8 +520,8 @@ Window {
                                     fillMode: Image.PreserveAspectFit
                                     cache: false
                                     asynchronous: false
-                                    visible: app.frameRevision > 0
-                                    source: app.frameRevision > 0 ? app.frameSource() : ""
+                                    visible: DetectionApp.frameRevision > 0
+                                    source: DetectionApp.frameRevision > 0 ? DetectionApp.frameSource() : ""
                                 }
 
                                 // 尚未开始检测时的图片预览
@@ -537,7 +532,7 @@ Window {
                                     fillMode: Image.PreserveAspectFit
                                     cache: false
                                     asynchronous: true
-                                    visible: !window.videoMode && app.frameRevision === 0
+                                    visible: !window.videoMode && DetectionApp.frameRevision === 0
                                 }
 
                                 // 尚未开始检测时的视频预览
@@ -546,7 +541,7 @@ Window {
                                     anchors.fill: parent
                                     anchors.margins: 4
                                     fillMode: VideoOutput.PreserveAspectFit
-                                    visible: window.videoMode && app.frameRevision === 0
+                                    visible: window.videoMode && DetectionApp.frameRevision === 0
                                 }
 
                                 // 占位提示
@@ -555,7 +550,7 @@ Window {
                                     horizontalAlignment: Text.AlignHCenter
                                     text: "尚无检测结果\n请选择图片 / 视频，或启动摄像头检测"
                                     color: theme.muted
-                                    visible: window.selectedFileName.length === 0 && app.frameRevision === 0
+                                    visible: window.selectedFileName.length === 0 && DetectionApp.frameRevision === 0
                                 }
                             }
                         }
@@ -590,9 +585,9 @@ Window {
 
     // 检测开始后暂停原始视频预览
     Connections {
-        target: app
+        target: DetectionApp
         function onBusyChanged() {
-            if (app.busy && window.videoMode)
+            if (DetectionApp.busy && window.videoMode)
                 mediaPlayer.pause();
         }
     }
@@ -607,7 +602,7 @@ Window {
         nameFilters: window.videoMode ? ["视频文件 (*.mp4 *.avi *.mkv *.mov *.wmv)", "所有文件 (*)"] : ["图片文件 (*.jpg *.jpeg *.png *.bmp *.webp)", "所有文件 (*)"]
         onAccepted: {
             window.selectedFileName = window.fileNameFromUrl(selectedFile);
-            app.setFilePath(selectedFile);			// 把文件路径交给后端
+            DetectionApp.setFilePath(selectedFile);			// 把文件路径交给后端
             if (window.videoMode) {
                 window.selectedFileUrl = selectedFile;
                 mediaPlayer.play();
@@ -631,7 +626,7 @@ Window {
             if (selectedFiles.length === 0)
                 return;
             Logger.info("[UI]: 提交批量检测，文件数：" + selectedFiles.length);
-            app.submitBatch(selectedFiles);
+            DetectionApp.submitBatch(selectedFiles);
         }
         onRejected: Logger.info("[UI]: 已取消批量选择")
     }
@@ -651,17 +646,17 @@ Window {
     ConfigDialog {
         id: configDialog
         theme: theme
-        app: app
+        app: DetectionApp
     }
     HikCameraDialog {
         id: hikCameraDialog
         theme: theme
-        app: app
+        app: DetectionApp
     }
     FfmpegDeviceDialog {
         id: ffmpegDeviceDialog
         theme: theme
-        app: app
+        app: DetectionApp
     }
 
     // 性能监控页(非模态)
@@ -686,6 +681,6 @@ Window {
         const warns = appConfig ? appConfig.warnings : []
         for (let i = 0; i < warns.length; ++i)
             Logger.warning(warns[i])
-        Logger.info("[UI]: 界面已就绪，等待选择图片 / 视频")
+        Logger.success("[UI]: 界面已就绪，等待选择图片 / 视频")
     }
 }

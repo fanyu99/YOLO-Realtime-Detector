@@ -16,6 +16,7 @@ using MonitorPtr = std::unique_ptr<IPerformanceMonitor>;
 class PerformanceApp : public QObject {
 	Q_OBJECT
 		QML_ELEMENT
+		QML_UNCREATABLE("不能够被QML创建实例，属于C++后端单例")
 		Q_PROPERTY ( PerformanceConfig config READ config WRITE setConfig NOTIFY configChanged )
 
 		// QML绑定属性
@@ -44,6 +45,7 @@ class PerformanceApp : public QObject {
 		Q_PROPERTY ( BannerLevel bannerLevel READ bannerLevel NOTIFY bannerChanged )
 
 public:
+	using PerfAppPtr = std::unique_ptr<PerformanceApp>;
 	// 横幅级别
 	enum BannerLevel {
 		BannerNone = 0,
@@ -51,7 +53,10 @@ public:
 		BannerError
 	};
 	Q_ENUM ( BannerLevel )
-	explicit PerformanceApp ( const PerformanceConfig& config, QObject* parent = nullptr );
+	static PerformanceApp* initialize ( const PerformanceConfig& config );// 初始化，需要在instance获取之前，不然会使用默认配置忽略后续的配置
+		static PerformanceApp* instance ();
+	PerformanceApp ( const PerformanceApp& other ) = delete;
+	PerformanceApp& operator = (const PerformanceApp & other) = delete;
 	~PerformanceApp () override = default;
 
 	Q_INVOKABLE PerformanceConfig config () const;
@@ -123,6 +128,8 @@ public slots:
 	void onErrorOccurred ( const AppError& error );
 
 private:
+	static PerfAppPtr m_instance;
+	explicit PerformanceApp ( const PerformanceConfig& config, QObject* parent = nullptr );
 	void showBanner ( QStringView text, BannerLevel level );	// 统一的横幅出口
 
 	MonitorPtr m_monitor{ nullptr };	// 性能监控器

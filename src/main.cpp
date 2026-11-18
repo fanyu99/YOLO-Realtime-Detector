@@ -8,8 +8,10 @@
 #include <qDebug>
 #include "Logger.h"
 #include "PerformanceApp.h"
+#include "DetectionApp.h"
 #include "PerformanceTypes.h"
 #include "AppConfigLoader.h"
+
 
 // 深色配色：深灰背景 + 高对比度白色文字
 QPalette makeDarkPalette () {
@@ -83,8 +85,6 @@ int main ( int argc, char* argv[] )
 #if defined(Q_OS_WIN) && QT_VERSION_CHECK(5, 6, 0) <= QT_VERSION && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 	QCoreApplication::setAttribute ( Qt::AA_EnableHighDpiScaling );
 #endif
-	// 统一控件风格为 Fusion：它会完整遵循下面的调色板，
-	// 这样自定义主题与 Button/SpinBox/TextArea 等控件外观才能保持一致
 	qputenv ( "QT_QUICK_CONTROLS_STYLE", "Fusion" );
 
 	QGuiApplication app ( argc, argv );
@@ -106,13 +106,19 @@ int main ( int argc, char* argv[] )
 	applyTheme ( QGuiApplication::styleHints ()->colorScheme () );
 	QObject::connect ( QGuiApplication::styleHints (), &QStyleHints::colorSchemeChanged, qApp, applyTheme );
 
-	auto* perfApp = new PerformanceApp ( appConfig->performanceConfig, &app );
+	const DetectorConfig initialConfig =
+		appConfig ? appConfig->detectorConfig : DetectorConfig ();
+	auto* perfApp = PerformanceApp::initialize ( appConfig ? appConfig->performanceConfig : PerformanceConfig () );
+	// 初始化设置运行上下文
+	perfApp->setFlowModeTexts ( initialConfig.preferredModeText (), initialConfig.effectiveModeText () );
+
+	DetectionApp::initialize ( initialConfig, perfApp );
 	try {
 		QQmlApplicationEngine engine;
 		engine.rootContext ()->setContextProperty ( QStringLiteral ( "perfApp" ), perfApp );	 // 将当前的性能App设置为全局的qml上下文
 		engine.rootContext ()->setContextProperty ( QStringLiteral ( "appConfig" ), appConfig );
 		engine.load ( QUrl ( QStringLiteral ( "qrc:/qt/qml/yolo/main.qml" ) ) );
-		Logger::instance ()->info ( QStringLiteral ( "[App]: 应用配置已加载 -> " ) + configPath );
+		Logger::instance ()->success ( QStringLiteral ( "[App]: 应用配置已加载 -> " ) + configPath );
 		if (engine.rootObjects ().isEmpty ())
 			return -1;
 		return app.exec ();

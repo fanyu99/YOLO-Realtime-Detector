@@ -9,11 +9,8 @@ class QQmlEngine;
 class QJSEngine;
 
 
-// 日志: 支持QML
+// 日志
 // 原std日志仓库: 	https://github.com/fanyu99/my_socket/tree/master/logger
-//  使用方式：
-//    1) QML:  Logger.info("...") / Logger.error("...")
-//    2) C++:  Logger::instance()->info("...")，或直接 qInfo() << "..."
 class Logger : public QObject
 {
 	Q_OBJECT
