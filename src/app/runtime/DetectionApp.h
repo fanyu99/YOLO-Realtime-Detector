@@ -13,6 +13,8 @@
 #include "DetectionManager.h"
 #include "DetectionResultSaver.h"		
 #include "DetectionTypes.h"
+#include "FrameMail.h"
+#include "DetectionOverlayItem.h"
 
 class DetectionImageProvider;
 class PerformanceApp;
@@ -98,6 +100,10 @@ public:
 	Q_INVOKABLE void prevResult();
 	Q_INVOKABLE void followLatest();							// 退出回看，跟随实时画面
 
+	// 叠加层的注册/反注册
+	void installOverlay ( DetectionOverlayItem* overlay );
+	void uninstallOverlay ( DetectionOverlayItem* overlay );
+
 signals:
 	void modelPathChanged();
 	void filePathChanged();
@@ -114,6 +120,7 @@ signals:
 	void batchFinished(quint64 jobId, int totalTasks, int succeeded, int failed);		// 批量作业完成(带汇总)
 
 private:
+	void onFrameSnapshotPosted (); // 帧快照入邮箱,取走帧快照投递给Item
 	void syncPerfMode (); // 同步性能监测器的 CPU/GPU 模式
 	// 借用PerformanceApp并注入其监测器，需要在初始化配置前
 	void setPerformanceApp ( PerformanceApp* perfApp );
@@ -162,8 +169,9 @@ private:
 
 	explicit DetectionApp ( QObject* parent = nullptr );
 	inline static  AppPtr m_instance;  // 单例智能指针
-
-	std::unique_ptr<DetectionManager> m_manager;
+	DetectionOverlayItem* m_overlay{ nullptr };	// 检测框叠加器，借用指针
+	FrameMailPtr m_frameMail{nullptr}; // 帧快照邮箱，Worker写入快照
+	std::unique_ptr<DetectionManager> m_manager{nullptr};
 	PerformanceApp* m_performanceApp = nullptr;			 //绑定的性能App，借用指针
 	DetectionImageProvider* m_frameProvider = nullptr;		// 帧提供器,所有权归 QML engine
 

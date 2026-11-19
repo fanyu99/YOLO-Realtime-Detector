@@ -35,7 +35,9 @@ DetectionApp::DetectionApp ( QObject* parent ) : QObject ( parent ), m_filePath 
 {
 	Logger::instance ()->success ( QStringLiteral ( "[DetectionApp]: 应用已初始化" ) );
 
+	m_frameMail = std::make_unique<FrameMail> ();
 	m_manager = std::make_unique<DetectionManager> ( this );
+	m_manager->transMailPtr ( m_frameMail.get () );	// 注入邮箱指针
 	connect ( m_manager.get (), &DetectionManager::jobStarted, this, &DetectionApp::onJobStarted );
 	connect ( m_manager.get (), &DetectionManager::jobProgress, this, &DetectionApp::onJobProgress );
 	connect ( m_manager.get (), &DetectionManager::frameReady, this, &DetectionApp::onFrameReady );
@@ -46,6 +48,7 @@ DetectionApp::DetectionApp ( QObject* parent ) : QObject ( parent ), m_filePath 
 	connect ( m_manager.get (), &DetectionManager::jobSaved, this, &DetectionApp::onJobSaved );
 	connect ( m_manager.get (), &DetectionManager::configAdjusted, this, &DetectionApp::onConfigAdjusted );
 	connect ( m_manager.get (), &DetectionManager::fallbackOccurred, this, &DetectionApp::onFallbackOccurred );
+	connect (m_manager.get(),&DetectionManager::frameSnapshotPosted,this,&DetectionApp::onFrameSnapshotPosted);
 
 
 }
@@ -697,6 +700,24 @@ std::optional<FlowMode> DetectionApp::str2FlowMode ( QStringView str )const {
 	bool valid = false;
 	int mode = meta.keyToValue ( str.toUtf8 ().constData (), &valid );
 	return valid ? std::make_optional ( static_cast<FlowMode>(mode) ) : std::nullopt;
+}
+
+// 叠加层自注册/反注册
+void DetectionApp::installOverlay ( DetectionOverlayItem* overlay ) {
+	m_overlay = overlay;
+}
+
+void DetectionApp::uninstallOverlay ( DetectionOverlayItem* overlay ) {
+	if (m_overlay == overlay)
+		m_overlay = nullptr;
+}
+
+void DetectionApp::onFrameSnapshotPosted () {
+	if (!m_overlay)
+		return;
+	if (auto snap = m_frameMail->take ()) {
+		m_overlay->setSnapshot ( std::move ( snap ) );
+	}
 }
 
 void DetectionApp::onFrameReady ( quint64 jobId, const DetectionResult& result, const QImage& frame ) {

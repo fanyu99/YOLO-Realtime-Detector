@@ -7,6 +7,7 @@
 #include "DetectionTypes.h"
 #include "DetectionWorker.h"
 #include "IPerformanceMonitor.h"
+#include "FrameMail.h"
 
 // 调度层。
 //   对上：给 App 提供「提交作业 / 取消 / 查进度」的接口与作业级信号。
@@ -30,6 +31,12 @@ public:
 	const DetectorConfig& config() const { return m_config; }
 	// 借用性能监测器
 	void setMonitor(IPerformanceMonitor* monitor) { m_monitor = monitor; }
+	// 传递邮箱指针
+	void transMailPtr ( FrameMail* mail ) {
+		m_mail = mail;
+		if (m_worker) 
+			m_worker->setFrameMail ( m_mail );
+	}
 
 	// 提交作业：只提交帧源描述，帧源由 Worker 经 Session 创建
 	quint64 submitSource(const FrameSourceDescription& des, const QString& saveDir = QString());
@@ -42,6 +49,7 @@ public:
 	bool isContained(quint64 jobId) const;	   // 是否包含Job
 
 signals:
+	void frameSnapshotPosted (); // 帧快照入邮箱,通知App取走
 	void jobStarted(quint64 jobId);
 	void jobProgress(quint64 jobId, float progress);
 	void frameReady(quint64 jobId, const DetectionResult& result, const QImage& frame);	// 实时预览：逐单元推送
@@ -84,5 +92,6 @@ private:
 	quint64 m_nextJobId = 0;
 	quint64 m_nextTaskId = 0;
 	DetectorConfig m_config;
+	FrameMail* m_mail{ nullptr }; // 借用App的快照邮箱
 	IPerformanceMonitor* m_monitor = nullptr;	// 性能监测器(借用)
 };

@@ -26,9 +26,10 @@ namespace {
 		}
 		return toCvMat ( handle );
 	}
-	// 判断是否需要进行CPU帧拷贝
-	bool needCpuCopy ( const DetectionTask& task, const DetectionResultSaver& saver ) {
-		return task.renderFrames || saver.active ();
+	// 判断是否需要进行CPU帧拷贝。
+	// needOverlay：实时叠加层要的是 CPU 像素（上传纹理用），即使不烧框也得先下载
+	bool needCpuCopy ( const DetectionTask& task, const DetectionResultSaver& saver, bool needOverlay ) {
+		return task.renderFrames || saver.active () || needOverlay;
 	}
 
 }
@@ -399,7 +400,7 @@ bool DetectionWorker::runImage ( DetectionTask& task ) {
 			return false;
 		}
 		// 只在需要 CPU 像素时才拷贝
-		if (needCpuCopy ( task, saver )) {
+		if (needCpuCopy ( task, saver, m_mail != nullptr )) {
 			// 计时：拷贝到CPU时间
 			ScopedStageTimer copyTimer ( m_monitor, PerformanceStage::Frame2Cpu );
 			frame = frameToCvMat ( handle );
@@ -464,7 +465,7 @@ bool DetectionWorker::runStream ( DetectionTask& task ) {
 			if (!handle)
 				break;
 			// 只在需要渲染的时候才将frame进行拷贝
-			const bool needCopy = needCpuCopy ( task, saver );
+			const bool needCopy = needCpuCopy ( task, saver, m_mail != nullptr );
 			if (needCopy)
 			{
 				// 计时：拷贝到CPU时间
@@ -499,24 +500,43 @@ bool DetectionWorker::runStream ( DetectionTask& task ) {
 	return true;
 }
 
-// 显示产物，获取渲染后的Mat并转发拷贝后的QImage给Manager/App
-// 如果frame为空则为实时模式下的Overlay，仅提供检测框用于叠加；
-// 如果frame不为空则需要进行保存图像
+// 显示产物：
+//   离线   —— 在 canvas 上烧框（保存要吃 canvas），需要时再转成 QImage 给 ImageProvider
+//   叠加层 —— 原始像素 + 同一帧的框，作为快照投递到邮箱
+// 两者可以同时成立（实时预览 + 保存）：显示走叠加层，保存用烧框产物。
 cv::Mat DetectionWorker::displayResult ( DetectionTask& task, const cv::Mat& frame, const DetectionResult& result, float fps, const DetectionResultSaver& saver ) {
 	cv::Mat canvas;
 	QImage image;
-	if (needCpuCopy ( task, saver )) {
-		// 渲染计时
-		{
-			ScopedStageTimer renderTimer ( m_monitor, PerformanceStage::RenderImage );
-			canvas = DetectionRenderer::renderMat ( frame, result.boxes, m_config.class_names,
-				result.duration, fps );
+	// 只要有叠加层消费者，CPU 像素就得先拿到（上传纹理用），哪怕这一帧不烧框
+	const bool needPixels = needCpuCopy ( task, saver, m_mail != nullptr );
+	if (needPixels) {
+		// 烧框只有真有人吃才做：保存要 canvas，离线显示要 QImage
+		if (task.renderFrames || saver.active ()) {
+			// 渲染计时
+			{
+				ScopedStageTimer renderTimer ( m_monitor, PerformanceStage::RenderImage );
+				canvas = DetectionRenderer::renderMat ( frame, result.boxes, m_config.class_names,
+					result.duration, fps );
+			}
+			if (task.renderFrames)
+				image = DetectionRenderer::toQImage ( canvas );
 		}
-		if (task.renderFrames)
-			image = DetectionRenderer::toQImage ( canvas );
+		// 投递的必须是原始像素（要烧框的是 canvas），否则叠加层会画到已经烧过框的画面上
+		postOverlaySnapshot ( frame, result.boxes );
 	}
-	emit taskResult ( task.jobId, result, image );		// 实时预览,逐帧推给上层
+	emit taskResult ( task.jobId, result, image );		// 离线显示 / 回看缓冲
 	return canvas;
+}
+
+// 把一帧显示快照投递到邮箱。像素包成 CPU 句柄：CpuFrameHandle 内部是 cv::Mat，
+// 引用计数共享，所以这里是零拷贝，且快照活着期间像素一定有效。
+void DetectionWorker::postOverlaySnapshot ( const cv::Mat& frame, const QVector<Box>& boxes ) {
+	if (!m_mail || frame.empty ())
+		return;
+	const quint64 seq = ++m_displaySeq;
+	auto handle = std::make_shared<CpuFrameHandle> ( frame, static_cast<int>(seq) );
+	m_mail->post ( std::make_shared<const FrameSnapshot> ( handle, boxes, seq, frameClockNs () ) );
+	emit frameSnapshotPosted ();	// 只通知，不带 payload：像素已经在邮箱里了
 }
 
 // 一个Task完成：累积结果 + 推送即时结果 + 保存结果 + 上报进度

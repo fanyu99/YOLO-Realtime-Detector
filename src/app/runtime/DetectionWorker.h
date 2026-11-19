@@ -13,6 +13,8 @@
 #include "FrameSource.h"
 #include "DetectionSession.h"
 #include "IPerformanceMonitor.h"
+#include "FrameMail.h"
+#include "FrameSnapshot.h"
 
 class DetectionResultSaver;
 
@@ -26,6 +28,8 @@ public:
 
 	// 设置检测器配置。必须在 start() 之前调用：
 	void setConfig(const DetectorConfig& config);
+	// 设置快照邮箱，借用指针
+	void setFrameMail ( FrameMail* mail ) { m_mail = mail; }
 
 	bool start();					// 启动工作线程；失败返回 false
 	void stop();					// 停止工作线程，并丢弃队列中尚未开始的 Task
@@ -43,6 +47,7 @@ public:
 	bool fallbackIf( const DetectionError& error, bool fatal = false );
 
 signals:
+	void frameSnapshotPosted (); // 帧快照入邮箱,通知App取走
 
 	void fallbackOccurred(const DetectionError& error); // 触发fallback并完成自愈，通知上层进行更改配置以及警告
 
@@ -76,6 +81,8 @@ private:
 	bool runImage(DetectionTask& task);
 	bool runStream(DetectionTask& task);
 	cv::Mat displayResult ( DetectionTask& task, const cv::Mat& frame, const DetectionResult& result,float fps,const DetectionResultSaver& saver);	// 显示产物：画框并转 QImage；返回 canvas 供保存复用
+	// 把一帧「原始像素 + 同一帧的框」作为快照投递到邮箱，并通知 App 取走
+	void postOverlaySnapshot ( const cv::Mat& frame, const QVector<Box>& boxes );
 	void finishUnit(DetectionTask& task, const cv::Mat& frame, DetectionResult& result,DetectionResultSaver& saver);	// 完成一个task,进行总结
 	void reportSaveResult(const DetectionResultSaver& saver);	// Task 结束后上报一次保存结果
 	void failTaskIfUnfinished(DetectionTask& task);		// 任务抛异常时补发失败信号(避免重复发)
@@ -85,6 +92,8 @@ private:
 	DetectorConfig m_config;					   // 保存内部的Detector配置
 	DetectionError m_lastError;					// 只在 worker 线程内写
 	IPerformanceMonitor* m_monitor = nullptr;	// 性能监测器(借用)
+	FrameMail* m_mail{nullptr}; // 借用App的快照邮箱，写入帧快照
+	quint64 m_displaySeq = 0;	// 投递到显示的快照序号，只在 worker 线程内自增
 
 	std::queue<std::unique_ptr<DetectionTask>> m_queue;
 	mutable std::mutex m_mutex;					// 保护 m_queue

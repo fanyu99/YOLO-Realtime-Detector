@@ -63,6 +63,8 @@ set(YOLO_CORE_SOURCES
     frame/FfmpegDecoder.cpp
     frame/FfmpegFrameSource.h
     frame/FfmpegFrameSource.cpp
+    frame/FrameMail.h
+    frame/FrameSnapshot.h
 
     # factories/
     # 1.帧源工厂

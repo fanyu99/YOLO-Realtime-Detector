@@ -520,8 +520,23 @@ Window {
                                     fillMode: Image.PreserveAspectFit
                                     cache: false
                                     asynchronous: false
-                                    visible: DetectionApp.frameRevision > 0
-                                    source: DetectionApp.frameRevision > 0 ? DetectionApp.frameSource() : ""
+                                    // 叠加层接管时让位，并清掉 source：否则每帧仍会去 ImageProvider
+                                    // 取一次图（requestImage + 解码），白费一份算力
+                                    visible: DetectionApp.frameRevision > 0 && !detectionOverlay.active
+                                    source: visible ? DetectionApp.frameSource() : ""
+                                }
+
+                                // 实时叠加层：像素和检测框都由场景图画，框直接画在 GPU 上。
+                                // 它与上面的 Image 是两条互斥的显示路径，由 active 决定谁出画面。
+                                // M2 的 display.view_mode 落地后，active 改由 App 投影的
+                                // 「实时预览」属性驱动，而不是「拿到帧就算」。
+                                DetectionOverlayItem {
+                                    id: detectionOverlay
+                                    anchors.fill: parent
+                                    anchors.margins: 4      // 必须与 detectionImage 一致，否则框和画面错位
+                                    // 回看时画面来自回看缓冲，仍走 Image 那条路径
+                                    readonly property bool active: frameReady && !DetectionApp.reviewing
+                                    visible: active
                                 }
 
                                 // 尚未开始检测时的图片预览
@@ -533,6 +548,7 @@ Window {
                                     cache: false
                                     asynchronous: true
                                     visible: !window.videoMode && DetectionApp.frameRevision === 0
+                                             && !detectionOverlay.active
                                 }
 
                                 // 尚未开始检测时的视频预览
@@ -542,6 +558,7 @@ Window {
                                     anchors.margins: 4
                                     fillMode: VideoOutput.PreserveAspectFit
                                     visible: window.videoMode && DetectionApp.frameRevision === 0
+                                             && !detectionOverlay.active
                                 }
 
                                 // 占位提示
@@ -551,6 +568,7 @@ Window {
                                     text: "尚无检测结果\n请选择图片 / 视频，或启动摄像头检测"
                                     color: theme.muted
                                     visible: window.selectedFileName.length === 0 && DetectionApp.frameRevision === 0
+                                             && !detectionOverlay.active
                                 }
                             }
                         }

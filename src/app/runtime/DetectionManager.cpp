@@ -51,7 +51,9 @@ bool DetectionManager::start() {
 	connect(m_worker.get(), &DetectionWorker::taskFailed,     this, &DetectionManager::onTaskFailed);
 	connect(m_worker.get(), &DetectionWorker::taskCancelled,  this, &DetectionManager::onTaskCancelled);
 	connect(m_worker.get(),&DetectionWorker::fallbackOccurred,this,&DetectionManager::onFallback);
+	connect (m_worker.get(),&DetectionWorker::frameSnapshotPosted,this,&DetectionManager::frameSnapshotPosted);		 // 转发信号
 
+	transMailPtr ( m_mail );	// 注入邮箱指针
 	m_worker->setConfig(m_config);
 	m_worker->setMonitor(m_monitor);	// 创建worker时进行借用检测器
 	return m_worker->start();

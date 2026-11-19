@@ -53,4 +53,5 @@ target_link_libraries(DetectionRuntime PUBLIC
     yolo_core
     Qt::Core
     Qt::Gui
+    Qt::Quick
 )
