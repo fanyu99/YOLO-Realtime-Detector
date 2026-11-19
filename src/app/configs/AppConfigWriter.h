@@ -7,6 +7,34 @@
 #include "DetectionTypes.h"
 #include "PerformanceTypes.h"
 
+
+
+
+/*
+格式：
+{
+	"detector": {
+		"class_names": [
+			"person"
+		],
+		"conf_threshold": 0.5,
+		"device_id": 0,
+		"input_height": 640,
+		"input_width": 640,
+		"iou_threshold": 0.5,
+		"model_path": "D:/python/YOLO/runs/train/people_yolo26s_v2_e50/weights/best.onnx",
+		"num_threads": 0,
+		"preferred_mode": "gpu"
+	},
+	"performance": {
+		"monitor_level": "detailed",
+		"report_interval_ms": 500
+	}
+}
+*/
+
+
+
 // 配置写入器
 class AppConfigWriter {
 public:

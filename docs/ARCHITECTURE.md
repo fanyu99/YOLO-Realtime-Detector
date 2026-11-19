@@ -46,16 +46,50 @@ DetectionTask
 ---
 
 ### 正在进行的更改：
-更改任务模型：
-- 完善 fallback 机制：
-  - 暂时先不接入Job的drop和重建投递机制
+- 精确化各个阶段的计时：当前的狭义端到端计时仍将对应的runImage()/runStream()中的frameToMat()的整图拷贝计入
+
+| 指标 | 定义 |
+|---|---|
+| 检测链路耗时 | 读帧开始 → NMS 完成 |
+| 显示数据准备耗时 | 检测完成 → 显示数据发布 |
+| 显示等待耗时 | 发布 → 渲染线程消费 |
+| GPU 显示转换耗时 | GPU 颜色转换的实际执行时间 |
+| 提交呈现延迟 | 读帧开始 → 对应帧进入窗口呈现提交 |
+| 保存耗时 | CPU 下载、绘框、编码分别统计 |
+| 处理/显示计数 | 推理帧数、提交显示帧数、替换丢弃帧数 |
+
+- 完善 GPU 显示流程，在 GPU 图像数据上叠加 CPU NMS 检测框和 Qt Overlay(在GPU的QSGTextureNode上创建QSGGeometryNode进行叠加检测框)。
+- 原本的全CPU+OpenCV绘框+视频回看环形缓冲仅在保存结果时使用，默认使用QtOverlay进行显示（不保存结果，无回看缓冲）
+```
+阶段1
+  VideoOutput(QML) + 透明 DetectionOverlay
+  框用 QSGGeometryNode，CPU 只传坐标
+  ↓
+阶段2
+  QVideoSink 拿帧 → 自管 QSGTexture
+  视频和框在同一场景图子树
+  ↓
+阶段3
+  CUDA/推理纹理通过 RHI 共享句柄直接进场景图
+```
+
 - 调整执行模型：
   - Worker 以 Job 为最小执行单元，并负责 Session 管理。
   - 每个 Job 包含多个 Task，Worker 根据配置复用或创建 Session。
   - Job 完成后暂时保留 Session，支持后续复用。
-  - Manager 负责 Job 和 Session 的状态管理。
-- 完善 GPU 显示流程，在 GPU 图像数据上叠加 CPU NMS 检测框和 Qt Overlay。
+  - Manager 负责 Job 和 Session 的状态管理
+  
+- 完善 fallback 机制：
+  - 接入Job的drop和重建投递机制
 
+---
+### 后续增强功能：
+- 分为实时推理 / 离线预览+保存 模式：
+    - 实时推理中，使用QtOverlay进行显示（不保存结果，无回看缓冲）
+    - 使用CPU+OpenCV绘框+保存结果；离线预览中使用CPU+OpenCV绘框+保存结果+回看缓冲
+- 完成rtsp拉流获取视频流并解码推理的功能
+- 增加多路采集线程+多路预处理、推理线程架构
+- 新增qml端检测结果的列表显示、图表显示（包含柱状图/性能PerformanceView的内存占用图）等
 ---
 
 当前完成：
@@ -394,3 +428,12 @@ GPU预处理+GPU推理， 推理输出检测框在CPU NMS，最后将NMS后的�
 - **多 worker 并行**：`DetectionManager::m_worker` 目前是单个 `unique_ptr`，注释已注明
   「单路输入先用 1 个 worker」。改为 `std::vector` 并在 `dispatch()` 中轮询/按负载分配即可，
   两级 Job/Task 模型本身已支持多 worker 消费同一个 Job 的多个 Task。
+
+
+### CUDA 设备、上下文与 stream 约定（2026-11-19）
+
+- `CudaDevice` 先用 `cudaSetDevice(deviceId)` 和 `cudaStreamCreateWithFlags` 初始化 Runtime context 与统一 non-blocking stream。
+- FFmpeg 7.1 使用 `AV_CUDA_USE_CURRENT_CONTEXT` 借用当前 context，并显式传入设备编号。不能在 Runtime 激活 primary context 后直接依赖 `AV_CUDA_USE_PRIMARY_CONTEXT`：FFmpeg 会检查 `CU_CTX_SCHED_BLOCKING_SYNC`，可能与已激活 context 的 flags 冲突。
+- 在借出 hwdevice、创建任何解码器之前，将 `AVCUDADeviceContext::stream` 设置为统一 stream。FFmpeg/NVDEC 的 CUDA 输出、预处理与 ORT 用户计算流按同一 stream 提交；这不表示 NVDEC 固定功能解码引擎本身是 CUDA kernel，也不取消各组件必要的完成同步。
+- FFmpeg 借用 context/stream，不负责销毁它们；所有帧源和推理会话必须先于 `CudaDevice` 结束。初始化失败先释放局部资源；析构时完成 stream 工作，先释放 hwdevice，再销毁 stream。
+- 本机 Qt Quick 实测为 D3D11；原生互操作必须使用 Qt 渲染线程取得的 device，并通过 CUDA/DXGI 映射核对适配器，不以显卡名称相同作为判断依据。

@@ -1,7 +1,9 @@
 #include "CudaDevice.h"
+#include <QScopeGuard>
 extern "C" {
 #include <libavdevice/avdevice.h>
 #include <libavformat/avformat.h>
+#include <libavutil/hwcontext_cuda.h>
 }
 namespace {
 	// 将ffmpeg错误转为字符串
@@ -26,58 +28,79 @@ namespace {
 
 // 初始化设备（幂等：已初始化直接返回true）
 bool CudaDevice::init( int deviceId ) {
-	// 幂等
-	if (isValid())
-		return m_deviceId == deviceId;
-	if (m_deviceId != -1) {
-		m_lastError = DetectionError();
-		m_deviceId = -1;
-		if (m_stream) {
-			cudaStreamDestroy( m_stream );
-			m_stream = {};
-		}
-		if (m_hwDevice) {
-			av_buffer_unref( &m_hwDevice );
-			m_hwDevice = nullptr;
-		}
+	if (isValid()) {
+		if (m_deviceId == deviceId)
+			return true;
+		m_lastError = makeError(QStringLiteral("[CudaDevice]: 活跃会话不支持切换CUDA设备"),
+			DetectionErrorCode::InvalidConfig);
+		return false;
 	}
-	// 获取设备数量
+	m_lastError = {};
 	int deviceCount = 0;
-	cudaError_t cudaErr = cudaGetDeviceCount( &deviceCount );
+	auto cudaErr = cudaGetDeviceCount(&deviceCount);
+	if (cudaErr != cudaSuccess) {
+		m_lastError = makeError(QStringLiteral("[CudaDevice]: 查询CUDA设备失败: ") + cudaErrorToString(cudaErr));
+		return false;
+	}
 	if (deviceId < 0 || deviceId >= deviceCount) {
-		m_lastError = makeError( "[CudaDevice]: 设备ID无效: " + QString::number( deviceId ) ,DetectionErrorCode::InvalidConfig);
+		m_lastError = makeError(QStringLiteral("[CudaDevice]: 设备ID无效: %1").arg(deviceId),
+			DetectionErrorCode::InvalidConfig);
+		return false;
+	}
+	cudaErr = cudaSetDevice(deviceId);
+	if (cudaErr != cudaSuccess) {
+		m_lastError = makeError(QStringLiteral("[CudaDevice]: 设置CUDA设备失败: ") + cudaErrorToString(cudaErr));
 		return false;
 	}
 
-	 // 设置设备
-	cudaErr = cudaSetDevice( deviceId );
+	cudaStream_t stream = nullptr;
+	AVBufferRef* hwDevice = nullptr;
+	const auto cleanup = qScopeGuard([&] {
+		av_buffer_unref(&hwDevice);
+		if (stream)
+			cudaStreamDestroy(stream);
+	});
+	cudaErr = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
 	if (cudaErr != cudaSuccess) {
-		m_lastError = makeError( "[CudaDevice]: 设置CUDA设备失败: " + cudaErrorToString( cudaErr ) );
+		m_lastError = makeError(QStringLiteral("[CudaDevice]: 创建CUDA流失败: ") + cudaErrorToString(cudaErr));
 		return false;
 	}
-	// 创建CUDA流
-	cudaErr = cudaStreamCreateWithFlags( &m_stream, cudaStreamNonBlocking );
-	if (cudaErr != cudaSuccess) {
-		m_lastError = makeError( "[CudaDevice]: 创建CUDA流失败: " + cudaErrorToString( cudaErr ) );
-		m_stream = {};
-		return false;
-	}
-	// 创建FFmpeg hwdevice
-	int ffmpegErr = av_hwdevice_ctx_create( &m_hwDevice, AV_HWDEVICE_TYPE_CUDA, nullptr, nullptr, 0 );
+
+	const auto deviceName = QByteArray::number(deviceId);
+	const int ffmpegErr = av_hwdevice_ctx_create(&hwDevice, AV_HWDEVICE_TYPE_CUDA,
+		deviceName.constData(), nullptr, AV_CUDA_USE_CURRENT_CONTEXT);		// 更正为使用当前的CUDA流
 	if (ffmpegErr < 0) {
-		m_lastError = makeError( "[CudaDevice]: 创建FFmpeg CUDA hwdevice失败: " + ffmpegErrorToString( ffmpegErr ) );
+		m_lastError = makeError(QStringLiteral("[CudaDevice]: 创建FFmpeg CUDA hwdevice失败: ") + ffmpegErrorToString(ffmpegErr));
 		return false;
 	}
-	// 获取设备名和显存信息
-	cudaDeviceProp prop;
-	size_t totalMem = 0;
-	cudaGetDeviceProperties( &prop, deviceId );
-	cudaMemGetInfo( nullptr, &totalMem );
-	m_deviceName = QString( "%1 (显存: %2 MB)" ).arg( prop.name ).arg( totalMem / (1024 * 1024) );
-
-	m_deviceId = deviceId;  // 最后成功了才设置
+	// 保证当前的ffmpeg的硬件上下文能够与当前的CUDA流进行生命周期绑定
+	auto* hw = reinterpret_cast<AVHWDeviceContext*>(hwDevice->data);
+	auto* cuda = reinterpret_cast<AVCUDADeviceContext*>(hw->hwctx);
+	if (!cuda || !cuda->cuda_ctx) {
+		m_lastError = makeError(QStringLiteral("[CudaDevice]: FFmpeg未取得当前CUDA上下文"));
+		return false;
+	}
+	cuda->stream = reinterpret_cast<CUstream>(stream);
+	// 获取显存信息填充设备名+显存
+	cudaDeviceProp prop{};
+	cudaErr = cudaGetDeviceProperties(&prop, deviceId);
+	if (cudaErr != cudaSuccess) {
+		m_lastError = makeError(QStringLiteral("[CudaDevice]: 查询CUDA设备属性失败: ") + cudaErrorToString(cudaErr));
+		return false;
+	}
+	size_t freeMem = 0, totalMem = 0;
+	cudaErr = cudaMemGetInfo(&freeMem, &totalMem);
+	if (cudaErr != cudaSuccess) {
+		m_lastError = makeError(QStringLiteral("[CudaDevice]: 查询CUDA显存失败: ") + cudaErrorToString(cudaErr));
+		return false;
+	}
+	m_deviceName = QStringLiteral("%1 (显存: %2 MB)").arg(QString::fromUtf8(prop.name)).arg(totalMem / (1024 * 1024));
+	m_hwDevice = hwDevice;
+	m_stream = stream;
+	m_deviceId = deviceId;
+	hwDevice = nullptr;
+	stream = nullptr;
 	return true;
-
 }
 
 bool CudaDevice::isValid() const {
@@ -119,6 +142,11 @@ void CudaDevice::use() const {
 }
 
 CudaDevice::~CudaDevice() {
+	if (m_deviceId >= 0)
+		cudaSetDevice(m_deviceId);
+	// 等待流完成
+	if (m_stream)
+		cudaStreamSynchronize(m_stream);
 	// 析构时释放引用和资源
 	if (m_hwDevice) {
 		av_buffer_unref( &m_hwDevice );
