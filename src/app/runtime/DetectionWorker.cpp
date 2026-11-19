@@ -16,516 +16,540 @@
 namespace {
 	// CPU句柄零拷贝取引用；
 	// GPU句柄下载显存帧并转 BGR（失败返回空Mat）
-	cv::Mat frameToCvMat( const FrameHandlePtr& handle ) {
+	cv::Mat frameToCvMat ( const FrameHandlePtr& handle ) {
 		if (!handle)
 			return {};
-		if (handle->memoryType() == MemoryType::GPU) {
+		if (handle->memoryType () == MemoryType::GPU) {
 			if (const auto gpu = std::dynamic_pointer_cast<GpuFrameHandle>(handle))
-				return gpu->constMat();
+				return gpu->constMat ();
 			return {};
 		}
-		return toCvMat( handle );
+		return toCvMat ( handle );
 	}
+	// 判断是否需要进行CPU帧拷贝
+	bool needCpuCopy ( const DetectionTask& task, const DetectionResultSaver& saver ) {
+		return task.renderFrames || saver.active ();
+	}
+
 }
 
 // fallback机制函数,返回是否触发fallback
-bool DetectionWorker::fallbackIf( const DetectionError& error, bool fatal ) {
+bool DetectionWorker::fallbackIf ( const DetectionError& error, bool fatal ) {
 	if (fatal) {
-		emit detectorFailed( error );
+		emit detectorFailed ( error );
 		return true;
 	}
-	if (!error.has_error())
+	if (!error.has_error ())
 		return false;
 	if (error.errorCode == DetectionErrorCode::FallbackRequested) {
-		rebuildSession(); // 重建会话并发送信号以及自愈配置
+		rebuildSession (); // 重建会话并发送信号以及自愈配置
 		return true;
 	}
 	return false;
 }
 
-DetectionWorker::DetectionWorker( QObject* parent ) : QObject( parent ) {}
+DetectionWorker::DetectionWorker ( QObject* parent ) : QObject ( parent ) {}
 
-DetectionWorker::~DetectionWorker() {
-	stop();
+DetectionWorker::~DetectionWorker () {
+	stop ();
 }
 
 // 设置配置
-void DetectionWorker::setConfig( const DetectorConfig& config ) {
-	if (m_running.load( std::memory_order_relaxed )) {
-		Logger::instance()->warning( QStringLiteral( "[DetectionWorker]: 工作线程运行中，忽略配置变更" ) );
+void DetectionWorker::setConfig ( const DetectorConfig& config ) {
+	if (m_running.load ( std::memory_order_relaxed )) {
+		Logger::instance ()->warning ( QStringLiteral ( "[DetectionWorker]: 工作线程运行中，忽略配置变更" ) );
 		return;
 	}
 	m_config = config;
 }
 
 // 启动工作线程
-bool DetectionWorker::start() {
-	if (m_running.load( std::memory_order_relaxed ))
+bool DetectionWorker::start () {
+	if (m_running.load ( std::memory_order_relaxed ))
 		return true;							// 已在运行
 
-	if (m_config.model_path.empty()) {
-		Logger::instance()->error( QStringLiteral( "[DetectionWorker]: 未设置检测器配置，无法启动" ) );
+	if (m_config.model_path.empty ()) {
+		Logger::instance ()->error ( QStringLiteral ( "[DetectionWorker]: 未设置检测器配置，无法启动" ) );
 		return false;
 	}
 
-	m_running.store( true, std::memory_order_relaxed );
+	m_running.store ( true, std::memory_order_relaxed );
 
-	m_thread = std::unique_ptr<QThread>( QThread::create( [ this ]() {
+	m_thread = std::unique_ptr<QThread> ( QThread::create ( [ this ] () {
 		try {
-			work();
+			work ();
 		}
 		catch (const std::exception& e) {
-			Logger::instance()->error( QStringLiteral( "[DetectionWorker]: 工作线程异常退出: " )
-				+ QString::fromUtf8( e.what() ) );
-			emit detectorFailed( DetectionError(
-				QStringLiteral( "[DetectionWorker]: 工作线程异常: " ) + QString::fromUtf8( e.what() ),
+			Logger::instance ()->error ( QStringLiteral ( "[DetectionWorker]: 工作线程异常退出: " )
+				+ QString::fromUtf8 ( e.what () ) );
+			emit detectorFailed ( DetectionError (
+				QStringLiteral ( "[DetectionWorker]: 工作线程异常: " ) + QString::fromUtf8 ( e.what () ),
 				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError ) );
 		}
 		catch (...) {
-			Logger::instance()->error( QStringLiteral( "[DetectionWorker]: 工作线程发生未知异常" ) );
-			emit detectorFailed( DetectionError(
-				QStringLiteral( "[DetectionWorker]: 工作线程发生未知异常" ),
+			Logger::instance ()->error ( QStringLiteral ( "[DetectionWorker]: 工作线程发生未知异常" ) );
+			emit detectorFailed ( DetectionError (
+				QStringLiteral ( "[DetectionWorker]: 工作线程发生未知异常" ),
 				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError ) );
 		}
 		// 线程结束: 复位状态
-		m_running.store( false, std::memory_order_relaxed );
+		m_running.store ( false, std::memory_order_relaxed );
 		} ) );
 	// 启动线程
 	if (m_thread)
-		m_thread->start();
+		m_thread->start ();
 
-	Logger::instance()->info( QStringLiteral( "[DetectionWorker]: 工作线程已启动" ) );
+	Logger::instance ()->info ( QStringLiteral ( "[DetectionWorker]: 工作线程已启动" ) );
 	return true;
 }
 
 // 停止工作线程,会丢弃队列中还没有开始的task
-void DetectionWorker::stop() {
+void DetectionWorker::stop () {
 	if (!m_thread)
 		return;
 
 	std::vector<quint64> dropped;	 // 丢弃的JobId
-	m_running.store( false, std::memory_order_relaxed );
+	m_running.store ( false, std::memory_order_relaxed );
 	{
-		std::lock_guard<std::mutex> lock( m_mutex );
+		std::lock_guard<std::mutex> lock ( m_mutex );
 		// 丢弃尚未开始的 Task,让 Manager 知道
-		while (!m_queue.empty()) {
-			dropped.push_back( m_queue.front()->jobId );
-			m_queue.pop();
+		while (!m_queue.empty ()) {
+			dropped.push_back ( m_queue.front ()->jobId );
+			m_queue.pop ();
 		}
 	}
-	m_cv.notify_all();
+	m_cv.notify_all ();
 
 	for (quint64 jobId : dropped)		// 信号在锁外发		
-		emit taskCancelled( jobId );
+		emit taskCancelled ( jobId );
 
 	// 释放内存
-	m_thread->wait();
-	m_thread.reset();
-	m_session.reset();
+	m_thread->wait ();
+	m_thread.reset ();
+	m_session.reset ();
 
-	Logger::instance()->info( QStringLiteral( "[DetectionWorker]: 工作线程已停止" ) );
-	emit stopped();
+	Logger::instance ()->info ( QStringLiteral ( "[DetectionWorker]: 工作线程已停止" ) );
+	emit stopped ();
 }
 
 // 提交任务
-bool DetectionWorker::submit( std::unique_ptr<DetectionTask> task ) {
+bool DetectionWorker::submit ( std::unique_ptr<DetectionTask> task ) {
 	if (!task)
 		return false;
 
 	{
-		std::lock_guard<std::mutex> lock( m_mutex );
-		if (!m_running.load( std::memory_order_relaxed ))
+		std::lock_guard<std::mutex> lock ( m_mutex );
+		if (!m_running.load ( std::memory_order_relaxed ))
 			return false;
-		m_queue.push( std::move( task ) );
+		m_queue.push ( std::move ( task ) );
 	}
-	m_cv.notify_one();	  // 通知一个工作线程
+	m_cv.notify_one ();	  // 通知一个工作线程
 	return true;
 }
 
 // 在 worker 线程内创建检测会话（预热/警告日志由 Session 内部完成）
 // 创建失败时把真实错误写入 m_lastError，供调用方上报
-DetectionSession* DetectionWorker::createSession() {
-	auto session = std::make_unique<DetectionSession>( m_config, m_monitor );
-	if (!session || !session->isValid()) {
+DetectionSession* DetectionWorker::createSession () {
+	auto session = std::make_unique<DetectionSession> ( m_config, m_monitor );
+	if (!session || !session->isValid ()) {
 		// 设置错误
-		m_lastError = session ? session->lastError() : DetectionError(
-			QStringLiteral( "[DetectionWorker]: 推理流程创建失败" ),
+		m_lastError = session ? session->lastError () : DetectionError (
+			QStringLiteral ( "[DetectionWorker]: 推理流程创建失败" ),
 			DetectionErrorCategory::Detection, DetectionErrorCode::UnknownError );
 		return nullptr;
 	}
-	return session.release();
+	return session.release ();
 }
 // 重建会话：fallback 时将配置中的 active_mode 更改为 CPU 后重建；已是 CPU 则不再重建（避免循环）
 // 发送fallbackOccurred信号并记录日志,返回是否重建成功
-bool DetectionWorker::rebuildSession() {
-	Logger::instance()->warning( QStringLiteral( "[DetectionWorker]: 会话/推理流程出现异常，开启 fallback 重建会话" ) );
+bool DetectionWorker::rebuildSession () {
+	Logger::instance ()->warning ( QStringLiteral ( "[DetectionWorker]: 会话/推理流程出现异常，开启 fallback 重建会话" ) );
 	// 已是 CPU 不需要重建，上报 detectorFailed
-	if (m_config.active_mode.has_value() && m_config.active_mode.value() == FlowMode::CPU) {
-		Logger::instance()->error( QStringLiteral( "[DetectionWorker]: 已处于 CPU 模式，放弃 fallback 重建" ) );
+	if (m_config.active_mode.has_value () && m_config.active_mode.value () == FlowMode::CPU) {
+		Logger::instance ()->error ( QStringLiteral ( "[DetectionWorker]: 已处于 CPU 模式，放弃 fallback 重建" ) );
 		return false;
 	}
 	// 发送fallbackOccurred信号
-	emit fallbackOccurred( m_session ? m_session->lastError() : DetectionError(
-		QStringLiteral( "[DetectionWorker]: 推理流程创建失败" ),
+	emit fallbackOccurred ( m_session ? m_session->lastError () : DetectionError (
+		QStringLiteral ( "[DetectionWorker]: 推理流程创建失败" ),
 		DetectionErrorCategory::Detection, DetectionErrorCode::FallbackRequested ) );
 	// 发送警告信号
-	bool messsageEmpty = m_session ? m_session->lastError().errorMessage.isEmpty() : true;
-	emit detectorWarning( DetectorWarning( QStringLiteral( "Fallback 已触发，当前的GPU模式不可用或异常，正在切换到 CPU 模式，发送者错误信息： " ) + (messsageEmpty ? QStringLiteral( "无" ) : m_session->lastError().errorMessage), DetectorWarning::Code::FallbackRequested ) );
+	bool messsageEmpty = m_session ? m_session->lastError ().errorMessage.isEmpty () : true;
+	emit detectorWarning ( DetectorWarning ( QStringLiteral ( "Fallback 已触发，当前的GPU模式不可用或异常，正在切换到 CPU 模式，发送者错误信息： " ) + (messsageEmpty ? QStringLiteral ( "无" ) : m_session->lastError ().errorMessage), DetectorWarning::Code::FallbackRequested ) );
 	// 释放旧的 Session
-	m_session.reset();
+	m_session.reset ();
 	// 修改配置为 CPU 模式
 	m_config.active_mode = FlowMode::CPU;
 	// 创建新的 Session（内部按 active_mode=CPU 构建各组件，成功后写回 active_mode）
-	m_session.reset( createSession() );
+	m_session.reset ( createSession () );
 	// 再次校验是否创建成功
-	if (!m_session || !m_session->isValid()) {
-		Logger::instance()->error( QStringLiteral( "[DetectionWorker]: fallback 重建会话失败" ) );
+	if (!m_session || !m_session->isValid ()) {
+		Logger::instance ()->error ( QStringLiteral ( "[DetectionWorker]: fallback 重建会话失败" ) );
 		return false;
 	}
 	// 同步实际生效的模式
-	m_config.active_mode = m_session->currentMode();
-	Logger::instance()->warning( QStringLiteral( "[DetectionWorker]: fallback 重建会话成功，已切换到 CPU 模式" ) );
+	m_config.active_mode = m_session->currentMode ();
+	Logger::instance ()->warning ( QStringLiteral ( "[DetectionWorker]: fallback 重建会话成功，已切换到 CPU 模式" ) );
 	return true;
 }
 
 // 工作循环
-void DetectionWorker::work() {
+void DetectionWorker::work () {
 #ifdef YOLO_HAVE_CUDA
 	// GPU模式：初始化进程级CUDA设备（幂等），并将当前线程绑定到该设备
-	if (m_config.effectiveMode() == FlowMode::GPU
-		&& !CudaDevice::instance().init( m_config.device_id )) {
-		const DetectionError error = CudaDevice::instance().lastError();
-		m_lastError = error.has_error() ? error : DetectionError(
-			QStringLiteral( "[DetectionWorker]: CUDA设备初始化失败" ),
+	if (m_config.effectiveMode () == FlowMode::GPU
+		&& !CudaDevice::instance ().init ( m_config.device_id )) {
+		const DetectionError error = CudaDevice::instance ().lastError ();
+		m_lastError = error.has_error () ? error : DetectionError (
+			QStringLiteral ( "[DetectionWorker]: CUDA设备初始化失败" ),
 			DetectionErrorCategory::CUDA, DetectionErrorCode::FallbackRequested );
 		// 设备初始化失败，重建CPU会话
-		fallbackIf( m_lastError );
+		fallbackIf ( m_lastError );
 	}
 	else {
-		CudaDevice::instance().use();  // 使用当前的CUDA设备
+		CudaDevice::instance ().use ();  // 使用当前的CUDA设备
 	}
 #endif
 	// 在 worker 线程内创建检测会话：ONNX 会话构造较重,在worker线程进行构造
-	m_session.reset( createSession() );
+	m_session.reset ( createSession () );
 	if (m_session) {
 		//检查会话中产生的警告（预热产生的警告等）
-		reportWarnings();
+		reportWarnings ();
 	}
 
 	// 如果创建失败尝试重建
-	if (!m_session || !m_session->isValid()) {
+	if (!m_session || !m_session->isValid ()) {
 		// 重建会话，内部进行校验是否为CPU
-		if (!rebuildSession()) {
+		if (!rebuildSession ()) {
 			// 仍然创建失败：m_lastError 已由 createSession() 填入真实错误，直接上报
-			emit detectorFailed( m_lastError );
+			emit detectorFailed ( m_lastError );
 			return;
 		}
 		// 创建成功，发送产生的警告
-		reportWarnings();
+		reportWarnings ();
 	}
 
 
 
 	// 创建成功后从会话同步实际生效的模式
-	m_config.active_mode = m_session->currentMode();
-	emit started();
+	m_config.active_mode = m_session->currentMode ();
+	emit started ();
 	//  开始工作循环
 	while (true) {
 		std::unique_ptr<DetectionTask> task;
 		{
-			std::unique_lock<std::mutex> lock( m_mutex );
-			m_cv.wait( lock, [ this ]() {
+			std::unique_lock<std::mutex> lock ( m_mutex );
+			m_cv.wait ( lock, [ this ] () {
 				// 任务队列不为空或者停止时不阻塞
-				return !m_running.load( std::memory_order_relaxed ) || !m_queue.empty();
+				return !m_running.load ( std::memory_order_relaxed ) || !m_queue.empty ();
 				} );
 			// 如果停止,直接退出
-			if (!m_running.load( std::memory_order_relaxed ))
+			if (!m_running.load ( std::memory_order_relaxed ))
 				break;
 			// 取任务
-			task = std::move( m_queue.front() );
-			m_queue.pop();
+			task = std::move ( m_queue.front () );
+			m_queue.pop ();
 		}
 		// 锁外执行耗时任务
 		try {
-			this->execute( *task );
+			this->execute ( *task );
 		}
 		catch (const std::exception& e) {
-			Logger::instance()->error( QStringLiteral( "[DetectionWorker]: 任务执行异常: " )
-				+ QString::fromUtf8( e.what() ) );
-			m_lastError = DetectionError(
-				QStringLiteral( "[DetectionWorker]: 任务执行异常: " ) + QString::fromUtf8( e.what() ),
+			Logger::instance ()->error ( QStringLiteral ( "[DetectionWorker]: 任务执行异常: " )
+				+ QString::fromUtf8 ( e.what () ) );
+			m_lastError = DetectionError (
+				QStringLiteral ( "[DetectionWorker]: 任务执行异常: " ) + QString::fromUtf8 ( e.what () ),
 				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
-			failTaskIfUnfinished( *task );
+			failTaskIfUnfinished ( *task );
 		}
 		catch (...) {
-			Logger::instance()->error( QStringLiteral( "[DetectionWorker]: 任务执行发生未知异常" ) );
-			m_lastError = DetectionError(
-				QStringLiteral( "[DetectionWorker]: 任务执行发生未知异常" ),
+			Logger::instance ()->error ( QStringLiteral ( "[DetectionWorker]: 任务执行发生未知异常" ) );
+			m_lastError = DetectionError (
+				QStringLiteral ( "[DetectionWorker]: 任务执行发生未知异常" ),
 				DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
-			failTaskIfUnfinished( *task );
+			failTaskIfUnfinished ( *task );
 		}
 	}
 }
 
 // 转发会话中产生的警告
-void DetectionWorker::reportWarnings() {
+void DetectionWorker::reportWarnings () {
 	if (!m_session)
 		return;
-	for (const auto& war : m_session->warnings()) {
+	for (const auto& war : m_session->warnings ()) {
 		if (war.code == DetectorWarning::Code::InputSizeAligned) {
-			m_config.input_height = war.toHeight();
-			m_config.input_width = war.toWidth();
+			m_config.input_height = war.toHeight ();
+			m_config.input_width = war.toWidth ();
 		}
-		emit detectorWarning( war );
+		emit detectorWarning ( war );
 	}
 
 }
 
 // 补发失败信号：只在任务还没落到终态时才
-void DetectionWorker::failTaskIfUnfinished( DetectionTask& task ) {
+void DetectionWorker::failTaskIfUnfinished ( DetectionTask& task ) {
 	const TaskSharedPtr shared = task.shared;
 	if (!shared)
 		return;
-	const DetectionTaskStatus st = shared->status.load( std::memory_order_relaxed );
+	const DetectionTaskStatus st = shared->status.load ( std::memory_order_relaxed );
 	if (st == DetectionTaskStatus::Completed || st == DetectionTaskStatus::Failed
 		|| st == DetectionTaskStatus::Cancelled)
 		return;
 	// 失败计数由 Manager 在收到 taskFailed 时累加，这里不再自己加
-	shared->status.store( DetectionTaskStatus::Failed, std::memory_order_relaxed );
-	emit taskFailed( task.jobId, m_lastError );
+	shared->status.store ( DetectionTaskStatus::Failed, std::memory_order_relaxed );
+	emit taskFailed ( task.jobId, m_lastError );
 }
 
 // 执行Task
-void DetectionWorker::execute( DetectionTask& task ) {
+void DetectionWorker::execute ( DetectionTask& task ) {
 	const TaskSharedPtr shared = task.shared; // 获取共享信息
 	if (!shared)
 		return;
 	// 如果Job取消,emit取消信号
-	if (shared->cancelled()) {
-		emit taskCancelled( task.jobId );
+	if (shared->cancelled ()) {
+		emit taskCancelled ( task.jobId );
 		return;
 	}
 
-	shared->status.store( DetectionTaskStatus::Running, std::memory_order_relaxed );
-	shared->resetCurrentUnit();			// 清掉上一个 Task 留下的单元进度
-	task.fps.reset();					// 帧率从初始值重新起算，不继承上一个 Task
-	emit taskStarted( task.jobId );
+	shared->status.store ( DetectionTaskStatus::Running, std::memory_order_relaxed );
+	shared->resetCurrentUnit ();			// 清掉上一个 Task 留下的单元进度
+	task.fps.reset ();					// 帧率从初始值重新起算，不继承上一个 Task
+	emit taskStarted ( task.jobId );
 
 	bool ok = false;	// 执行是否成功
 	if (!m_session) {
-		m_lastError = DetectionError( QStringLiteral( "[DetectionWorker]: 检测会话未初始化!" ),
+		m_lastError = DetectionError ( QStringLiteral ( "[DetectionWorker]: 检测会话未初始化!" ),
 			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 	}
 	// 创建帧源
-	task.source = createFrameSource( task.sourceDescription );
+	task.source = createFrameSource ( task.sourceDescription );
 	if (!task.source) {
-		m_lastError = DetectionError( QStringLiteral( "[DetectionWorker]: 帧源为空!" ),
+		m_lastError = DetectionError ( QStringLiteral ( "[DetectionWorker]: 帧源为空!" ),
 			DetectionErrorCategory::Other, DetectionErrorCode::UnknownError );
 	}
 	// 打开帧源
-	else if (!task.source->open()) {
-		const bool isImage = (task.source->type() == FrameSourceType::SingleImage);
-		m_lastError = DetectionError( QStringLiteral( "[DetectionWorker]: " ) + task.source->lastError(),
+	else if (!task.source->open ()) {
+		const bool isImage = (task.source->type () == FrameSourceType::SingleImage);
+		m_lastError = DetectionError ( QStringLiteral ( "[DetectionWorker]: " ) + task.source->lastError (),
 			isImage ? DetectionErrorCategory::Image : DetectionErrorCategory::Detection,
 			isImage ? DetectionErrorCode::InvalidImage : DetectionErrorCode::DetectionFailed );
 	}
 	else {
-		switch (task.source->type()) {
+		switch (task.source->type ()) {
 		case FrameSourceType::SingleImage:
 			// 单图GPU模式下由Session层上传显存后走GPU流程，无需在此fallback
-			ok = runImage( task );  break;
+			ok = runImage ( task );  break;
 		case FrameSourceType::VideoFile:
-		case FrameSourceType::Camera:		ok = runStream( task ); break;
+		case FrameSourceType::Camera:		ok = runStream ( task ); break;
 		}
 		// 显式地进行关闭帧源
-		task.source->close();
+		task.source->close ();
 	}
 
 	// 执行结束,更新共享状态并emit信号
-	if (shared->cancelled()) {
-		shared->status.store( DetectionTaskStatus::Cancelled, std::memory_order_relaxed );
-		emit taskCancelled( task.jobId );
+	if (shared->cancelled ()) {
+		shared->status.store ( DetectionTaskStatus::Cancelled, std::memory_order_relaxed );
+		emit taskCancelled ( task.jobId );
 	}
 	else if (!ok) {		 // 执行失败（失败计数由 Manager 在收到 taskFailed 时累加）
-		shared->status.store( DetectionTaskStatus::Failed, std::memory_order_relaxed );
+		shared->status.store ( DetectionTaskStatus::Failed, std::memory_order_relaxed );
 
-		emit taskFailed( task.jobId, m_lastError );
+		emit taskFailed ( task.jobId, m_lastError );
 	}
 	else {
-		shared->status.store( DetectionTaskStatus::Completed, std::memory_order_relaxed );
-		emit taskCompleted( task.jobId, task.results );
+		shared->status.store ( DetectionTaskStatus::Completed, std::memory_order_relaxed );
+		emit taskCompleted ( task.jobId, task.results );
 	}
 }
 
 // 单张图像
-bool DetectionWorker::runImage( DetectionTask& task ) {
-	task.shared->currentUnitTotal.store( 1, std::memory_order_relaxed );
+bool DetectionWorker::runImage ( DetectionTask& task ) {
+	task.shared->currentUnitTotal.store ( 1, std::memory_order_relaxed );
 
 	// 广义端到端
 	QElapsedTimer frameClock;
-	frameClock.start();
+	frameClock.start ();
+
+	// 开启保存，如果路径为空active返回false,静默跳过，如果开启失败进行警告
+	DetectionResultSaver saver;
+	const cv::Size size = task.source->frameSize ();
+	if (!saver.begin ( task, size.width, size.height, task.source->fps () ) && !saver.lastError ().isEmpty ())
+		Logger::instance ()->warning ( QStringLiteral ( "[DetectionWorker]: " ) + saver.lastError () );
 
 	FrameHandlePtr handle;
 	cv::Mat frame;
 	DetectionResult result;
 	{
 		// 端到端（读帧到推理流程结束）计时
-		ScopedStageTimer endToEndTimer( m_monitor, PerformanceStage::endToend );
+		ScopedStageTimer endToEndTimer ( m_monitor, PerformanceStage::endToend );
 		{
 			// 读帧计时
-			ScopedStageTimer readTimer( m_monitor, PerformanceStage::ReadFrame );
-			handle = task.source->getFrame();
+			ScopedStageTimer readTimer ( m_monitor, PerformanceStage::ReadFrame );
+			handle = task.source->getFrame ();
 		}
 		// 指针为空，出现读取错误
 		if (!handle) {
-			const QString message = task.source->lastError().isEmpty()
-				? QStringLiteral( "无法读取图像帧" )
-				: task.source->lastError();
-			m_lastError = DetectionError( QStringLiteral( "[DetectionWorker]: " ) + message,
+			const QString message = task.source->lastError ().isEmpty ()
+				? QStringLiteral ( "无法读取图像帧" )
+				: task.source->lastError ();
+			m_lastError = DetectionError ( QStringLiteral ( "[DetectionWorker]: " ) + message,
 				DetectionErrorCategory::Image, DetectionErrorCode::InvalidImage );
 			if (auto* mon = m_monitor)
-				mon->recordFrameResult( false, static_cast<quint64>(frameClock.nsecsElapsed()) );
+				mon->recordFrameResult ( false, static_cast<quint64>(frameClock.nsecsElapsed ()) );
 			return false;
 		}
-		frame = frameToCvMat( handle );
+		// 只在需要 CPU 像素时才拷贝
+		if (needCpuCopy ( task, saver )) {
+			// 计时：拷贝到CPU时间
+			ScopedStageTimer copyTimer ( m_monitor, PerformanceStage::Frame2Cpu );
+			frame = frameToCvMat ( handle );
+		}
 		// 执行完整的流程：预处理 + 推理 + 后处理
-		if (!m_session->runFlow( handle, result )) {
+		if (!m_session->runFlow ( handle, result )) {
 			m_lastError = result.error;	// 流程失败时错误已回填到 result
-			fallbackIf( m_lastError );
+			fallbackIf ( m_lastError );
 			if (auto* mon = m_monitor)
-				mon->recordFrameResult( false, static_cast<quint64>(frameClock.nsecsElapsed()) );
+				mon->recordFrameResult ( false, static_cast<quint64>(frameClock.nsecsElapsed ()) );
 			return false;
 		}
 	}
 	result.taskId = task.taskId;
-	result.source = task.source->displayName();	  // 设置展示名称,例如文件路径/摄像头ID等
+	result.source = task.source->displayName ();	  // 设置展示名称,例如文件路径/摄像头ID等
 
-	// 保存（未开启保存时 saver 全程 no-op）
-	DetectionResultSaver saver;
-	const cv::Size size = task.source->frameSize();
-	if (!saver.begin( task, size.width, size.height, task.source->fps() ) && !saver.lastError().isEmpty())
-		Logger::instance()->warning( QStringLiteral( "[DetectionWorker]: " ) + saver.lastError() );
-	finishUnit( task, frame, result, saver );
+	finishUnit ( task, frame, result, saver );
 	// 广义的端到端（包括渲染和保存时间）
 	if (auto* mon = m_monitor)
-		mon->recordFrameResult( true, static_cast<quint64>(frameClock.nsecsElapsed()) );
-	reportSaveResult( saver );
+		mon->recordFrameResult ( true, static_cast<quint64>(frameClock.nsecsElapsed ()) );
+	reportSaveResult ( saver );
 	return true;
 }
 
 // 视频文件 / 摄像头流：逐帧推进
-bool DetectionWorker::runStream( DetectionTask& task ) {
+bool DetectionWorker::runStream ( DetectionTask& task ) {
 	FrameSource& source = *task.source;
 
 	// 预读总帧数：摄像头返回 0，代表总量未知（UI 显示忙碌）
-	task.shared->currentUnitTotal.store( static_cast<int>(source.totalFrames()), std::memory_order_relaxed );
+	task.shared->currentUnitTotal.store ( static_cast<int>(source.totalFrames ()), std::memory_order_relaxed );
 
 	DetectionResultSaver saver;
-	const cv::Size size = source.frameSize();
-	if (!saver.begin( task, size.width, size.height, source.fps() ) && !saver.lastError().isEmpty())
-		Logger::instance()->warning( QStringLiteral( "[DetectionWorker]: " ) + saver.lastError() );
+	const cv::Size size = source.frameSize ();
+	if (!saver.begin ( task, size.width, size.height, source.fps () ) && !saver.lastError ().isEmpty ())
+		Logger::instance ()->warning ( QStringLiteral ( "[DetectionWorker]: " ) + saver.lastError () );
 
 	FrameHandlePtr handle; // 统一的帧句柄指针
-	cv::Mat frame;
 	DetectionResult result;
 	int processed = 0;
 	QElapsedTimer clock;
-	clock.start();
+	clock.start ();
 
 	// 读失败/流结束都返回空指针，循环退出
 	while (true) {
 		// 逐帧检查取消
-		if (task.shared->cancelled())
+		if (task.shared->cancelled ())
 			break;								// 取消按正常结束处理，由 execute() 发 taskCancelled
 
 		// 广义端到端：读帧起算，到 finishUnit 完成后随 recordFrameResult 上报
 		QElapsedTimer frameClock;
-		frameClock.start();
+		cv::Mat frame = cv::Mat ();
+		frameClock.start ();
 		// 读帧到完成推理
 		{
-			ScopedStageTimer endToEndTimer( m_monitor, PerformanceStage::endToend );
+			ScopedStageTimer endToEndTimer ( m_monitor, PerformanceStage::endToend );
 			// 读帧计时
 			{
-				ScopedStageTimer readTimer( m_monitor, PerformanceStage::ReadFrame );
-				handle = source.getFrame();
+				ScopedStageTimer readTimer ( m_monitor, PerformanceStage::ReadFrame );
+				handle = source.getFrame ();
 			}
 			// 读失败/流结束：跳出循环不计入统计
 			if (!handle)
 				break;
-
-			frame = frameToCvMat( handle );
-			if (!m_session->runFlow( handle, result )) {
+			// 只在需要渲染的时候才将frame进行拷贝
+			const bool needCopy = needCpuCopy ( task, saver );
+			if (needCopy)
+			{
+				// 计时：拷贝到CPU时间
+				ScopedStageTimer copyTimer ( m_monitor, PerformanceStage::Frame2Cpu );
+				frame = frameToCvMat ( handle );
+			}
+			if (!m_session->runFlow ( handle, result )) {
 				m_lastError = result.error;	// 流程失败时错误已回填到 result
-				fallbackIf( m_lastError );
+				fallbackIf ( m_lastError );
 				if (auto* mon = m_monitor)
-					mon->recordFrameResult( false, static_cast<quint64>(frameClock.nsecsElapsed()) );
+					mon->recordFrameResult ( false, static_cast<quint64>(frameClock.nsecsElapsed ()) );
 				return false;
 			}
 		}
 		result.taskId = task.taskId;
-		result.source = source.displayName();
-		finishUnit( task, frame, result, saver );
+		result.source = source.displayName ();
+		finishUnit ( task, frame, result, saver );
 		// 整体的端到端计时
 		if (auto* mon = m_monitor)
-			mon->recordFrameResult( true, static_cast<quint64>(frameClock.nsecsElapsed()) );
+			mon->recordFrameResult ( true, static_cast<quint64>(frameClock.nsecsElapsed ()) );
 		++processed;
 	}
 
-	reportSaveResult( saver );
+	reportSaveResult ( saver );
 
-	const qint64 elapsedMs = clock.elapsed();
+	const qint64 elapsedMs = clock.elapsed ();
 	if (processed > 0 && elapsedMs > 0) {
 		const double fps = static_cast<double>(processed) * 1000.0 / static_cast<double>(elapsedMs);
-		Logger::instance()->info( QStringLiteral( "[DetectionWorker]: 实际处理帧率 %1 fps（%2 帧 / %3 ms）" )
-			.arg( fps, 0, 'f', 1 ).arg( processed ).arg( elapsedMs ) );
+		Logger::instance ()->info ( QStringLiteral ( "[DetectionWorker]: 实际处理帧率 %1 fps（%2 帧 / %3 ms）" )
+			.arg ( fps, 0, 'f', 1 ).arg ( processed ).arg ( elapsedMs ) );
 	}
 	return true;
 }
 
-// 一个Task完成：累积结果 + 推送即时结果 + 上报进度
-void DetectionWorker::finishUnit( DetectionTask& task, const cv::Mat& frame,
+// 显示产物，获取渲染后的Mat并转发拷贝后的QImage给Manager/App
+// 如果frame为空则为实时模式下的Overlay，仅提供检测框用于叠加；
+// 如果frame不为空则需要进行保存图像
+cv::Mat DetectionWorker::displayResult ( DetectionTask& task, const cv::Mat& frame, const DetectionResult& result, float fps, const DetectionResultSaver& saver ) {
+	cv::Mat canvas;
+	QImage image;
+	if (needCpuCopy ( task, saver )) {
+		// 渲染计时
+		{
+			ScopedStageTimer renderTimer ( m_monitor, PerformanceStage::RenderImage );
+			canvas = DetectionRenderer::renderMat ( frame, result.boxes, m_config.class_names,
+				result.duration, fps );
+		}
+		if (task.renderFrames)
+			image = DetectionRenderer::toQImage ( canvas );
+	}
+	emit taskResult ( task.jobId, result, image );		// 实时预览,逐帧推给上层
+	return canvas;
+}
+
+// 一个Task完成：累积结果 + 推送即时结果 + 保存结果 + 上报进度
+void DetectionWorker::finishUnit ( DetectionTask& task, const cv::Mat& frame,
 	DetectionResult& result, DetectionResultSaver& saver ) {
 	// 累计结果(摄像头不累计)
 	if (task.accumulateResults)
-		task.results.push_back( result );
+		task.results.push_back ( result );
 
 	// 整体处理帧率
-	const float fps = task.fps.tick();
+	const float fps = task.fps.tick ();
 
-	// 进行渲染结果
-	cv::Mat canvas;
-	QImage image;
-	if (task.renderFrames || saver.active()) {
-		// 渲染计时
-		{
-			ScopedStageTimer renderTimer( m_monitor, PerformanceStage::RenderImage );
-			canvas = DetectionRenderer::renderMat( frame, result.boxes, m_config.class_names,
-				result.duration, fps );
-		}
+	// 获取烧录检测框/检测框后的产物
+	const cv::Mat canvas = displayResult ( task, frame, result, fps, saver );  // 在未开启保存/实时模式并不开保存时会返回空
 
-		if (saver.active()) {
-			// 保存计时
-			{
-				ScopedStageTimer saveTimer( m_monitor, PerformanceStage::Save );
-				if (saver.write( canvas )) {
-					task.shared->savedFiles.fetch_add( 1, std::memory_order_relaxed );
-				}
-				else {
-					// 写失败只报一次，然后停掉保存，避免逐帧刷屏
-					Logger::instance()->warning( QStringLiteral( "[DetectionWorker]: 写入结果失败，已停止保存: " )
-						+ saver.lastError() );
-					saver.end();
-				}
-			}
+	// 保存产物
+	if (saver.active ()) {
+		// 保存计时
+		ScopedStageTimer saveTimer ( m_monitor, PerformanceStage::Save );
+		if (saver.write ( canvas )) {
+			task.shared->savedFiles.fetch_add ( 1, std::memory_order_relaxed );
 		}
-		if (task.renderFrames)
-			image = DetectionRenderer::toQImage( canvas );
+		else {
+			// 写失败只报一次，然后停掉保存，避免逐帧刷屏
+			Logger::instance ()->warning ( QStringLiteral ( "[DetectionWorker]: 写入结果失败，已停止保存: " )
+				+ saver.lastError () );
+			saver.end ();
+		}
 	}
-	emit taskResult( task.jobId, result, image );		// 实时预览,逐帧推给上层
 
 	// 当前 Task 内部的单元进度（Job 级的 task 计数由 Manager 维护）
-	const int done = task.shared->currentUnitDone.fetch_add( 1, std::memory_order_relaxed ) + 1;
-	const int total = task.shared->currentUnitTotal.load( std::memory_order_relaxed );
+	const int done = task.shared->currentUnitDone.fetch_add ( 1, std::memory_order_relaxed ) + 1;
+	const int total = task.shared->currentUnitTotal.load ( std::memory_order_relaxed );
 
 	// 百分比变化才上报。摄像头 total 恒为 0，percent 恒为 -1，
 	// 只会在第一个单元时上报一次（lastReportedPercent 初值 -2），用来通知上层"任务已开跑"。
@@ -534,38 +558,38 @@ void DetectionWorker::finishUnit( DetectionTask& task, const cv::Mat& frame,
 		: -1;
 	if (percent != task.lastReportedPercent) {
 		task.lastReportedPercent = percent;
-		emit taskProgress( task.jobId, task.taskId, done, total );
+		emit taskProgress ( task.jobId, task.taskId, done, total );
 	}
 }
 
 // 一个 Task 结束后统一上报保存结果（只报一次，避免逐帧刷屏）
-void DetectionWorker::reportSaveResult( const DetectionResultSaver& saver ) {
-	if (saver.written() > 0) {
-		Logger::instance()->success( QStringLiteral( "[DetectionWorker]: 已保存 %1 个文件到 %2" )
-			.arg( saver.written() ).arg( saver.dir() ) );
+void DetectionWorker::reportSaveResult ( const DetectionResultSaver& saver ) {
+	if (saver.written () > 0) {
+		Logger::instance ()->success ( QStringLiteral ( "[DetectionWorker]: 已保存 %1 个文件到 %2" )
+			.arg ( saver.written () ).arg ( saver.dir () ) );
 	}
-	else if (!saver.lastError().isEmpty()) {
-		Logger::instance()->warning( QStringLiteral( "[DetectionWorker]: 结果保存失败: " ) + saver.lastError() );
+	else if (!saver.lastError ().isEmpty ()) {
+		Logger::instance ()->warning ( QStringLiteral ( "[DetectionWorker]: 结果保存失败: " ) + saver.lastError () );
 	}
 }
 
 // 为任务创建帧源
 // 会话不可用时返回nullptr,不记录错误
-FrameSourcePtr DetectionWorker::createFrameSource( const FrameSourceDescription& des ) {
+FrameSourcePtr DetectionWorker::createFrameSource ( const FrameSourceDescription& des ) {
 	if (!m_session) {
 		return nullptr;
 	}
 	switch (des.type)
 	{
 	case FrameSourceType::SingleImage:
-		return des.filePath.has_value() ? m_session->createImageFrameSource( des.filePath.value() ) : nullptr;
+		return des.filePath.has_value () ? m_session->createImageFrameSource ( des.filePath.value () ) : nullptr;
 	case FrameSourceType::VideoFile:
-		return des.filePath.has_value() ? m_session->createVideoFrameSource( des.filePath.value() ) : nullptr;
+		return des.filePath.has_value () ? m_session->createVideoFrameSource ( des.filePath.value () ) : nullptr;
 	case FrameSourceType::Camera:
-		return des.nameOrId.has_value() ? m_session->createCameraFrameSource( des.nameOrId.value(),
-			des.formatName.value_or( QString() ) ) : nullptr;
+		return des.nameOrId.has_value () ? m_session->createCameraFrameSource ( des.nameOrId.value (),
+			des.formatName.value_or ( QString () ) ) : nullptr;
 	case FrameSourceType::Hik:
-		return des.serial.has_value() ? m_session->createHikCameraFrameSource( des.serial.value(), des.triggerMode ) : nullptr;
+		return des.serial.has_value () ? m_session->createHikCameraFrameSource ( des.serial.value (), des.triggerMode ) : nullptr;
 	default:
 		return nullptr;
 	}

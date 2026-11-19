@@ -116,7 +116,7 @@ public:
 
 signals:
 	void configChanged ();
-	void statsChanged ();	// 摊平属性刷新
+	void statsChanged ();	// 属性刷新
 	void contextChanged ();	// 运行上下文刷新(jobId / 模式)
 	void bannerChanged ();	// 横幅刷新
 	void errorOccurred ( const AppError& error );	// 性能监控错误进行提醒
@@ -135,7 +135,7 @@ private:
 	MonitorPtr m_monitor{ nullptr };	// 性能监控器
 	PerformanceConfig m_config;	// 性能监控配置
 
-	// 摊平后的快照数据
+	// 快照数据
 	float m_overallFPS = 0.0f;
 	double m_narrowEndToEndMs = 0.0;
 	double m_broadEndToEndMs = 0.0;
@@ -144,7 +144,8 @@ private:
 	int m_failedFrames = 0;
 	double m_windowDurationMs = 0.0;
 	int m_snapshotIndex = 0;
-	QVariantList m_stageStats;	// 阶段统计行 {name, averageMs, maximumMs, sampleCount}
+	// 阶段统计行 格式为name, averageMs, maximumMs, sampleCount
+	QVariantList m_stageStats;	
 
 	// 运行上下文
 	bool m_isRunning = false; // 是否有作业运行，有才进行快照统计和发送信号

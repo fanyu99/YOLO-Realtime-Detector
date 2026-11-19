@@ -85,6 +85,12 @@ DetectionApp* DetectionApp::create ( QQmlEngine* qmlEngine, QJSEngine* jsEngine 
 	return app;
 }
 
+// 同步性能监测器的 CPU/GPU 模式
+void DetectionApp::syncPerfMode () {
+	if (m_performanceApp)
+		m_performanceApp->setFlowModeTexts ( m_config.preferredModeText (), m_config.effectiveModeText () );
+}
+
 // 借用监测器，需要在初始化的时候进行注入
 void DetectionApp::setPerformanceApp ( PerformanceApp* perfApp ) {
 	m_performanceApp = perfApp;
@@ -106,8 +112,7 @@ void DetectionApp::onFallbackOccurred ( const DetectionError& error ) {
 	if (error.errorCode == DetectionErrorCode::FallbackRequested) {
 		Logger::instance ()->warning ( QStringLiteral ( "[DetectionApp]: 检测器已触发 fallback 自愈，当前模式已切换为 CPU 模式" ) );
 		m_config.active_mode = FlowMode::CPU;	// 自愈为 CPU 模式
-		if (m_performanceApp)
-			m_performanceApp->setFlowModeTexts ( m_config.preferredModeText (), m_config.effectiveModeText () );
+		syncPerfMode (); // 同步性能监测器的 CPU/GPU 模式
 		emit configChanged ();
 	}
 }
@@ -581,6 +586,7 @@ void DetectionApp::applyDetectorConfig ( const DetectorConfig& config, bool pers
 	const bool pathChanged = (m_config.model_path != config.model_path);
 
 	this->m_config = config;
+	syncPerfMode ();  // 同步性能监测器的 CPU/GPU 模式
 	if (pathChanged)
 		emit modelPathChanged ();
 	emit configChanged ();		// 纯通知：让 QML 侧边栏刷新
@@ -639,8 +645,6 @@ void DetectionApp::setFlowMode ( const QString& flow_mode ) {
 	next.preferred_mode = newMode.value ();
 	next.active_mode = std::nullopt;
 	setConfig ( next );
-	if (m_performanceApp)
-		m_performanceApp->setFlowModeTexts ( next.preferredModeText (), next.effectiveModeText () );
 }
 // 获取当前实际生效的模式
 QString DetectionApp::effectiveFlowMode ()const {
@@ -696,32 +700,38 @@ std::optional<FlowMode> DetectionApp::str2FlowMode ( QStringView str )const {
 }
 
 void DetectionApp::onFrameReady ( quint64 jobId, const DetectionResult& result, const QImage& frame ) {
-	if (jobId != m_currentJobId || frame.isNull ())
+	if (jobId != m_currentJobId)
 		return;
 
-	if (m_frameProvider) {
-		m_frameProvider->setFrame ( frame );		// 实时帧永远更新到最新
+	
+	// TODO:QtOverlay的几何块（检测框），待接入Overlay进行更新叠加的检测框
 
-		// 追加到回看缓冲。有界环形，追加不会阻塞推理 ——
-		// 这正是"不让 worker 等 UI 点下一个"的落点。
-		ReviewItem item;
-		item.seq = m_frameProvider->appendResultFrame ( frame );
-		item.name = result.source.isEmpty ()
-			? QStringLiteral ( "(摄像头)" )
-			: QFileInfo ( result.source ).fileName ();
-		item.objectCount = static_cast<int>(result.boxes.size ());
-		item.durationMs = result.duration;
+	// QtOverlay中的像素块，如果帧位空，表示实时模式，不使用回看缓冲
+	if (!m_frameProvider || frame.isNull ())
+		return;
 
-		const int dropped = m_review.size () + 1 - DetectionImageProvider::kMaxReviewFrames;
-		m_review.append ( item );
-		if (dropped > 0) {
-			m_review.remove ( 0, dropped );
-			// 缓冲头部被裁掉，回看索引要跟着左移，否则会指到错条目上
-			if (m_reviewIndex >= 0)
-				m_reviewIndex = std::max ( 0, m_reviewIndex - dropped );
-		}
-		emit reviewChanged ();
+	// 仅在非实时模式下使用回看缓冲
+	m_frameProvider->setFrame ( frame );		// 实时帧永远更新到最新
+
+	// 追加到回看缓冲。有界环形，追加不会阻塞推理 ——
+	// 这正是"不让 worker 等 UI 点下一个"的落点。
+	ReviewItem item;
+	item.seq = m_frameProvider->appendResultFrame ( frame );
+	item.name = result.source.isEmpty ()
+		? QStringLiteral ( "(摄像头)" )
+		: QFileInfo ( result.source ).fileName ();
+	item.objectCount = static_cast<int>(result.boxes.size ());
+	item.durationMs = result.duration;
+
+	const int dropped = m_review.size () + 1 - DetectionImageProvider::kMaxReviewFrames;
+	m_review.append ( item );
+	if (dropped > 0) {
+		m_review.remove ( 0, dropped );
+		// 缓冲头部被裁掉，回看索引要跟着左移，否则会指到错条目上
+		if (m_reviewIndex >= 0)
+			m_reviewIndex = std::max ( 0, m_reviewIndex - dropped );
 	}
+	emit reviewChanged ();
 
 	// 回看模式下不跟随实时：否则每来一帧都会把画面重新加载成回看图，白费算力
 	if (m_reviewIndex >= 0)
@@ -820,8 +830,7 @@ void DetectionApp::onJobSaved ( quint64 jobId, QStringView dir, int fileCount ) 
 // 不做这一步，侧边栏会一直显示用户填的旧尺寸，而检测器实际用的是模型尺寸。
 void DetectionApp::onConfigAdjusted ( const DetectorConfig& config ) {
 	this->m_config = config;
-	if (m_performanceApp)
-		m_performanceApp->setFlowModeTexts ( config.preferredModeText (), config.effectiveModeText () );
+	syncPerfMode ();  // 同步性能监测器的 CPU/GPU 模式
 	emit configChanged ();
 	Logger::instance ()->info ( QStringLiteral ( "[DetectionApp]: 配置已按模型对齐 -> " ) + configSummary () );
 }

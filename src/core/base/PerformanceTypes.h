@@ -6,26 +6,32 @@
 
 namespace {
 	// 默认的性能监控上报间隔（单位：毫秒）
-	constexpr int kDefaultReportInterval = 300;
+	constexpr int DefaultReportInterval = 300;
 }
 
 // 检测的当前的状态阶段
 enum class PerformanceStage {
 	ReadFrame,	   // 读取帧
-	Upload,		  // 上传到GPU
+	Frame2Gpu,		  // 上传到GPU
+	Frame2Cpu,  // 下载到CPU(拷贝)
 	Preprocessing,		// 预处理
 	Inference, // 推理
 	Postprocessing,	 // 后处理
 	RenderImage,					// 渲染图片
 	Save, // 保存图像
-	endToend		 // 端到端总耗时
+	endToend,		 // 端到端总耗时
+	Count		 // 阶段总数
 };
+
+// 阶段总数
+inline constexpr size_t PerformanceStageCount = static_cast<size_t>( PerformanceStage::Count );
 
 // 将阶段枚举转换为字符串
 inline QString stageToString( PerformanceStage stage ) {
 	switch (stage) {
 	case PerformanceStage::ReadFrame: return QStringLiteral( "读帧(ReadFrame)" );
-	case PerformanceStage::Upload: return QStringLiteral( "上传(Upload)" );
+	case PerformanceStage::Frame2Gpu: return QStringLiteral( "上传(Upload)" );
+	case PerformanceStage::Frame2Cpu: return QStringLiteral ( "下载(Download)" );
 	case PerformanceStage::Preprocessing: return QStringLiteral( "预处理(Preprocessing)" );
 	case PerformanceStage::Inference: return QStringLiteral( "推理(Inference)" );
 	case PerformanceStage::Postprocessing: return QStringLiteral( "后处理(Postprocessing)" );
@@ -63,7 +69,7 @@ public:
 
 	// 成员
 	PerformanceLevel m_level = PerformanceLevel::Basic;	// 性能监控级别
-	int m_reportInterval = kDefaultReportInterval;	// 上报间隔，单位毫秒
+	int m_reportInterval = DefaultReportInterval;	// 上报间隔，单位毫秒
 };
 using PerformanceLevel = PerformanceConfig::PerformanceLevel;
 
@@ -88,6 +94,7 @@ inline CollectorSettings calcCollectSettings(PerformanceLevel level) noexcept {
 	case PerformanceLevel::Detailed:
 		setting.stageMask = (1u << static_cast<unsigned>(PerformanceStage::endToend))
 			| (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
+			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Cpu))
 			| (1u << static_cast<unsigned>(PerformanceStage::Preprocessing))
 			| (1u << static_cast<unsigned>(PerformanceStage::Inference))
 			| (1u << static_cast<unsigned>(PerformanceStage::Postprocessing))
@@ -95,11 +102,12 @@ inline CollectorSettings calcCollectSettings(PerformanceLevel level) noexcept {
 			| (1u << static_cast<unsigned>(PerformanceStage::Save));
 		setting.enableMemoryRecord = true;
 		break;
-		// Detailed + GPU 侧阶段（Upload）
+		// Detailed + GPU 侧阶段（Frame2Gpu）
 	case PerformanceLevel::Full:
 		setting.stageMask = (1u << static_cast<unsigned>(PerformanceStage::endToend))
 			| (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
-			| (1u << static_cast<unsigned>(PerformanceStage::Upload))
+			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Gpu))
+			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Cpu))
 			| (1u << static_cast<unsigned>(PerformanceStage::Preprocessing))
 			| (1u << static_cast<unsigned>(PerformanceStage::Inference))
 			| (1u << static_cast<unsigned>(PerformanceStage::Postprocessing))

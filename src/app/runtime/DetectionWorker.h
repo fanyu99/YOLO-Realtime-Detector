@@ -75,6 +75,7 @@ private:
 	void execute(DetectionTask& task);  // 总入口
 	bool runImage(DetectionTask& task);
 	bool runStream(DetectionTask& task);
+	cv::Mat displayResult ( DetectionTask& task, const cv::Mat& frame, const DetectionResult& result,float fps,const DetectionResultSaver& saver);	// 显示产物：画框并转 QImage；返回 canvas 供保存复用
 	void finishUnit(DetectionTask& task, const cv::Mat& frame, DetectionResult& result,DetectionResultSaver& saver);	// 完成一个task,进行总结
 	void reportSaveResult(const DetectionResultSaver& saver);	// Task 结束后上报一次保存结果
 	void failTaskIfUnfinished(DetectionTask& task);		// 任务抛异常时补发失败信号(避免重复发)

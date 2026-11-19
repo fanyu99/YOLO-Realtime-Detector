@@ -16,10 +16,10 @@ Window {
     visible: false
     modality: Qt.NonModal
     title: "性能监控页"
-    width: 800
-    height: 640
-    minimumWidth: 400 
-    minimumHeight: 320
+    width: 1000
+    height: 800
+    minimumWidth: 500 
+    minimumHeight: 400
     color: performanceView.theme.window
 
     property var theme: null		// 由外部注入的主题对象(Theme.qml)
@@ -203,7 +203,7 @@ Window {
                             font.pixelSize: 11
                             opacity: 0.6
                             color: performanceView.theme.muted
-                            text: "级别决定采集范围：Basic 仅端到端；\nDetailed 加 CPU 各阶段；\nFull 再加 GPU 侧(Upload)。\n开关监控需重启程序生效。"
+                            text: "级别决定采集范围：Basic 仅端到端；\nDetailed 加 CPU 各阶段与下载；\nFull 再加 GPU 侧上传。\n开关监控需重启程序生效。"
                         }
                         // 运行状态
                         PerformanceRect {
@@ -344,7 +344,7 @@ Window {
                         font.pixelSize: 13
                     }
 
-                    // 阶段行数随监控级别变化(Basic 1 行 / Detailed 7 行 / Full 8 行)。
+                    // 阶段行数随监控级别变化(Basic 1 行 / Detailed 8 行 / Full 9 行)。
                     // 用下标绑定代替直接 model: stageStats：后者每 300ms 换一次
                     // QVariantList 会销毁重建全部 delegate，下标绑定行数不变时原地复用。
                     GridLayout {

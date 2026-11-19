@@ -162,7 +162,7 @@ void PerformanceMonitor::emitSnapshot() {
 		StageStatistics stat;
 		stat.stage = static_cast<PerformanceStage>( i );
 		stat.sampleCount = acc.sampleCount;
-		stat.averageNs = acc.totalNs / acc.sampleCount;
+		stat.averageNs =acc.totalNs ? acc.totalNs / acc.sampleCount : 0;
 		stat.maximumNs = acc.maximumNs;
 		snapshot.m_stages.append( stat );
 	}

@@ -5,6 +5,135 @@
 
 ---
 
+# 后续实施计划：实时预览 / 离线预览双模式
+
+> 本节是后续工作的**目标与路线**，随进度更新。已完成项标注 ✅。
+
+## 一、目标
+
+把当前「GPU 帧下载到 CPU → OpenCV 烧框 → QImage → ImageProvider → QML」的**单一显示链路**，拆成两种模式：
+
+| 模式 | 结果留存 | 显示后端 | 定位 |
+|---|---|---|---|
+| **实时预览** | 不保留（无回看缓冲，默认不保存） | QtOverlay：QSGTextureNode(GPU 纹理) + QSGGeometryNode(检测框) | 低延迟优先 |
+| **离线预览** | 保留（回看缓冲 + 保存结果） | 沿用现状（OpenCV 烧框 + QImage + ImageProvider） | 沿用现有全 CPU 链路 |
+
+## 二、核心设计决策
+
+### 1. 三个正交维度必须分开
+
+现状把三件诉求冲突的事绑在 `finishUnit()` 的一行 `if` 里，导致**显示的代价被保存的需求绑架**：
+
+| 维度 | 含义 | 由谁决定 |
+|---|---|---|
+| **轴 A 结果留存** | 每帧结果是否保留（回看 + 落盘） | 用户可选 → 实时 / 离线 |
+| **轴 B 显示后端** | 把像素送上屏的手段 | 由 (轴 A, 轴 C) **推导**，不暴露给 UI |
+| **轴 C 帧驻留内存** | CPU Mat / GPU 设备内存 | 已存在，由 Session 的 `FlowMode` 决定 |
+
+**轴 B 做成推导策略而非与轴 A 硬绑定**，理由：`rebuildSession()` 会把 `FlowMode` 从 GPU 改成 CPU，若实时预览硬绑 GPU，**一次 fallback 就会让显示链路失效**，必须再写一套降级逻辑。后端抽象天然覆盖此情况。
+
+### 2. 两条独立通道（像素 / 几何）
+
+| 通道 | 承载 | 机制 |
+|---|---|---|
+| **几何** | `DetectionResult`（boxes / fps / duration） | 现有 Qt 信号 `taskResult` → Manager → App |
+| **像素** | `FrameHandlePtr` | 帧邮箱（单槽 drop-oldest） |
+
+- **boxes 与 handle 同槽投递**：worker 串行执行，若分两条通道会产生「第 N 帧的画面 + 第 N+1 帧的框」的错位。同槽投递代价是多传一份 `QVector<Box>`（KB 级），换取严格一致。
+- 实时模式下 `taskResult` 的 QImage 为空，几何通道照常工作。
+
+### 3. 各层的职责边界
+
+```
+display.view_mode (AppConfig)
+        │
+        ▼
+DetectionApp ──投影──▶ renderFrames / saveDir ──▶ Manager ──▶ Worker   (Manager 无感)
+        │
+        └──选择──▶ IDisplaySink (OverlaySink / ImageProviderSink) —— 完全在 App 侧
+```
+
+- **`ViewMode` 不进 Manager**。Manager 是作业调度层，关心「这个作业要产出什么」，不关心「UI 怎么显示」。现状的 `task.renderFrames` / `TaskShared::saveDir` 本就是投影结果，Manager 接口无需改动。
+- **多态只用在真正需要的地方**。`ViewMode` 的全部差异可表示为 2 个布尔值 + 1 个枚举（数据，不用虚类）；`IDisplaySink` 的两个实现才是真正不同的行为（场景图 vs QImage），与 `FrameSource` / `DetectionFlow` 同构。
+
+### 4. `ViewMode` 采用 preferred / effective 对称设计
+
+复用 `DetectorConfig` 已有的 `preferred_mode` / `active_mode` 模式：
+
+- `display.view_mode` —— 用户偏好，**持久化到 app.json**
+- `m_effectiveViewMode` —— 实际生效，**纯运行态，不回写**
+
+三种会让「实时」承诺打折的情况，都不能回写配置（否则下次启动永久降级）：用户开了保存（像素必须落 CPU 才能烧框）、零拷贝能力探测失败、CPU 源（本就无零拷贝可言）。
+
+### 5. 帧邮箱与生命周期
+
+- **单槽 drop-oldest，不是队列**。NVDEC 显存池有限（一般 20+ surface），渲染线程慢时若帧排队会饿死显存池导致解码阻塞。被替换的旧帧立即释放，同时天然得到「替换丢弃帧数」指标。
+- **不能每帧发带 payload 的 queued signal**（会灌满事件队列）。做法：worker 直接写原子槽 → 邮箱内 `std::atomic<bool>` 合并唤醒 → 投递一次无参通知给 App → App 调 `item->update()`（任意线程安全）→ `updatePaintNode()` 里取帧。
+- **邮箱由 App 持有，Worker 借用**（与现有 `setMonitor(IPerformanceMonitor*)` 同构）。邮箱是纯数据 + mutex + 原子槽，非 `QObject`、无线程亲和性；反过来 Worker 在 worker 线程持有 `QQuickItem*` 是危险的。
+- **Overlay item 自注册**：item 在 `componentComplete()` 里 `DetectionApp::instance()->registerOverlay(this)`，析构时反注册。比 QML 侧按 `objectName` 查找健壮。
+- **生命周期顺序**：`DetectionApp` 是 `QML_SINGLETON` + `CppOwnership`，静态 `m_instance` 在 `main` 返回后析构；QML 引擎是栈对象，在 `app.exec()` 返回后析构 → **item 先死，顺序正确**。一旦有人把 App 改成跟随引擎的生命周期就会变成悬空指针，此处需保留注释。
+
+### 6. 降级与提示
+
+| 用户选的 ViewMode | 生效 FlowMode | 保存 | 实际后端 | 是否下载 | QML 提示 |
+|---|---|---|---|---|---|
+| Live | GPU，互操作可用 | 关 | Overlay（零拷贝） | 否 | — |
+| Live | GPU，互操作可用 | **开** | Overlay（零拷贝） | **是**（为保存） | ⚠ 实时+保存会降低性能 |
+| Live | GPU，互操作失败 | 任意 | Overlay（上传） | 是 | ⚠ 零拷贝不可用，已降级 |
+| Live | CPU | 任意 | Overlay（上传） | 否 | 提示：CPU 模式为轻量预览 |
+| Offline | 任意 | 任意 | ImageProvider | 是（现状） | — |
+
+**警告归因要准确**：触发下载的真正原因是「开了保存」，不是「实时模式」本身。实时+不保存 = 完全不下载。零拷贝探测失败是环境决定、用户不可控，应与前者分开提示。
+
+### 7. 检测框颜色必须单一来源
+
+实时模式按类别着色、离线模式 OpenCV 烧框若仍是单一颜色，**同一个模型在两种模式下框色不一致**。因此需抽出 `ClassPalette` 作为唯一定义：
+
+- `QColor colorFor(int cls)` —— Overlay 用
+- `cv::Scalar bgrFor(int cls)` —— `DetectionRenderer` 烧录用
+- `QVariantList forQml(...)` —— 主界面图例用
+
+### 8. 实时模式不画文字标签
+
+`QSGGeometryNode` 画不了字（类别名 / 置信度 / FPS / 耗时）。实时模式**用颜色区分类别 + 主界面显示颜色图例**替代，工程量最小；glyph atlas 方案暂不做。
+
+## 三、分期计划
+
+| 里程碑 | 内容 | 状态 |
+|---|---|---|
+| **M0 解耦** | 拆分像素/几何通道；CPU 像素获取惰性化；新增 `Frame2Cpu` 采集点 | ✅ 已完成 |
+| **M1 预览骨架** | `DetectionOverlayItem`（TextureNode + GeometryNode）、`FrameMailbox`、上传型纹理源、`IDisplaySink`、`ClassPalette` | 待开始 |
+| **M2 模式落地** | `ViewMode` 进 AppConfig `display` 节；回看缓冲与保存迁到 Offline；QML 开关与提示 | 待开始 |
+| **M3 GPU 零拷贝** | D3D11 共享纹理 + CUDA 填充 + `QRhiTexture::createFrom` → `createTextureFromRhiTexture` | 待开始 |
+
+**M0 实际改动**
+
+- `DetectionWorker`：新增 `needCpuCopy(task, saver)` 单点定义；`runImage` / `runStream` 只在需要 CPU 像素时才调 `frameToCvMat`（GPU 源即显存下载 + 格式转换）。
+- 抽出 `displayResult()` 作为显示产物的唯一出口，返回烧框后的 `canvas` 供 `finishUnit` 保存复用 —— **两个产物共用一份 canvas，避免 `renderMat` 被调用两次**（两次全帧拷贝 + 两次绘框）。
+- `DetectionApp::onFrameReady`：`frame.isNull()` 不再作为「整帧丢弃」的依据，像素相关的更新收进单独的像素块（几何块为 M1 预留）。
+- `PerformanceStage`：`Upload` → `Frame2Gpu`，新增 `Frame2Cpu`；新增 `Count` 哨兵，`PerformanceMonitor::m_stageRecorder` 按 `PerformanceStageCount` 定长 —— **原先的硬编码 `[8]` 在新增阶段后导致 `endToend`(索引 8) 越界写入相邻成员**，表现为端到端数值变成垃圾值。
+
+## 四、基线数据（M0 实测，1080p 视频）
+
+| 阶段 | GPU 模式 | CPU 模式 |
+|---|---|---|
+| `Frame2Cpu`（下载 / 取 CPU 像素） | **6-10 ms**（占广义端到端 ~30ms 的 **20-35%**） | ≈ 0（零拷贝取引用） |
+| `RenderImage`（烧框 + 转 QImage） | 3-5 ms | 3-5 ms |
+| `ReadFrame` | — | 最大项（软解 + sws YUV→BGR + 6MB 分配/释放） |
+
+**结论**：M3 是 GPU 专属收益，M1 两种模式都吃。GPU 模式下两者合计 9-15ms / 30ms，是本轮改造的主要收益来源。
+
+**一个已确认的测量陷阱**：`frame` 若在 `runStream` 循环外声明，上一帧那块 6MB BGR 的最后一个引用是它，`free` 会落在 `Frame2Cpu` 的采样窗口内（实测约 1ms）。把 `frame` 挪进循环体后降至 0.01ms —— 代价并未消失，只是移回了 `ReadFrame`。**采样窗口会被无关的析构/释放污染，这类作用域问题在新增采样点时要一并检查。**
+
+## 五、待验证的约束
+
+- **NVDEC 显存池饥饿**：单槽邮箱最多额外占用 1-2 个 surface，需确认 `FfmpegDecoder` 的 pool 大小（一般 20+）足够。
+- **NV12 双平面纹理**：D3D11 对 NV12 的支持与 Qt RHI 未必一致。稳妥做法是先由 CUDA kernel 转 BGRA8（一次 GPU→GPU 拷贝，很便宜），不做双平面 shader。
+- **多态纹理源**：`IFrameTextureSource`（`UploadTextureSource` / `NativeTextureSource`）的分层可让「节点与坐标」作为骨架、「纹理来源」作为可替换插件，删掉互操作失败时的降级成本。
+
+
+---
+
 后续整体推理架构更改：
 - Worker执行最小单元Task,Manager管理一个Job的状态
 一次会话对应一个Job（同一个模式复用）
@@ -46,32 +175,17 @@ DetectionTask
 ---
 
 ### 正在进行的更改：
-- 精确化各个阶段的计时：当前的狭义端到端计时仍将对应的runImage()/runStream()中的frameToMat()的整图拷贝计入
+- 显示链路的细粒度计时。M0 已把「取 CPU 像素」（GPU 源即显存下载）从端到端里拆成独立采样点 `Frame2Cpu`，其余按下表落地：
 
-| 指标 | 定义 |
-|---|---|
-| 检测链路耗时 | 读帧开始 → NMS 完成 |
-| 显示数据准备耗时 | 检测完成 → 显示数据发布 |
-| 显示等待耗时 | 发布 → 渲染线程消费 |
-| GPU 显示转换耗时 | GPU 颜色转换的实际执行时间 |
-| 提交呈现延迟 | 读帧开始 → 对应帧进入窗口呈现提交 |
-| 保存耗时 | CPU 下载、绘框、编码分别统计 |
-| 处理/显示计数 | 推理帧数、提交显示帧数、替换丢弃帧数 |
-
-- 完善 GPU 显示流程，在 GPU 图像数据上叠加 CPU NMS 检测框和 Qt Overlay(在GPU的QSGTextureNode上创建QSGGeometryNode进行叠加检测框)。
-- 原本的全CPU+OpenCV绘框+视频回看环形缓冲仅在保存结果时使用，默认使用QtOverlay进行显示（不保存结果，无回看缓冲）
-```
-阶段1
-  VideoOutput(QML) + 透明 DetectionOverlay
-  框用 QSGGeometryNode，CPU 只传坐标
-  ↓
-阶段2
-  QVideoSink 拿帧 → 自管 QSGTexture
-  视频和框在同一场景图子树
-  ↓
-阶段3
-  CUDA/推理纹理通过 RHI 共享句柄直接进场景图
-```
+| 指标 | 定义 | 落地 |
+|---|---|---|
+| 检测链路耗时 | 读帧开始 → NMS 完成 | 已有（狭义端到端） |
+| 显示数据准备耗时 | 检测完成 → 显示数据发布 | M1 |
+| 显示等待耗时 | 发布 → 渲染线程消费 | M1（帧邮箱） |
+| GPU 显示转换耗时 | GPU 颜色转换的实际执行时间 | M3 |
+| 提交呈现延迟 | 读帧开始 → 对应帧进入窗口呈现提交 | M1 |
+| 保存耗时 | CPU 下载、绘框、编码分别统计 | 下载已拆为 `Frame2Cpu`；绘框/编码已有 |
+| 处理/显示计数 | 推理帧数、提交显示帧数、替换丢弃帧数 | 替换丢弃帧数 M1 |
 
 - 调整执行模型：
   - Worker 以 Job 为最小执行单元，并负责 Session 管理。
@@ -84,9 +198,6 @@ DetectionTask
 
 ---
 ### 后续增强功能：
-- 分为实时推理 / 离线预览+保存 模式：
-    - 实时推理中，使用QtOverlay进行显示（不保存结果，无回看缓冲）
-    - 使用CPU+OpenCV绘框+保存结果；离线预览中使用CPU+OpenCV绘框+保存结果+回看缓冲
 - 完成rtsp拉流获取视频流并解码推理的功能
 - 增加多路采集线程+多路预处理、推理线程架构
 - 新增qml端检测结果的列表显示、图表显示（包含柱状图/性能PerformanceView的内存占用图）等

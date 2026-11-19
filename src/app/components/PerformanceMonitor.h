@@ -50,7 +50,8 @@ private:
 		uint64_t totalNs = 0;
 		uint64_t maximumNs = 0;
 	};
-	StageRecorder m_stageRecorder[8];	// 阶段记录器，按照索引记录
+	// 阶段记录器
+	StageRecorder m_stageRecorder[PerformanceStageCount];
 	quint64 m_windowStartNs = 0;	// 窗口起始时间ns
 	uint64_t m_successfulFrames = 0;
 	uint64_t m_failedFrames = 0;
@@ -62,7 +63,7 @@ private:
 
 	QElapsedTimer m_clock;	// 记录起始时间
 	QTimer m_reportTimer;	// 上报定时器
-	int m_reportIntervalMs = kDefaultReportInterval;
+	int m_reportIntervalMs = DefaultReportInterval;
 	PerformanceConfig m_config;	// 配置副本
 	quint64 m_jobId = 0;	// 当前作业 ID
 	bool m_isRunning = false;	// 是否有作业在运行，有才进行快照统计和发送信号

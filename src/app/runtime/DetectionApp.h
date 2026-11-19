@@ -47,11 +47,11 @@ public:
 	static DetectionApp* initialize ( const DetectorConfig& config , PerformanceApp* perfApp);	// 初始化配置
 	static DetectionApp* instance ();	// 未初始化返回nullptr
 	static DetectionApp* create ( QQmlEngine* qmlEngine, QJSEngine* jsEngine );
-	// 横幅级别：决定 QML 侧的配色。一条横幅槽位，避免多条堆叠。
+	// 横幅级别（横幅颜色）
 	enum BannerLevel {
 		BannerNone = 0,
-		BannerWarning = 1,		// 非致命提示，例如"输入尺寸已按模型自动对齐"
-		BannerSuccess = 2,		// 成功提示，例如"结果已保存到 ..."
+		BannerWarning = 1,		// 警告
+		BannerSuccess = 2,		// 成功提示
 	};
 	Q_ENUM(BannerLevel)
 
@@ -114,6 +114,7 @@ signals:
 	void batchFinished(quint64 jobId, int totalTasks, int succeeded, int failed);		// 批量作业完成(带汇总)
 
 private:
+	void syncPerfMode (); // 同步性能监测器的 CPU/GPU 模式
 	// 借用PerformanceApp并注入其监测器，需要在初始化配置前
 	void setPerformanceApp ( PerformanceApp* perfApp );
 	// 设置初始化配置
@@ -139,7 +140,6 @@ private:
 	QString configSummary() const;											// 生成配置摘要文本(用于日志)
 	// 实际生效的保存目录：开关关掉时为空（worker 见到空目录就不保存）
 	// 实际生效的结果目录：开关关掉时为空（worker 见到空目录就不保存）。
-	// 子目录名在这里组合一次，约定只有 DetectionResultSaver::resultsDirFor() 一处定义。
 	QString effectiveResultsDir() const {
 		return m_saveEnabled ? DetectionResultSaver::resultsDirFor(m_saveDir) : QString();
 	}
@@ -167,7 +167,7 @@ private:
 	PerformanceApp* m_performanceApp = nullptr;			 //绑定的性能App，借用指针
 	DetectionImageProvider* m_frameProvider = nullptr;		// 帧提供器,所有权归 QML engine
 
-	// 结果回看条目。帧本身存在 DetectionImageProvider 的有界缓冲里（按 seq 索引）
+	// 结果回看条目
 	// 回看只存序列号、目标数、耗时等元信息
 	struct ReviewItem {
 		quint64 seq = 0;
