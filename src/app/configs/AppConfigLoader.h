@@ -28,6 +28,9 @@
 		"num_threads": 0,
 		"preferred_mode": "gpu"
 	},
+	"display": {
+		"view_mode": "offline"
+	},
 	"performance": {
 		"monitor_level": "detailed",
 		"report_interval_ms": 500
@@ -72,11 +75,18 @@ public:
 		else if (!performanceValue.isUndefined() && !performanceValue.isNull())
 			warn("app", "performance", QStringLiteral("应为对象，该节已按默认值处理"), warnings);
 
+		const QJsonValue displayValue = root.value("display");
+		DisplayPolicy displayPolicy;
+		if (displayValue.isObject())
+			displayPolicy = loadDisplayConfig(displayValue.toObject(), warnings);
+		else if (!displayValue.isUndefined() && !displayValue.isNull())
+			warn("app", "display", QStringLiteral("应为对象，该节已按默认值处理"), warnings);
+
 		for (const QString& key : root.keys()) {
-			if (key != "detector" && key != "performance")
+			if (key != "detector" && key != "performance" && key != "display")
 				warn("app", key, QStringLiteral("未知键，已忽略"), warnings);
 		}
-		auto* cfg = new AppConfig(detectorConfig, performanceConfig, parent);
+		auto* cfg = new AppConfig(detectorConfig, performanceConfig, displayPolicy, parent);
 		cfg->warnings = warnings;
 		return cfg;
 	}
@@ -84,7 +94,7 @@ public:
 private:
 	// 构造一份带失败原因的默认配置（保证调用方总能拿到非空对象）
 	static AppConfig* makeFailed(QObject* parent, const QString& warning) {
-		auto* cfg = new AppConfig(DetectorConfig{}, PerformanceConfig{}, parent);
+		auto* cfg = new AppConfig(DetectorConfig{}, PerformanceConfig{}, DisplayPolicy{}, parent);
 		cfg->warnings << warning;
 		return cfg;
 	}
@@ -267,5 +277,24 @@ private:
 
 		checkUnknownKeys(obj, section, { "monitor_level", "report_interval_ms" }, warnings);
 		return cfg;
+	}
+
+	// 显示配置：只读取用户偏好 view_mode，active_mode / backend 由运行期推导
+	static DisplayPolicy loadDisplayConfig(const QJsonObject& obj, QStringList& warnings) {
+		const QString section = QStringLiteral("display");
+		DisplayPolicy policy;	// 默认离线预览
+
+		if (auto mode = readString(obj, "view_mode", section, warnings)) {
+			const QString m = mode->trimmed().toLower();
+			if (m == "offline")
+				policy.setViewMode(ViewMode::OffLine);	// 顺带推导 backend
+			else if (m == "realtime")
+				policy.setViewMode(ViewMode::RealTime);
+			else
+				warn(section, "view_mode", QStringLiteral("应为 offline 或 realtime，已回退默认值"), warnings);
+		}
+
+		checkUnknownKeys(obj, section, { "view_mode" }, warnings);
+		return policy;
 	}
 };

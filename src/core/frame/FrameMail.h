@@ -4,7 +4,6 @@
 #include <mutex>
 #include <utility>
 #include "FrameSnapshot.h"
-#include <QTime>
 
 // 邮箱，只存最新的快照
 // Worker借用指针进行post

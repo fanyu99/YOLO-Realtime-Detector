@@ -12,6 +12,7 @@
 #include "PerformanceApp.h"
 #include "DetectionApp.h"
 #include "PerformanceTypes.h"
+#include "DisplayPolicy.h"
 #include "AppConfigLoader.h"
 
 
@@ -112,11 +113,14 @@ int main ( int argc, char* argv[] )
 
 	const DetectorConfig initialConfig =
 		appConfig ? appConfig->detectorConfig : DetectorConfig ();
+	// 初始预览模式
+	const DisplayPolicy initialDisplayPolicy =
+		appConfig ? appConfig->displayPolicy : DisplayPolicy ();
 	auto* perfApp = PerformanceApp::initialize ( appConfig ? appConfig->performanceConfig : PerformanceConfig () );
 	// 初始化设置运行上下文
 	perfApp->setFlowModeTexts ( initialConfig.preferredModeText (), initialConfig.effectiveModeText () );
 
-	DetectionApp::initialize ( initialConfig, perfApp );   // 初始化App
+	DetectionApp::initialize ( initialConfig, initialDisplayPolicy, perfApp );   // 初始化App
 	try {
 		QQmlApplicationEngine engine;
 		engine.rootContext ()->setContextProperty ( QStringLiteral ( "perfApp" ), perfApp );	 // 将当前的性能App设置为全局的qml上下文

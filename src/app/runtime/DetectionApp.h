@@ -15,6 +15,7 @@
 #include "DetectionTypes.h"
 #include "FrameMail.h"
 #include "DetectionOverlayItem.h"
+#include "DisplayPolicy.h"
 
 class DetectionImageProvider;
 class PerformanceApp;
@@ -42,11 +43,13 @@ class DetectionApp : public QObject
 	Q_PROPERTY(int resultIndex READ resultIndex NOTIFY reviewChanged)						// 当前回看位置(-1=跟随实时)
 	Q_PROPERTY(bool reviewing READ reviewing NOTIFY reviewChanged)							// 是否处于回看模式
 	Q_PROPERTY(QString resultInfo READ resultInfo NOTIFY reviewChanged)						// 回看条目的说明文字
+	Q_PROPERTY(QString preferredViewMode READ preferredViewMode NOTIFY preferredViewModeChanged)	// 预览模式(用户模式)
+	Q_PROPERTY(QString activeViewMode READ activeViewMode NOTIFY activeViewModeChanged)			// 实际生效的预览模式
 
 public:
 	using  AppPtr = std::unique_ptr<DetectionApp>;
 	// 获取单例，注意，先调用initialize()初始化配置后才能调用instance()
-	static DetectionApp* initialize ( const DetectorConfig& config , PerformanceApp* perfApp);	// 初始化配置
+	static DetectionApp* initialize ( const DetectorConfig& config, const DisplayPolicy& displayPolicy, PerformanceApp* perfApp);	// 初始化配置
 	static DetectionApp* instance ();	// 未初始化返回nullptr
 	static DetectionApp* create ( QQmlEngine* qmlEngine, QJSEngine* jsEngine );
 	// 横幅级别（横幅颜色）
@@ -76,9 +79,14 @@ public:
 	int resultIndex() const { return m_reviewIndex; }
 	bool reviewing() const { return m_reviewIndex >= 0; }
 	QString resultInfo() const;
+	// 预览模式(用户模式)：偏好，持久化到 app.json 的 display.view_mode
+	QString preferredViewMode() const { return ViewMode2String(m_displayPolicy.preferredMode()); }
+	// 实际生效的预览模式：由 App 在链路重建后写回，未写回时跟回用户模式
+	QString activeViewMode() const { return ViewMode2String(m_displayPolicy.activeMode()); }
 
 	// 供 QML 调用
 	Q_INVOKABLE void setFlowMode( const QString& flow_mode );	// 设置 CPU/GPU 模式
+	Q_INVOKABLE void setViewMode( const QString& viewMode );	// 设置预览模式(离线/实时)
 	Q_INVOKABLE QString effectiveFlowMode()const; // 获取当前实际生效的模式
 	Q_INVOKABLE void setModelPath(const QUrl& path);
 	Q_INVOKABLE void setFilePath(const QUrl& path);
@@ -114,6 +122,8 @@ signals:
 	void bannerChanged();
 	void reviewChanged();
 	void saveOptionsChanged();
+	void preferredViewModeChanged();
+	void activeViewModeChanged();
 	void errorOccurred(const AppError& error);
 	void imageDetectionFinished(const DetectionResult& result);							// 图片检测完成
 	void videoDetectionFinished(const QVector<DetectionResult>& videoDetectionResult);	// 视频/摄像头检测完成
@@ -128,6 +138,10 @@ private:
 	void setInitialConfig ( const DetectorConfig& config );
 	// 应用配置并写入配置文件中，persist判断是否需要写入
 	void applyDetectorConfig ( const DetectorConfig& config, bool persist );
+	// 初始化显示策略(不落盘)
+	void setInitialDisplayPolicy ( const DisplayPolicy& policy );
+	// 应用预览模式，persist判断是否需要写入配置文件
+	void applyViewMode ( const ViewMode& mode, bool persist );
 
 	// fallback自愈并发送信号
 	void onFallbackOccurred( const DetectionError& error );	
@@ -174,6 +188,7 @@ private:
 	std::unique_ptr<DetectionManager> m_manager{nullptr};
 	PerformanceApp* m_performanceApp = nullptr;			 //绑定的性能App，借用指针
 	DetectionImageProvider* m_frameProvider = nullptr;		// 帧提供器,所有权归 QML engine
+	DisplayPolicy m_displayPolicy;	// 显示策略(模式+后端)
 
 	// 结果回看条目
 	// 回看只存序列号、目标数、耗时等元信息

@@ -1,6 +1,5 @@
 #pragma once
 #include <QQuickItem>
-#include <QVector>
 #include <memory>
 #include <mutex>
 

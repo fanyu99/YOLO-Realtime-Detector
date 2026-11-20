@@ -5,6 +5,7 @@
 #include <QUrl>
 #include "AppConfig.h"
 #include "DetectionTypes.h"
+#include "DisplayPolicy.h"
 #include "PerformanceTypes.h"
 
 
@@ -26,11 +27,16 @@
 		"num_threads": 0,
 		"preferred_mode": "gpu"
 	},
+	"display": {
+		"view_mode": "offline"
+	},
 	"performance": {
 		"monitor_level": "detailed",
 		"report_interval_ms": 500
 	}
 }
+
+display 节只落盘 view_mode(用户偏好)：active_mode 与 backend 都是运行态，不落盘。
 */
 
 
@@ -50,6 +56,8 @@ public:
 	bool writeDetectorConfig(const DetectorConfig& config);
 	// 只写入 performance 节：detector 与其它键按文件中的原样保留
 	bool writePerformanceConfig ( const PerformanceConfig& config );
+	// 只写入 display 节：其它节按文件中的原样保留
+	bool writeDisplayConfig ( const DisplayPolicy& policy );
 	void setConfigFilePath ( const QUrl& path);
 	// 最近一次写入失败的原因(成功时为空)
 	QString errorMessage () const;

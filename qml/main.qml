@@ -219,6 +219,45 @@ Window {
                             }
                         }
                     }
+                    Item {
+                        Layout.fillHeight: true
+                    }
+
+                    Rectangle {
+                        radius: 10
+                        ColumnLayout {
+
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            spacing: 4
+                            Label {
+                                text: "当前选择的显示模式：" + app.preferredViewMode
+                                font.bold: true
+                                font.pixelSize: 14
+                            }
+                            Label {
+                                text: "当前生效的显示模式：" + app.activeViewMode
+                                font.bold: true
+                                font.pixelSize: 14
+                            }
+                            Rectangle {
+                                radius: 4
+                                Layout.margins: 10
+                                RowLayout {
+                                    Label {
+                                        text: "选择预览模式："
+                                        font.bold: true
+                                        font.pixelSize: 14
+                                    }
+                                    ComboBox {
+                                        id: viewModeBox
+                                        model: ["offline", "realtime"]
+                                        currentIndex: app.preferredViewMode === "offline" ? 0 : 1
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     Item {
                         Layout.fillHeight: true
@@ -547,8 +586,7 @@ Window {
                                     fillMode: Image.PreserveAspectFit
                                     cache: false
                                     asynchronous: true
-                                    visible: !window.videoMode && DetectionApp.frameRevision === 0
-                                             && !detectionOverlay.active
+                                    visible: !window.videoMode && DetectionApp.frameRevision === 0 && !detectionOverlay.active
                                 }
 
                                 // 尚未开始检测时的视频预览
@@ -557,8 +595,7 @@ Window {
                                     anchors.fill: parent
                                     anchors.margins: 4
                                     fillMode: VideoOutput.PreserveAspectFit
-                                    visible: window.videoMode && DetectionApp.frameRevision === 0
-                                             && !detectionOverlay.active
+                                    visible: window.videoMode && DetectionApp.frameRevision === 0 && !detectionOverlay.active
                                 }
 
                                 // 占位提示
@@ -567,8 +604,7 @@ Window {
                                     horizontalAlignment: Text.AlignHCenter
                                     text: "尚无检测结果\n请选择图片 / 视频，或启动摄像头检测"
                                     color: theme.muted
-                                    visible: window.selectedFileName.length === 0 && DetectionApp.frameRevision === 0
-                                             && !detectionOverlay.active
+                                    visible: window.selectedFileName.length === 0 && DetectionApp.frameRevision === 0 && !detectionOverlay.active
                                 }
                             }
                         }
@@ -696,9 +732,9 @@ Window {
     }
 
     Component.onCompleted: {
-        const warns = appConfig ? appConfig.warnings : []
+        const warns = appConfig ? appConfig.warnings : [];
         for (let i = 0; i < warns.length; ++i)
-            Logger.warning(warns[i])
-        Logger.success("[UI]: 界面已就绪，等待选择图片 / 视频")
+            Logger.warning(warns[i]);
+        Logger.success("[UI]: 界面已就绪，等待选择图片 / 视频");
     }
 }

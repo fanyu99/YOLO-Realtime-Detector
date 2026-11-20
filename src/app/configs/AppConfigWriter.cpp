@@ -15,10 +15,15 @@ namespace {
 
 const QString kDetectorSection = QStringLiteral ( "detector" );
 const QString kPerformanceSection = QStringLiteral ( "performance" );
+const QString kDisplaySection = QStringLiteral ( "display" );
 
 // 枚举 -> 文本，与 loader 的字符串解析互逆
 QString flowModeToText ( FlowMode mode ) {
 	return mode == FlowMode::GPU ? QStringLiteral ( "gpu" ) : QStringLiteral ( "cpu" );
+}
+
+QString viewModeToText ( ViewMode mode ) {
+	return mode == ViewMode::RealTime ? QStringLiteral ( "realtime" ) : QStringLiteral ( "offline" );
 }
 
 QString levelToText ( PerformanceLevel level ) {
@@ -92,6 +97,13 @@ QJsonObject performanceToJson ( const PerformanceConfig& cfg ) {
 	return obj;
 }
 
+// 与 loadDisplayConfig 对称：只写用户偏好，active_mode 与 backend 是运行态不落盘
+QJsonObject displayToJson ( const DisplayPolicy& policy ) {
+	QJsonObject obj;
+	writeString ( obj, QStringLiteral ( "view_mode" ), viewModeToText ( policy.preferredMode () ) );
+	return obj;
+}
+
 // 只做数值/结构合法性检查：语义校验(模型是否存在、类别是否为空)由 App 侧负责
 bool validateDetectorConfig ( const DetectorConfig& cfg, QString& error ) {
 	if (cfg.model_path.empty ()) {
@@ -131,6 +143,16 @@ bool validatePerformanceConfig ( const PerformanceConfig& cfg, QString& error ) 
 	if (cfg.reportInterval () <= 0) {
 		error = QStringLiteral ( "performance.report_interval_ms: 应为正整数，当前 %1" )
 			.arg ( cfg.reportInterval () );
+		return false;
+	}
+	return true;
+}
+
+bool validateDisplayConfig ( const DisplayPolicy& policy, QString& error ) {
+	const ViewMode mode = policy.preferredMode ();
+	if (mode != ViewMode::OffLine && mode != ViewMode::RealTime) {
+		error = QStringLiteral ( "display.view_mode: 不是合法的预览模式，当前 %1" )
+			.arg ( static_cast<int>( mode ) );
 		return false;
 	}
 	return true;
@@ -247,13 +269,15 @@ bool AppConfigWriter::writeAppConfig ( const AppConfig& config ) {
 
 	QString error;
 	if (!validateDetectorConfig ( config.detectorConfig, error )
-		|| !validatePerformanceConfig ( config.performanceConfig, error ))
+		|| !validatePerformanceConfig ( config.performanceConfig, error )
+		|| !validateDisplayConfig ( config.displayPolicy, error ))
 		return fail ( error );
 
 	const QDir baseDir = QFileInfo ( filePath ).absoluteDir ();
 	const QVector<QPair<QString, QJsonObject>> sections{
 		{ kDetectorSection, detectorToJson ( config.detectorConfig, baseDir ) },
-		{ kPerformanceSection, performanceToJson ( config.performanceConfig ) } };
+		{ kPerformanceSection, performanceToJson ( config.performanceConfig ) },
+		{ kDisplaySection, displayToJson ( config.displayPolicy ) } };
 
 	if (!commitSections ( filePath, sections, error ))
 		return fail ( error );
@@ -304,5 +328,27 @@ bool AppConfigWriter::writePerformanceConfig ( const PerformanceConfig& config )
 		return fail ( error );
 
 	Logger::instance ()->success ( QStringLiteral ( "[AppConfigWriter]: 性能配置已写入 -> " ) + filePath );
+	return true;
+}
+
+bool AppConfigWriter::writeDisplayConfig ( const DisplayPolicy& policy ) {
+	std::lock_guard<std::mutex> lock ( m_mutex );
+	m_errorMessage.clear ();
+
+	const QString filePath = configFilePath.toLocalFile ();
+	if (filePath.isEmpty ())
+		return fail ( QStringLiteral ( "配置文件路径为空(未 initialize 或路径不是本地文件)" ) );
+
+	QString error;
+	if (!validateDisplayConfig ( policy, error ))
+		return fail ( error );
+
+	const QVector<QPair<QString, QJsonObject>> sections{
+		{ kDisplaySection, displayToJson ( policy ) } };
+
+	if (!commitSections ( filePath, sections, error ))
+		return fail ( error );
+
+	Logger::instance ()->success ( QStringLiteral ( "[AppConfigWriter]: 显示配置已写入 -> " ) + filePath );
 	return true;
 }

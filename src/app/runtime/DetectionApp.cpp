@@ -13,8 +13,7 @@
 
 // 匿名工具函数: 帧信号通知限流
 namespace {
-	// 帧通知的最小间隔：视频/摄像头 30fps 时逐帧通知 QML 会压满 GUI 线程，
-	// 按 ~60fps 封顶。帧本身仍然每次都更新，只是信号"通知"被限流。
+	// 帧通知间隔，防止频繁发信号
 	constexpr int kFrameNotifyIntervalMs = 16;
 
 	// 判断是否重复，放置重复配置
@@ -53,7 +52,7 @@ DetectionApp::DetectionApp ( QObject* parent ) : QObject ( parent ), m_filePath 
 
 }
 
-DetectionApp* DetectionApp::initialize ( const DetectorConfig& config, PerformanceApp* perfApp ) {
+DetectionApp* DetectionApp::initialize ( const DetectorConfig& config, const DisplayPolicy& displayPolicy, PerformanceApp* perfApp ) {
 	if (m_instance) {
 		m_instance->showBanner ( QStringLiteral ( "[DetectionApp]: 重复初始化，已忽略！" ), BannerLevel::BannerWarning );
 		Logger::instance ()->warning ( QStringLiteral ( "[DetectionApp]: 重复初始化，已忽略！" ) );
@@ -62,6 +61,7 @@ DetectionApp* DetectionApp::initialize ( const DetectorConfig& config, Performan
 		m_instance.reset ( new DetectionApp () );
 		m_instance->setPerformanceApp ( perfApp );
 		m_instance->setInitialConfig ( config );
+		m_instance->setInitialDisplayPolicy ( displayPolicy );	// 初始化用户模式
 	}
 	return m_instance.get ();
 }
@@ -634,6 +634,39 @@ void DetectionApp::setInitialConfig ( const DetectorConfig& config ) {
 	applyDetectorConfig ( config, false );
 }
 
+// 初始化显示模式
+void DetectionApp::setInitialDisplayPolicy ( const DisplayPolicy& policy ) {
+	m_displayPolicy = policy;
+	Logger::instance ()->info ( QStringLiteral ( "[DetectionApp]: 预览模式(用户) -> " ) + preferredViewMode () );
+}
+
+// 设置预览模式：应用成功后再落盘
+void DetectionApp::setViewMode ( const QString& viewMode ) {
+	const auto mode = String2ViewMode ( viewMode );
+	if (!mode) {
+		reportError ( AppError ( QStringLiteral ( "[DetectionApp]: 无效的预览模式: " ) + viewMode, AppErrorCode::InvalidConfig ) );
+		return;
+	}
+	applyViewMode ( *mode, true );
+}
+
+// 应用预览模式
+void DetectionApp::applyViewMode ( const ViewMode& mode, bool persist ) {
+	if (!m_displayPolicy.setViewMode ( mode ))
+		return;		
+	emit preferredViewModeChanged ();
+	emit activeViewModeChanged ();
+	Logger::instance ()->info ( QStringLiteral ( "[DetectionApp]: 预览模式已切换 -> " ) + ViewMode2String ( mode ) );
+
+	// 配置保存失败进行提醒上报
+	if (!persist)
+		return;
+	AppConfigWriter* writer = AppConfigWriter::instance ();
+	if (!writer->writeDisplayConfig ( m_displayPolicy ))
+		reportError ( AppError ( QStringLiteral ( "[DetectionApp]: 模式已生效，但写入配置文件失败: " )
+			+ writer->errorMessage (), AppErrorCode::ConfigWriteFailed ) );
+}
+
 // 设置模式
 void DetectionApp::setFlowMode ( const QString& flow_mode ) {
 	auto  newMode = str2FlowMode ( flow_mode );
@@ -660,9 +693,6 @@ void DetectionApp::setModelPath ( const QUrl& path ) {
 		return;
 	}
 
-	// modelPath 也是配置的一部分：改了就构造一份新配置，走 setConfig 的同一条路径，
-	// 保证"应用成功才提交"这条不变式只在一处实现，
-	// 也避免 App 的 m_config 和 Manager 的 m_config 悄悄分叉
 	DetectorConfig next = m_config;
 	next.model_path = std::filesystem::path ( path.toLocalFile ().toStdWString () );
 
@@ -671,7 +701,6 @@ void DetectionApp::setModelPath ( const QUrl& path ) {
 		return;
 	}
 
-	// 配置还没填完（例如 class_names 为空）：先记下路径，等配置补全后再下发
 	m_config = next;
 	Logger::instance ()->info ( QStringLiteral ( "[DetectionApp]: 模型路径已设置(配置未完整，暂不下发): " ) + path.toLocalFile () );
 	emit modelPathChanged ();
