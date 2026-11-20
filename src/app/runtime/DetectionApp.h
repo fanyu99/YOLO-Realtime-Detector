@@ -35,6 +35,8 @@ class DetectionApp : public QObject
 	Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)											// 是否有作业在跑
 	Q_PROPERTY(bool progressIndeterminate READ progressIndeterminate NOTIFY progressChanged)	// 总量未知(摄像头)
 	Q_PROPERTY(int frameRevision READ frameRevision NOTIFY frameRevisionChanged)				// 帧刷新计数
+	//当前的帧源URL
+	Q_PROPERTY(QString frameSource READ frameSource NOTIFY frameRevisionChanged)
 	Q_PROPERTY(bool saveResultsEnabled READ saveResultsEnabled NOTIFY saveOptionsChanged)	// 是否保存推理结果
 	Q_PROPERTY(QUrl saveDir READ saveDir NOTIFY saveOptionsChanged)							// 结果保存根目录
 	Q_PROPERTY(QString bannerText READ bannerText NOTIFY bannerChanged)						// 横幅文本(空则不显示)
@@ -102,7 +104,7 @@ public:
 	Q_INVOKABLE quint64 submitBatch(const QList<QUrl>& urls);	// qml 批量检测：一个 Job 含多个 Task
 	Q_INVOKABLE void cancelCurrentJob();						// qml 停止按钮
 	Q_INVOKABLE void dismissBanner();							// qml 关闭横幅
-	Q_INVOKABLE QString frameSource() const;					// "image://detection/latest?rev=N"
+	QString frameSource() const;					// 当前应显示的帧源URL
 	Q_INVOKABLE void setSaveOptions(bool enabled, const QUrl& dir);	// 设置"保存推理结果"开关与目录
 	Q_INVOKABLE void nextResult();
 	Q_INVOKABLE void prevResult();

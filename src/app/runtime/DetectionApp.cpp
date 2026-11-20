@@ -504,6 +504,7 @@ void DetectionApp::resetReview () {
 	if (m_frameProvider)
 		m_frameProvider->clearResultFrames ();
 	emit reviewChanged ();
+	emit frameRevisionChanged ();
 }
 
 QUrl DetectionApp::saveDir () const {

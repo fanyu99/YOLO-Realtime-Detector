@@ -74,7 +74,7 @@ Window {
                     font.pixelSize: 13
                 }
                 Label {
-                    text: app.preferredViewMode === "offline" ? "离线预览" : "实时预览"
+                    text: DetectionApp.preferredViewMode === "offline" ? "离线预览" : "实时预览"
                     font.bold: true
                     font.pixelSize: 13
                 }
@@ -352,11 +352,11 @@ Window {
                     // 开始检测(自动按文件类型选择帧源)
                     Button {
                         id: detectBtn
-                        text: "开始检测"
+                        property bool isBusy: DetectionApp.busy
+                        text: isBusy ? "停止检测" : "开始检测"
                         Layout.fillWidth: true
                         highlighted: true
-                        onClicked: DetectionApp.onDetectClicked()
-                        enabled: !DetectionApp.busy
+                        onClicked: isBusy ? DetectionApp.cancelCurrentJob() : DetectionApp.onDetectClicked()
                     }
 
                     // 一键示例检测
@@ -421,14 +421,6 @@ Window {
                             onClicked: batchDialog.open()
                         }
 
-                        // 停止当前检测(仅作业运行中可用)
-                        Button {
-                            text: "停止检测"
-                            visible: DetectionApp.busy
-                            enabled: DetectionApp.busy
-                            onClicked: DetectionApp.cancelCurrentJob()
-                        }
-
                         // 修改配置(弹出模态配置对话框)
                         Button {
                             text: "修改检测配置"
@@ -440,6 +432,7 @@ Window {
                         // 性能监控页(非模态窗口)
                         Button {
                             text: "性能监控"
+                            highlighted: true
                             onClicked: {
                                 perfWindow.show();
                                 perfWindow.raise();
@@ -558,7 +551,7 @@ Window {
                                     // 叠加层接管时让位，并清掉 source：否则每帧仍会去 ImageProvider
                                     // 取一次图（requestImage + 解码），白费一份算力
                                     visible: DetectionApp.frameRevision > 0 && !detectionOverlay.active
-                                    source: visible ? DetectionApp.frameSource() : ""
+                                    source: visible ? DetectionApp.frameSource : ""
                                 }
 
                                 // 实时叠加层：像素和检测框都由场景图画，框直接画在 GPU 上。
