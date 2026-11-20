@@ -9,18 +9,13 @@
 #include <QSGVertexColorMaterial>
 
 #include "CpuFrameHandle.h"
+#include "ClassPalette.h"
 #include "DetectionApp.h"
 #include "Logger.h"
 
 namespace {
 	// 4 * 2
 	constexpr int VerticesPerBox = 8;
-
-	// 按类别着色
-	// DetectionRenderer 的离线烧框目前仍是单色，两边要一起换
-	QColor colorForClass ( int cls ) {
-		return QColor::fromHsv ( (cls * 47) % 360, 220, 255 );
-	}
 }
 
 DetectionOverlayItem::DetectionOverlayItem ( QQuickItem* parent )
@@ -67,6 +62,16 @@ void DetectionOverlayItem::setSnapshot ( FrameSnapshotPtr snapshot ) {
 		m_pending = std::move ( snapshot );
 	}
 	update ();
+}
+
+// 重置帧缓冲（切换离线模式时调用）
+void DetectionOverlayItem::resetFrames() {
+	m_frameReady = false;
+	{
+		std::lock_guard<std::mutex> lock ( m_mutex );
+		std::exchange ( m_last, nullptr );
+		std::exchange (m_pending,nullptr);
+	}
 }
 
 DetectionOverlayItem::Nodes DetectionOverlayItem::createNodes () {
@@ -172,7 +177,7 @@ void DetectionOverlayItem::syncBoxes ( const Nodes& nodes, const QRectF& target,
 				(box.y - box.h * 0.5) * scale + target.y (),
 				box.w * scale, box.h * scale );
 
-			const QColor color = colorForClass ( box.cls );
+			const QColor color = ClassPalette::getClassColor ( box.cls );
 			const uchar r = static_cast<uchar>(color.red ());
 			const uchar g = static_cast<uchar>(color.green ());
 			const uchar b = static_cast<uchar>(color.blue ());

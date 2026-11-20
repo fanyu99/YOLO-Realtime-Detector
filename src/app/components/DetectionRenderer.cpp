@@ -1,4 +1,5 @@
 #include "DetectionRenderer.h"
+#include "ClassPalette.h"
 #include <algorithm>
 #include <cmath>
 #include <span>
@@ -93,8 +94,10 @@ namespace DetectionRenderer {
 			const cv::Rect rect = Box::Box2Rect(box, canvas.cols, canvas.rows);
 			if (rect.width <= 0 || rect.height <= 0)
 				continue;					// 越界框直接跳过，别画到画布外
-
-			cv::rectangle(canvas, rect, cv::Scalar(255, 0, 0), boxThickness);
+		   // 画对应的类比的颜色的检测框
+			const QColor color = ClassPalette::getClassColor ( box.cls );
+			cv::rectangle(canvas, rect,
+				cv::Scalar(color.blue(), color.green(), color.red()), boxThickness);
 
 			if (box.cls >= 0 && box.cls < classCount) {
 				const QString label = classNames[box.cls] + QStringLiteral(" ")

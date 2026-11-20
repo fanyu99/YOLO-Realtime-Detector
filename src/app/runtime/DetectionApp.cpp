@@ -548,10 +548,11 @@ QStringList DetectionApp::classNames () const {
 void DetectionApp::setFilePath ( const QUrl& path ) {
 	this->m_filePath = std::filesystem::path ( path.toLocalFile ().toStdWString () );
 
-	// 换了文件就把上一轮的检测画面清掉：QML 用 frameRevision > 0 判断
-	// "是否已有检测结果"，不清的话会一直显示上一个文件的画面
+	// 清除前面的显示帧
 	m_frameRevision = 0;
 	resetReview ();
+	if (m_overlay)
+		m_overlay->resetFrames ();
 	if (m_frameProvider)
 		m_frameProvider->setFrame ( QImage () );
 	emit frameRevisionChanged ();
@@ -646,7 +647,7 @@ void DetectionApp::setInitialDisplayPolicy ( const DisplayPolicy& policy ) {
 // 设置预览模式：应用成功后再落盘
 void DetectionApp::setViewMode ( const QString& viewMode ) {
 	const auto mode = String2ViewMode ( viewMode );
-	if (!mode) {
+	if (!mode) {				    
 		reportError ( AppError ( QStringLiteral ( "[DetectionApp]: 无效的预览模式: " ) + viewMode, AppErrorCode::InvalidConfig ) );
 		return;
 	}
@@ -659,6 +660,9 @@ void DetectionApp::applyViewMode ( const ViewMode& mode, bool persist ) {
 		return;		
 	emit preferredViewModeChanged ();
 	emit activeViewModeChanged ();
+	// 切换后重置Overlay的帧,qml进行刷新使用ImageProvider
+	if (m_overlay)
+		m_overlay->resetFrames ();
 	Logger::instance ()->info ( QStringLiteral ( "[DetectionApp]: 预览模式已切换 -> " ) + ViewMode2String ( mode ) );
 
 	// 配置保存失败进行提醒上报
@@ -685,12 +689,21 @@ DisplaySaveStatus DetectionApp::makeDisplaySaveStatus () {
 		emit activeViewModeChanged ();
 
 	if (status.activeMode != m_displayPolicy.preferredMode ())
+	{
 		Logger::instance ()->warning ( QStringLiteral ( "[DetectionApp]: 场景中没有叠加层，实时预览已降级为图片显示" ) );
+		showBanner (QStringLiteral ( "[DetectionApp]: 场景中没有叠加层，实时预览已降级为图片显示！" ),BannerLevel::BannerWarning);
+	}
 
-	Logger::instance ()->info ( QStringLiteral ( "[DetectionApp]: 显示需求 -> 后端=%1 烧框=%2 QImage=%3 快照=%4 保存=%5 下载=%6" )
+	Logger::instance ()->info ( QStringLiteral ( "[DetectionApp]: 显示需求：后端=%1 烧框=%2 QImage=%3 快照=%4 保存=%5 下载=%6" )
 		.arg ( Backend2String ( status.backend ), yesNo ( status.renderBoxes ),
 			yesNo ( status.needQImage ), yesNo ( status.needSnapshot ),
 			yesNo ( status.isSaveResult () ), yesNo ( status.download2CPU ) ) );
+	// 根据当前的模式以及是否保存进行横幅警告提示
+	if (status.isSaveResult() && status.activeMode == ViewMode::Realtime)
+	{
+		Logger::instance ()->warning ( QStringLiteral ( "[DetectionApp]: 实时检测结果将被保存" ) );
+		showBanner( QStringLiteral ( "[DetectionApp]: 实时检测结果将被保存，性能会有所下降！" ), BannerLevel::BannerWarning );
+	}
 	return status;
 }
 
@@ -739,6 +752,8 @@ void DetectionApp::onJobStarted ( quint64 jobId ) {
 	if (jobId != m_currentJobId)
 		return;
 	resetReview ();
+	if (m_overlay)
+		m_overlay->resetFrames ();
 	setBusy ( true );
 }
 
@@ -817,8 +832,8 @@ void DetectionApp::onFrameReady ( quint64 jobId, const DetectionResult& result, 
 
 	// 通知 QML 要限流：30fps 逐帧通知会把 GUI 线程压满
 	// 这里控制信号发出的频率
-	if (!m_frameThrottle.isValid () || m_frameThrottle.elapsed () >= kFrameNotifyIntervalMs) {
-		m_frameThrottle.restart ();
+	if (!m_signalLimitTimer.isValid () || m_signalLimitTimer.elapsed () >= kFrameNotifyIntervalMs) {
+		m_signalLimitTimer.restart ();
 		++m_frameRevision;
 		emit frameRevisionChanged ();
 	}
@@ -836,10 +851,10 @@ void DetectionApp::onJobFinished ( quint64 jobId, DetectionJobType type,
 
 	const int succeeded = totalTasks - failedTasks;
 
-	// 种类由 Manager 回传，这里不需要任何跨事件维护的状态，纯分支
+	// 种类通过manager进行回传
 	switch (type) {
 	case DetectionJobType::Batch:
-		// 批量：结果不在 results 里（视频帧会把它撑爆），只报汇总
+		// 批量只报汇总
 		Logger::instance ()->success ( QStringLiteral ( "[DetectionApp]: 批量检测完成，成功 %1 / 失败 %2（共 %3）" )
 			.arg ( succeeded ).arg ( failedTasks ).arg ( totalTasks ) );
 		emit batchFinished ( jobId, totalTasks, succeeded, failedTasks );
@@ -867,9 +882,8 @@ void DetectionApp::onJobFinished ( quint64 jobId, DetectionJobType type,
 }
 
 void DetectionApp::onJobFailed ( quint64 jobId, const DetectionError& error ) {
-	// 注意：投递失败时 Manager 会在 submit() 内部就同步 emit jobFailed，
-	// 此时 m_currentJobId 还没被赋值。所以这里不能按 jobId 过滤掉，
-	// 否则错误会被静默吞掉。
+	// 这里不能过滤JobId，manager内部失败时没有同步JobId
+	// 发送错误
 	reportError ( mapDetectionErrortoAppError ( error ) );
 
 	// 清理状态
@@ -904,8 +918,7 @@ void DetectionApp::onJobSaved ( quint64 jobId, QStringView dir, int fileCount ) 
 	showBanner ( QStringLiteral ( "已保存 %1 个推理结果到 %2" ).arg ( fileCount ).arg ( dir ), BannerSuccess );
 }
 
-// 检测器按模型对齐了配置尺寸：同步到 App 的配置副本。
-// 不做这一步，侧边栏会一直显示用户填的旧尺寸，而检测器实际用的是模型尺寸。
+// 检测器按模型对齐配置尺寸，自愈
 void DetectionApp::onConfigAdjusted ( const DetectorConfig& config ) {
 	this->m_config = config;
 	syncPerfMode ();  // 同步性能监测器的 CPU/GPU 模式

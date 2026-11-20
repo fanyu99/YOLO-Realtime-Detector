@@ -503,8 +503,8 @@ bool DetectionWorker::runStream ( DetectionTask& task ) {
 }
 
 
-//   离线  画检测框+转QImage
-//   叠加层  原始像素 + 同一帧的框，作为快照投递到邮箱(保存时画检测框)
+//   离线  画检测框和转QImage
+//   叠加层  原图片和检测框，作为快照投递到邮箱(保存时画检测框)
 cv::Mat DetectionWorker::displayResult ( DetectionTask& task, const cv::Mat& frame, const DetectionResult& result, float fps, const DetectionResultSaver& saver ) {
 	const DisplaySaveStatus& status = task.shared->display_saveStatus;
 	cv::Mat matWithBoxes;  // 带检测框的图片
@@ -518,8 +518,11 @@ cv::Mat DetectionWorker::displayResult ( DetectionTask& task, const cv::Mat& fra
 				matWithBoxes = DetectionRenderer::renderMat ( frame, result.boxes, m_config.class_names,
 					result.duration, fps );
 			}
-			if (status.needQImage)
+			if (status.needQImage) {
+				// 转为QImage的计时
+				ScopedStageTimer qimageTimer ( m_monitor, PerformanceStage::ToQImage );
 				image = DetectionRenderer::toQImage ( matWithBoxes );
+			}
 		}
 		// 投递快照
 		if (status.needSnapshot)

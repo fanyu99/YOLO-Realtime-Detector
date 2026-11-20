@@ -18,6 +18,7 @@ enum class PerformanceStage {
 	Inference, // 推理
 	Postprocessing,	 // 后处理
 	RenderImage,					// 渲染图片
+	ToQImage,						// 烧框结果转 QImage(离线显示链路)
 	Save, // 保存图像
 	endToend,		 // 端到端总耗时
 	Count		 // 阶段总数
@@ -36,6 +37,7 @@ inline QString stageToString( PerformanceStage stage ) {
 	case PerformanceStage::Inference: return QStringLiteral( "推理(Inference)" );
 	case PerformanceStage::Postprocessing: return QStringLiteral( "后处理(Postprocessing)" );
 	case PerformanceStage::RenderImage: return QStringLiteral( "渲染图像(RenderImage)" );
+	case PerformanceStage::ToQImage: return QStringLiteral( "转换QImage(ToQImage)" );
 	case PerformanceStage::Save: return QStringLiteral( "保存(Save)" );
 	case PerformanceStage::endToend: return QStringLiteral( "端到端(endToend)" );
 	default:
@@ -99,6 +101,7 @@ inline CollectorSettings calcCollectSettings(PerformanceLevel level) noexcept {
 			| (1u << static_cast<unsigned>(PerformanceStage::Inference))
 			| (1u << static_cast<unsigned>(PerformanceStage::Postprocessing))
 			| (1u << static_cast<unsigned>(PerformanceStage::RenderImage))
+			| (1u << static_cast<unsigned>(PerformanceStage::ToQImage))
 			| (1u << static_cast<unsigned>(PerformanceStage::Save));
 		setting.enableMemoryRecord = true;
 		break;
@@ -112,6 +115,7 @@ inline CollectorSettings calcCollectSettings(PerformanceLevel level) noexcept {
 			| (1u << static_cast<unsigned>(PerformanceStage::Inference))
 			| (1u << static_cast<unsigned>(PerformanceStage::Postprocessing))
 			| (1u << static_cast<unsigned>(PerformanceStage::RenderImage))
+			| (1u << static_cast<unsigned>(PerformanceStage::ToQImage))
 			| (1u << static_cast<unsigned>(PerformanceStage::Save));
 		setting.enableMemoryRecord = true;
 		setting.recordGpuStages = true;

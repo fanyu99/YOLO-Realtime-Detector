@@ -24,6 +24,7 @@ qt_add_library(DetectionRuntime STATIC
     runtime/DetectionSession.h
     runtime/DetectionSession.cpp
     # components/
+    components/ClassPalette.h
     components/DetectionRenderer.h
     components/DetectionRenderer.cpp
     components/DetectionResultSaver.h

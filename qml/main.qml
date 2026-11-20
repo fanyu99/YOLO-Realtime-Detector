@@ -44,8 +44,6 @@ Window {
         return i >= 0 ? s.substring(i + 1) : s;
     }
 
-    // 把"保存开关 + 目录"一起交给后端。后端在开关关闭时会忽略目录，
-    // 所以这里不需要自己拼 detection_results —— 那是后端的约定。
     function applySaveOptions() {
         DetectionApp.setSaveOptions(saveCheck.checked, saveDirDialog.selectedFolder);
     }
@@ -74,7 +72,7 @@ Window {
                     font.pixelSize: 13
                 }
                 Label {
-                    text: DetectionApp.preferredViewMode === "offline" ? "离线预览" : "实时预览"
+                    text: DetectionApp.preferredViewMode === "offline" ? "离线预览（%1）".arg(DetectionApp.activeViewMode) : "实时预览（%1）".arg(DetectionApp.activeViewMode)
                     font.bold: true
                     font.pixelSize: 13
                 }
@@ -86,7 +84,8 @@ Window {
                 }
                 ComboBox {
                     id: viewModeCombo
-                    model: ["离线预览", "实时预览"]
+                    enabled: !DetectionApp.busy
+                    model: ["离线预览（offline）", "实时预览（realtime）"]
                     currentIndex: DetectionApp.preferredViewMode === "offline" ? 0 : 1
                     onActivated: {
                         var modeStr = currentIndex === 0 ? "offline" : "realtime";
@@ -104,12 +103,7 @@ Window {
             }
         }
 
-        // ====================================================================
-        //  横幅（一条槽位，按级别换配色，避免多条堆叠）
-        //  警告级：非致命提示，典型场景"输入尺寸已按模型自动对齐"——不能静默处理。
-        //  成功级：结果落盘后告知路径与文件数。
-        //  bannerText 为空时整条隐藏（高度归零，不占布局）。
-        // ====================================================================
+        // 警告横幅
         Rectangle {
             id: warningBanner
             Layout.fillWidth: true
@@ -175,76 +169,105 @@ Window {
                     anchors.fill: parent
                     spacing: 8
                     Rectangle {
-                        radius: 10
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.minimumHeight: 200
+                        radius: 4
+                        clip: true
+                        color: theme.base
+                        border.color: theme.border
+                        border.width: 1
+
                         ColumnLayout {
-                            Label {
-                                text: "当前配置："
-                                font.bold: true
-                                font.pixelSize: 14
+                            anchors.fill: parent
+                            anchors.margins: 8
+                            spacing: 8
+
+                            Rectangle {
+                                radius: 4
+                                Label {
+                                    anchors.fill: parent
+                                    Layout.margins: 10
+                                    text: "当前配置："
+                                    font.bold: true
+                                    font.pixelSize: 14
+                                }
                             }
-
-                            // 配置项列表：标签 + 值(跟随 DetectionApp.config 自动刷新)
-                            Column {
+                            // 滑动配置显示
+                            Flickable {
+                                id: configFlick
                                 Layout.fillWidth: true
-                                spacing: 8
+                                Layout.fillHeight: true
+                                contentWidth: width - 12
+                                contentHeight: configColumn.height
+                                boundsBehavior: Flickable.StopAtBounds
+                                clip: true
+                                interactive: contentHeight > height
+                                ScrollBar.vertical: ScrollBar {}
 
-                                Repeater {
-                                    model: [
-                                        {
-                                            "k": "模型",
-                                            "v": DetectionApp.config.modelPath
-                                        },
-                                        {
-                                            "k": "类别",
-                                            "v": DetectionApp.config.classNames.join(", ")
-                                        },
-                                        {
-                                            "k": "置信度",
-                                            "v": DetectionApp.config.confThreshold.toFixed(2)
-                                        },
-                                        {
-                                            "k": "NMS",
-                                            "v": DetectionApp.config.iouThreshold.toFixed(2)
-                                        },
-                                        {
-                                            "k": "输入尺寸",
-                                            "v": DetectionApp.config.inputWidth + "×" + DetectionApp.config.inputHeight
-                                        },
-                                        {
-                                            "k": "线程数",
-                                            "v": String(DetectionApp.config.numThreads)
-                                        },
-                                        {
-                                            "k": "设备号",
-                                            "v": String(DetectionApp.config.deviceId)
-                                        },
-                                        {
-                                            "k": "模型存在",
-                                            "v": DetectionApp.config.modelExists ? "是" : "否"
-                                        },
-                                        {
-                                            "k": "用户设置模式",
-                                            "v": DetectionApp.config.preferredModeText()
-                                        },
-                                        {
-                                            "k": "实际生效模式",
-                                            "v": DetectionApp.config.effectiveModeText()
-                                        }
-                                    ]
+                                Column {
+                                    id: configColumn
+                                    width: configFlick.width
+                                    spacing: 8
 
-                                    delegate: Column {
-                                        width: parent.width
-                                        spacing: 0
-                                        Label {
-                                            text: modelData.k
-                                            opacity: 0.6
-                                            font.pixelSize: 12
-                                        }
-                                        Label {
-                                            text: (modelData.v && modelData.v.length > 0) ? modelData.v : "—"
-                                            wrapMode: Text.Wrap
+                                    Repeater {
+                                        model: [
+                                            {
+                                                "k": "模型",
+                                                "v": DetectionApp.config.modelPath
+                                            },
+                                            {
+                                                "k": "类别",
+                                                "v": DetectionApp.config.classNames.join(", ")
+                                            },
+                                            {
+                                                "k": "置信度",
+                                                "v": DetectionApp.config.confThreshold.toFixed(2)
+                                            },
+                                            {
+                                                "k": "NMS",
+                                                "v": DetectionApp.config.iouThreshold.toFixed(2)
+                                            },
+                                            {
+                                                "k": "输入尺寸",
+                                                "v": DetectionApp.config.inputWidth + "×" + DetectionApp.config.inputHeight
+                                            },
+                                            {
+                                                "k": "线程数",
+                                                "v": String(DetectionApp.config.numThreads)
+                                            },
+                                            {
+                                                "k": "设备号",
+                                                "v": String(DetectionApp.config.deviceId)
+                                            },
+                                            {
+                                                "k": "模型存在",
+                                                "v": DetectionApp.config.modelExists ? "是" : "否"
+                                            },
+                                            {
+                                                "k": "用户设置模式",
+                                                "v": DetectionApp.config.preferredModeText()
+                                            },
+                                            {
+                                                "k": "实际生效模式",
+                                                "v": DetectionApp.config.effectiveModeText()
+                                            }
+                                        ]
+
+                                        delegate: Column {
                                             width: parent.width
-                                            font.pixelSize: 12
+                                            spacing: 0
+                                            Label {
+                                                text: modelData.k
+                                                opacity: 0.6
+                                                font.pixelSize: 12
+                                            }
+                                            Label {
+                                                text: (modelData.v && modelData.v.length > 0) ? modelData.v : "—"
+                                                wrapMode: Text.Wrap
+                                                width: parent.width
+                                                font.pixelSize: 12
+                                            }
                                         }
                                     }
                                 }
@@ -252,14 +275,7 @@ Window {
                         }
                     }
 
-                    Item {
-                        Layout.fillHeight: true
-                    }
-
                     // ---------------- 结果输出 ----------------
-                    // 勾选后把"画了框的结果"写到 <目录>/detection_results/。
-                    // 批量作业建议勾选：否则结果只在界面里过一遍，无法留档。
-                    // 视频写成 mp4，图片写成 jpg；不写 labels（用途是视觉查看）。
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 4
@@ -357,6 +373,16 @@ Window {
                         Layout.fillWidth: true
                         highlighted: true
                         onClicked: isBusy ? DetectionApp.cancelCurrentJob() : DetectionApp.onDetectClicked()
+                    }
+                    Shortcut {
+                        sequence: "Esc"
+                        enabled: detectBtn.isBusy
+                        autoRepeat: false
+                        onActivatedAmbiguously: Logger.warning("出现退出冲突！")
+                        onActivated: function () {
+                            if (detectBtn.isBusy)
+                                DetectionApp.cancelCurrentJob();
+                        }
                     }
 
                     // 一键示例检测
@@ -500,30 +526,30 @@ Window {
                                 }
 
                                 // ---- 结果回看 ----
-                                // 只推进 UI 侧的索引，**不阻塞 worker**：推理照常全速跑完，
-                                // 看得慢只是有界缓冲里少留几帧。所以"下一个"是即时响应的，
-                                // 取消 / 停止 / 关窗也都不受影响。
                                 Label {
                                     text: DetectionApp.resultInfo
                                     opacity: 0.6
                                     font.pixelSize: 12
+                                    visible: detectionImage.visible
                                 }
 
                                 Button {
                                     text: "上一个"
                                     enabled: DetectionApp.resultCount > 0 && (!DetectionApp.reviewing || DetectionApp.resultIndex > 0)
                                     onClicked: DetectionApp.prevResult()
+                                    visible: detectionImage.visible
                                 }
 
                                 Button {
                                     text: "下一个"
                                     enabled: DetectionApp.resultCount > 0 && (!DetectionApp.reviewing || DetectionApp.resultIndex < DetectionApp.resultCount - 1)
                                     onClicked: DetectionApp.nextResult()
+                                    visible: detectionImage.visible
                                 }
 
                                 Button {
                                     text: "回到实时"
-                                    visible: DetectionApp.reviewing
+                                    visible: DetectionApp.reviewing && DetectionApp.busy
                                     onClicked: DetectionApp.followLatest()
                                 }
                             }
@@ -537,10 +563,7 @@ Window {
                                 radius: 4
                                 clip: true
 
-                                // 检测结果画面：图片 / 视频 / 摄像头统一走这条路
-                                // source 必须带上会变化的 rev，否则 QML 会因为 URL 完全相同而吃缓存；
-                                // cache 必须为 false，否则每个 rev 都会在图片缓存里留一份，内存只涨不降；
-                                // asynchronous 必须为 false，否则异步取图会乱序，画面会跳帧。
+                                // 检测结果画面
                                 Image {
                                     id: detectionImage
                                     anchors.fill: parent
@@ -548,21 +571,15 @@ Window {
                                     fillMode: Image.PreserveAspectFit
                                     cache: false
                                     asynchronous: false
-                                    // 叠加层接管时让位，并清掉 source：否则每帧仍会去 ImageProvider
-                                    // 取一次图（requestImage + 解码），白费一份算力
                                     visible: DetectionApp.frameRevision > 0 && !detectionOverlay.active
                                     source: visible ? DetectionApp.frameSource : ""
                                 }
 
-                                // 实时叠加层：像素和检测框都由场景图画，框直接画在 GPU 上。
-                                // 它与上面的 Image 是两条互斥的显示路径，由 active 决定谁出画面。
-                                // M2 的 display.view_mode 落地后，active 改由 App 投影的
-                                // 「实时预览」属性驱动，而不是「拿到帧就算」。
+                                // 实时叠加层
                                 DetectionOverlayItem {
                                     id: detectionOverlay
                                     anchors.fill: parent
-                                    anchors.margins: 4      // 必须与 detectionImage 一致，否则框和画面错位
-                                    // 回看时画面来自回看缓冲，仍走 Image 那条路径
+                                    anchors.margins: 4
                                     readonly property bool active: frameReady && !DetectionApp.reviewing
                                     visible: active
                                 }
@@ -706,6 +723,8 @@ Window {
     PerformanceView {
         id: perfWindow
         theme: theme
+        height: window.height * 0.6
+        width: window.width * 0.4
         perf: perfApp
     }
 

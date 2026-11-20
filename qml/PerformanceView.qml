@@ -344,9 +344,7 @@ Window {
                         font.pixelSize: 13
                     }
 
-                    // 阶段行数随监控级别变化(Basic 1 行 / Detailed 8 行 / Full 9 行)。
-                    // 用下标绑定代替直接 model: stageStats：后者每 300ms 换一次
-                    // QVariantList 会销毁重建全部 delegate，下标绑定行数不变时原地复用。
+                    // 阶段行数随监控级别变化
                     GridLayout {
                         anchors.fill: parent
                         visible: performanceView.perf && performanceView.perf.levelIndex > 0 && performanceView.perf.stageStats.length > 0

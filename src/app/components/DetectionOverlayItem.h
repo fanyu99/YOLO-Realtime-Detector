@@ -36,6 +36,9 @@ public:
 
 	QSGNode* updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData* data) override;
 
+	// 重置帧，在切换离线模式时重置
+	Q_INVOKABLE void resetFrames ();
+
 signals:
 	void snapshotChanged();
 
