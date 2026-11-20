@@ -159,11 +159,12 @@ private:
 	CameraTriggerMode str2TriggerMode( QStringView str ) const;
 
 	QString configSummary() const;											// 生成配置摘要文本(用于日志)
-	// 实际生效的保存目录：开关关掉时为空（worker 见到空目录就不保存）
-	// 实际生效的结果目录：开关关掉时为空（worker 见到空目录就不保存）。
+	// 实际生效的结果目录，关掉时为空
 	QString effectiveResultsDir() const {
 		return m_saveEnabled ? DetectionResultSaver::resultsDirFor(m_saveDir) : QString();
 	}
+	// 将当前的ViewMode、FlowMode、是否保存、Overlay是否可用映射为显示/保存需求
+	DisplaySaveStatus makeDisplaySaveStatus();
 	void setBusy(bool busy);
 	void setState(quint64 currentJobId,bool progressInterminate, bool busy ); // 设置App状态
 	// Manager 的作业事件 -> App 的 QML 接口

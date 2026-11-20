@@ -20,7 +20,7 @@ public:
 	static QString resultsDirFor(const QString& rootDir);
 
 	// 开始一个 Task。
-	//   - task.shared->saveDir 为空 -> 不做任何事，active() 为 false（静默跳过）
+	//   - task.shared->display_saveStatus.saveDir 为空 -> 不做任何事，active() 为 false（静默跳过）
 	//   - 返回 false 且 lastError() 非空 -> 真的失败了，调用方应上报
 	// width/height/fps 只在视频任务里用得上（VideoWriter 需要）。
 	bool begin(const DetectionTask& task, int width, int height, double fps);

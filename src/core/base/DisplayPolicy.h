@@ -3,8 +3,8 @@
 #include <optional>
 // 预览模式
 enum class ViewMode {
-	OffLine,		// 离线
-	RealTime		 // 实时
+	Offline,		// 离线
+	Realtime		 // 实时
 };
 // 后端显示接口
 enum class DisplayBackend {
@@ -16,7 +16,7 @@ enum class DisplayBackend {
 // preferred_mode用户模式，active_mode实际生效模式（运行时填入），backend显示后端
 struct DisplayPolicy {
 	// 用户偏好
-	ViewMode preferred_mode = ViewMode::OffLine;
+	ViewMode preferred_mode = ViewMode::Offline;
 	// 实际模式
 	std::optional<ViewMode> active_mode = std::nullopt;
 	// 后端显示模式
@@ -24,7 +24,7 @@ struct DisplayPolicy {
 
 	// 通过当前的模式推导显示后端
 	static DisplayBackend backendFor ( ViewMode mode ) {
-		return mode == ViewMode::RealTime ? DisplayBackend::Overlay : DisplayBackend::ImageProvider;
+		return mode == ViewMode::Realtime ? DisplayBackend::Overlay : DisplayBackend::ImageProvider;
 	}
 	ViewMode preferredMode () const { return preferred_mode; }
 	// 实际生效的模式：active_mode ，没有回退到preferredMode
@@ -45,20 +45,20 @@ struct DisplayPolicy {
 
 inline QString ViewMode2String ( ViewMode mode ) {
 	switch (mode) {
-	case ViewMode::OffLine:
+	case ViewMode::Offline:
 		return "offline";
-	case ViewMode::RealTime:
+	case ViewMode::Realtime:
 		return "realtime";
 	default:
-		return "Unknown";
+		return "unknown";				 
 	}
 }
 
 inline std::optional<ViewMode> String2ViewMode ( const QString& str ) {
 	if (str == "offline") {
-		return ViewMode::OffLine;
+		return ViewMode::Offline;
 	} else if (str == "realtime") {
-		return ViewMode::RealTime;
+		return ViewMode::Realtime;
 	} else {
 		return std::nullopt;
 	}

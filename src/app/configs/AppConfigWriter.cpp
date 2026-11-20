@@ -23,7 +23,7 @@ QString flowModeToText ( FlowMode mode ) {
 }
 
 QString viewModeToText ( ViewMode mode ) {
-	return mode == ViewMode::RealTime ? QStringLiteral ( "realtime" ) : QStringLiteral ( "offline" );
+	return mode == ViewMode::Realtime ? QStringLiteral ( "realtime" ) : QStringLiteral ( "offline" );
 }
 
 QString levelToText ( PerformanceLevel level ) {
@@ -150,7 +150,7 @@ bool validatePerformanceConfig ( const PerformanceConfig& cfg, QString& error ) 
 
 bool validateDisplayConfig ( const DisplayPolicy& policy, QString& error ) {
 	const ViewMode mode = policy.preferredMode ();
-	if (mode != ViewMode::OffLine && mode != ViewMode::RealTime) {
+	if (mode != ViewMode::Offline && mode != ViewMode::Realtime) {
 		error = QStringLiteral ( "display.view_mode: 不是合法的预览模式，当前 %1" )
 			.arg ( static_cast<int>( mode ) );
 		return false;

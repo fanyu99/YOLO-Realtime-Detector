@@ -80,7 +80,8 @@ private:
 	void execute(DetectionTask& task);  // 总入口
 	bool runImage(DetectionTask& task);
 	bool runStream(DetectionTask& task);
-	cv::Mat displayResult ( DetectionTask& task, const cv::Mat& frame, const DetectionResult& result,float fps,const DetectionResultSaver& saver);	// 显示产物：画框并转 QImage；返回 canvas 供保存复用
+	// 显示产物：按 Task 里透传过来的 DisplaySaveStatus 烧框/投快照；返回 canvas 供保存复用
+	cv::Mat displayResult ( DetectionTask& task, const cv::Mat& frame, const DetectionResult& result,float fps,const DetectionResultSaver& saver);
 	// 把一帧「原始像素 + 同一帧的框」作为快照投递到邮箱，并通知 App 取走
 	void postOverlaySnapshot ( const cv::Mat& frame, const QVector<Box>& boxes );
 	void finishUnit(DetectionTask& task, const cv::Mat& frame, DetectionResult& result,DetectionResultSaver& saver);	// 完成一个task,进行总结

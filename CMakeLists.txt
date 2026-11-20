@@ -293,6 +293,8 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             src/core/base/DecodeTypes.h
             src/core/base/Box.h
             src/core/base/AppError.h
+            src/core/base/DisplayPolicy.h
+            src/core/base/DisplaySaveStatus.h
             src/app/configs/AppConfig.h
     )
 endif()

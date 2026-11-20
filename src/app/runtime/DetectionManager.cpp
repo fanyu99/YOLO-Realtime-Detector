@@ -71,7 +71,7 @@ void DetectionManager::shutdown() {
 
 // 提交作业
 
-quint64 DetectionManager::submitSource(const FrameSourceDescription& des, const QString& saveDir) {
+quint64 DetectionManager::submitSource(const FrameSourceDescription& des, const DisplaySaveStatus& displaySaveStatus) {
 	// 校验描述有效
 	bool valid = false;
 	switch (des.type) {
@@ -85,16 +85,16 @@ quint64 DetectionManager::submitSource(const FrameSourceDescription& des, const 
 										DetectionErrorCategory::Other, DetectionErrorCode::UnknownError));
 		return 0;
 	}
-	return submit(makeSingleTaskJob(nextJobId(), nextTaskId(), des, saveDir));
+	return submit(makeSingleTaskJob(nextJobId(), nextTaskId(), des, displaySaveStatus));
 }
 
-quint64 DetectionManager::submitBatch(QVector<FrameSourceDescription> descriptions, const QString& saveDir) {
+quint64 DetectionManager::submitBatch(QVector<FrameSourceDescription> descriptions, const DisplaySaveStatus& displaySaveStatus) {
 	if (descriptions.isEmpty()) {
 		emit jobFailed(0, DetectionError(QStringLiteral("[DetectionManager]: 批量输入为空!"),
 										DetectionErrorCategory::Image, DetectionErrorCode::InvalidImage));
 		return 0;
 	}
-	return submit(makeBatchJob(nextJobId(), std::move(descriptions), saveDir));
+	return submit(makeBatchJob(nextJobId(), std::move(descriptions), displaySaveStatus));
 }
 
 quint64 DetectionManager::submit(DetectionJob job) {
@@ -279,7 +279,7 @@ void DetectionManager::settleTask(quint64 jobId, bool failed, bool cancelled,
 	const int failedCount = shared ? shared->failedTasks.load(std::memory_order_relaxed) : 0;
 	const DetectionJobType type = shared ? shared->jobType : DetectionJobType::SingleImage;
 	const int saved = shared ? shared->savedFiles.load(std::memory_order_relaxed) : 0;
-	const QString saveDir = shared ? shared->saveDir : QString();
+	const QString saveDir = shared ? shared->display_saveStatus.saveDir : QString();
 	m_jobs.remove(jobId);
 
 	// 保存结果先报：App 的横幅靠它，而且它在终态里会清掉 currentJobId

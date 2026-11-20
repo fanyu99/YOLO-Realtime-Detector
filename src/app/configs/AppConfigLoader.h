@@ -287,9 +287,9 @@ private:
 		if (auto mode = readString(obj, "view_mode", section, warnings)) {
 			const QString m = mode->trimmed().toLower();
 			if (m == "offline")
-				policy.setViewMode(ViewMode::OffLine);	// 顺带推导 backend
+				policy.setViewMode(ViewMode::Offline);	// 顺带推导 backend
 			else if (m == "realtime")
-				policy.setViewMode(ViewMode::RealTime);
+				policy.setViewMode(ViewMode::Realtime);
 			else
 				warn(section, "view_mode", QStringLiteral("应为 offline 或 realtime，已回退默认值"), warnings);
 		}

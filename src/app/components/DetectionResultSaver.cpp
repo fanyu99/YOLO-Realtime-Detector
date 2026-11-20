@@ -43,11 +43,11 @@ bool DetectionResultSaver::begin(const DetectionTask& task, int width, int heigh
 	m_dir.clear();
 	m_imagePath.clear();
 
-	if (!task.shared || task.shared->saveDir.isEmpty())
+	if (!task.shared || task.shared->display_saveStatus.saveDir.isEmpty())
 		return false;						// 没开启保存：静默跳过，lastError 保持为空
 
 	// saveDir 已经是由 resultsDirFor() 组合好的最终目录（约定只在一处定义）
-	m_dir = task.shared->saveDir;
+	m_dir = task.shared->display_saveStatus.saveDir;
 	if (!QDir().mkpath(m_dir)) {
 		m_error = QStringLiteral("无法创建保存目录: ") + m_dir;
 		return false;

@@ -38,6 +38,8 @@ set(YOLO_CORE_SOURCES
     base/Box.h
     base/DecodeTypes.h
     base/DetectionTypes.h
+    base/DisplayPolicy.h
+    base/DisplaySaveStatus.h
     base/PerformanceTypes.h
 
     # inference/

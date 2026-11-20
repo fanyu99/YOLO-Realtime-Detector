@@ -28,6 +28,8 @@ namespace {
 			&& a.input_height == b.input_height
 			&& a.preferred_mode == b.preferred_mode;
 	}
+
+	QString yesNo ( bool value ) { return value ? QStringLiteral ( "是" ) : QStringLiteral ( "否" ); }
 }
 
 DetectionApp::DetectionApp ( QObject* parent ) : QObject ( parent ), m_filePath ( "" ), m_config{}
@@ -247,7 +249,7 @@ void DetectionApp::onDetectClicked () {
 	}
 	// 单图在GPU模式下于Session层上传显存后走GPU流程
 	Logger::instance ()->info ( QStringLiteral ( "[DetectionApp]: 提交文件检测: " ) + path );
-	m_currentJobId = m_manager->submitSource ( makeFileDescription ( path ), effectiveResultsDir () );
+	m_currentJobId = m_manager->submitSource ( makeFileDescription ( path ), makeDisplaySaveStatus () );
 
 	if (m_currentJobId == 0)
 		return;						// 提交失败，Manager 已经 emit jobFailed
@@ -326,7 +328,7 @@ void DetectionApp::onDetectHikCameraClicked ( const QString& serial, const QStri
 	des.type = FrameSourceType::Hik;
 	des.serial = serial;
 	des.triggerMode = str2TriggerMode ( triggerMode );
-	m_currentJobId = m_manager->submitSource ( des, effectiveResultsDir () );
+	m_currentJobId = m_manager->submitSource ( des, makeDisplaySaveStatus () );
 	if (m_currentJobId == 0)
 		return;
 
@@ -362,7 +364,7 @@ void DetectionApp::onDetectFfmpegDeviceClicked ( const QString& deviceName, cons
 	des.type = FrameSourceType::Camera;
 	des.nameOrId = deviceName;
 	des.formatName = formatName;
-	m_currentJobId = m_manager->submitSource ( des, effectiveResultsDir () );
+	m_currentJobId = m_manager->submitSource ( des, makeDisplaySaveStatus () );
 	if (m_currentJobId == 0)
 		return;
 	m_progress = 0.0f;
@@ -411,7 +413,7 @@ quint64 DetectionApp::submitBatch ( const QList<QUrl>& urls ) {
 		descriptions.append ( makeFileDescription ( path ) );
 
 
-	m_currentJobId = m_manager->submitBatch ( std::move ( descriptions ), effectiveResultsDir () );
+	m_currentJobId = m_manager->submitBatch ( std::move ( descriptions ), makeDisplaySaveStatus () );
 	if (m_currentJobId == 0)
 		return 0;								// 提交失败，Manager 已经 emit jobFailed
 
@@ -667,6 +669,30 @@ void DetectionApp::applyViewMode ( const ViewMode& mode, bool persist ) {
 			+ writer->errorMessage (), AppErrorCode::ConfigWriteFailed ) );
 }
 
+// 推导显示/保存状态
+DisplaySaveStatus DetectionApp::makeDisplaySaveStatus () {
+	const bool gpuFlow = (m_config.effectiveMode () == FlowMode::GPU);	  
+	const bool overlayAvailable = (m_overlay != nullptr); // 叠加层是否可用
+	const DisplaySaveStatus status = DisplaySaveStatus::getDisplaySaveStatus (
+		m_displayPolicy.preferredMode (), gpuFlow, overlayAvailable, effectiveResultsDir () );
+
+	// 回填实际生效的模式、后端
+	const bool modeChanged = (m_displayPolicy.activeMode () != status.activeMode);
+	m_displayPolicy.setActiveMode ( status.activeMode );
+	m_displayPolicy.setBackend ( status.backend );
+	if (modeChanged)
+		emit activeViewModeChanged ();
+
+	if (status.activeMode != m_displayPolicy.preferredMode ())
+		Logger::instance ()->warning ( QStringLiteral ( "[DetectionApp]: 场景中没有叠加层，实时预览已降级为图片显示" ) );
+
+	Logger::instance ()->info ( QStringLiteral ( "[DetectionApp]: 显示需求 -> 后端=%1 烧框=%2 QImage=%3 快照=%4 保存=%5 下载=%6" )
+		.arg ( Backend2String ( status.backend ), yesNo ( status.renderBoxes ),
+			yesNo ( status.needQImage ), yesNo ( status.needSnapshot ),
+			yesNo ( status.isSaveResult () ), yesNo ( status.download2CPU ) ) );
+	return status;
+}
+
 // 设置模式
 void DetectionApp::setFlowMode ( const QString& flow_mode ) {
 	auto  newMode = str2FlowMode ( flow_mode );
@@ -756,8 +782,9 @@ void DetectionApp::onFrameReady ( quint64 jobId, const DetectionResult& result, 
 	
 	// TODO:QtOverlay的几何块（检测框），待接入Overlay进行更新叠加的检测框
 
-	// QtOverlay中的像素块，如果帧位空，表示实时模式，不使用回看缓冲
-	if (!m_frameProvider || frame.isNull ())
+	// 在实时模式下不进行回看
+	if (!m_frameProvider || m_displayPolicy.displayBackend () != DisplayBackend::ImageProvider
+		|| frame.isNull ())
 		return;
 
 	// 仅在非实时模式下使用回看缓冲

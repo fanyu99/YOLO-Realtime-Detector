@@ -11,6 +11,7 @@
 #include <QtQmlIntegration/QtQmlIntegration>
 #include <filesystem>
 #include "Box.h"
+#include "DisplaySaveStatus.h"
 #include "FrameSource.h"
 
 
@@ -282,15 +283,15 @@ enum class DetectionTaskStatus {
 // 含原子成员，既不可拷贝也不可移动 —— 只能通过 shared_ptr 使用。
 //   progress = (已完成 task 数 + 当前 task 内部的单元比例) / task 总数
 struct TaskShared {
-	TaskShared( quint64 jobId_, DetectionJobType jobType_, QStringView saveDir_ = QString() )
-		: jobId( jobId_ ), jobType( jobType_ ), saveDir( saveDir_.toString() ) {
+	TaskShared( quint64 jobId_, DetectionJobType jobType_,
+		const DisplaySaveStatus& displaySaveStatus_ = DisplaySaveStatus() )
+		: jobId( jobId_ ), jobType( jobType_ ), display_saveStatus( displaySaveStatus_ ) {
 	}
 
 	const quint64 jobId;								// 只读
 	const DetectionJobType jobType;						// 只读：作业种类，供 Manager 在收尾时回传给 UI
-	// 只读：结果保存目录（**已含 detection_results 子目录**，由 App 侧用
-	// DetectionResultSaver::resultsDirFor() 组合好传进来，约定只在一处定义）。空 = 不保存
-	const QString saveDir;
+	// 只读：作业的显示/保存需求，交给Worker判断是否保存、渲染框、发送快照等
+	const DisplaySaveStatus display_saveStatus;
 
 	// ---- Job ：由 Manager 维护 ----
 	std::atomic<int>  totalTasks{ 0 };					// 本 Job 的 Task 总数（投递前设定）
@@ -382,7 +383,6 @@ struct DetectionTask {
 	FrameSourceDescription sourceDescription; // 帧源描述
 	FrameSourcePtr source;							// 帧源，由worker创建
 	bool accumulateResults = true;					// 摄像头流应设 false，避免结果无限增长
-	bool renderFrames = true;						// 是否在 worker 线程内画框并转 QImage（离线批量作业可关掉省算力）
 	TaskSharedPtr shared;							// 与 Job / Manager 共享的同一份状态
 	QVector<DetectionResult> results;				// 仅 accumulateResults 为 true 时累积
 
@@ -412,10 +412,10 @@ inline DetectionJobType jobTypeOf( const FrameSourceDescription& des ) {
 }
 
 // 构造一个「单 Task」作业：单图 / 单视频 / 摄像头 / Hik
-// saveDir 为空表示本次不保存结果。
+// displaySaveStatus 由 App 推导，Manager 原样透传给 Worker
 inline DetectionJob makeSingleTaskJob( quint64 jobId, quint64 taskId,
 	const FrameSourceDescription& des,
-	QStringView saveDir = QString() )
+	const DisplaySaveStatus& displaySaveStatus = DisplaySaveStatus() )
 {
 	DetectionJob job;
 	job.jobId = jobId;
@@ -428,7 +428,7 @@ inline DetectionJob makeSingleTaskJob( quint64 jobId, quint64 taskId,
 	task->accumulateResults = (des.type != FrameSourceType::Camera && des.type != FrameSourceType::Hik);
 
 	job.type = jobTypeOf( des );				// 先定 task.sourceDescription，再派生 job.type
-	job.shared = std::make_shared<TaskShared>( jobId, job.type, saveDir );
+	job.shared = std::make_shared<TaskShared>( jobId, job.type, displaySaveStatus );
 	task->shared = job.shared;
 
 	job.tasks.push_back( std::move( task ) );
@@ -438,20 +438,18 @@ inline DetectionJob makeSingleTaskJob( quint64 jobId, quint64 taskId,
 
 
 // 构造一个「批量」作业：每个帧源描述一个 Task
-// saveDir 为空表示本次不保存结果
 inline DetectionJob makeBatchJob( quint64 jobId, QVector<FrameSourceDescription> descriptions,
-	QStringView saveDir = QString() ) {
+	const DisplaySaveStatus& displaySaveStatus = DisplaySaveStatus() ) {
 	DetectionJob job;
 	job.jobId = jobId;
 	job.type = DetectionJobType::Batch;			// 批量无法从单个 task 派生，显式指定
-	job.shared = std::make_shared<TaskShared>( jobId, job.type, saveDir );
+	job.shared = std::make_shared<TaskShared>( jobId, job.type, displaySaveStatus );
 
 	for (FrameSourceDescription& des : descriptions) {
 		auto task = std::make_unique<DetectionTask>();
 		task->jobId = jobId;
 		task->sourceDescription = des;
 		task->accumulateResults = false;
-		task->renderFrames = true;
 		task->shared = job.shared;
 
 		job.tasks.push_back( std::move( task ) );

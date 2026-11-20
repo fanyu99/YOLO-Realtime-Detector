@@ -67,6 +67,34 @@ Window {
                     text: "实时检测器"
                     font.bold: true
                     font.pixelSize: 15
+                }
+                Label {
+                    text: "当前预览模式："
+                    font.bold: true
+                    font.pixelSize: 13
+                }
+                Label {
+                    text: app.preferredViewMode === "offline" ? "离线预览" : "实时预览"
+                    font.bold: true
+                    font.pixelSize: 13
+                }
+
+                Label {
+                    text: "选择预览模式"
+                    font.bold: true
+                    font.pixelSize: 13
+                }
+                ComboBox {
+                    id: viewModeCombo
+                    model: ["离线预览", "实时预览"]
+                    currentIndex: DetectionApp.preferredViewMode === "offline" ? 0 : 1
+                    onActivated: {
+                        var modeStr = currentIndex === 0 ? "offline" : "realtime";
+                        DetectionApp.setViewMode(modeStr);
+                    }
+                }
+
+                Item {
                     Layout.fillWidth: true
                 }
                 Label {
@@ -146,113 +174,78 @@ Window {
                 ColumnLayout {
                     anchors.fill: parent
                     spacing: 8
-
-                    Label {
-                        text: "当前配置"
-                        font.bold: true
-                        font.pixelSize: 14
-                    }
-
-                    // 配置项列表：标签 + 值(跟随 DetectionApp.config 自动刷新)
-                    Column {
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        Repeater {
-                            model: [
-                                {
-                                    "k": "模型",
-                                    "v": DetectionApp.config.modelPath
-                                },
-                                {
-                                    "k": "类别",
-                                    "v": DetectionApp.config.classNames.join(", ")
-                                },
-                                {
-                                    "k": "置信度",
-                                    "v": DetectionApp.config.confThreshold.toFixed(2)
-                                },
-                                {
-                                    "k": "NMS",
-                                    "v": DetectionApp.config.iouThreshold.toFixed(2)
-                                },
-                                {
-                                    "k": "输入尺寸",
-                                    "v": DetectionApp.config.inputWidth + "×" + DetectionApp.config.inputHeight
-                                },
-                                {
-                                    "k": "线程数",
-                                    "v": String(DetectionApp.config.numThreads)
-                                },
-                                {
-                                    "k": "设备号",
-                                    "v": String(DetectionApp.config.deviceId)
-                                },
-                                {
-                                    "k": "模型存在",
-                                    "v": DetectionApp.config.modelExists ? "是" : "否"
-                                },
-                                {
-                                    "k": "用户设置模式",
-                                    "v": DetectionApp.config.preferredModeText()
-                                },
-                                {
-                                    "k": "实际生效模式",
-                                    "v": DetectionApp.config.effectiveModeText()
-                                }
-                            ]
-
-                            delegate: Column {
-                                width: parent.width
-                                spacing: 0
-                                Label {
-                                    text: modelData.k
-                                    opacity: 0.6
-                                    font.pixelSize: 12
-                                }
-                                Label {
-                                    text: (modelData.v && modelData.v.length > 0) ? modelData.v : "—"
-                                    wrapMode: Text.Wrap
-                                    width: parent.width
-                                    font.pixelSize: 12
-                                }
-                            }
-                        }
-                    }
-                    Item {
-                        Layout.fillHeight: true
-                    }
-
                     Rectangle {
                         radius: 10
                         ColumnLayout {
+                            Label {
+                                text: "当前配置："
+                                font.bold: true
+                                font.pixelSize: 14
+                            }
 
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            spacing: 4
-                            Label {
-                                text: "当前选择的显示模式：" + app.preferredViewMode
-                                font.bold: true
-                                font.pixelSize: 14
-                            }
-                            Label {
-                                text: "当前生效的显示模式：" + app.activeViewMode
-                                font.bold: true
-                                font.pixelSize: 14
-                            }
-                            Rectangle {
-                                radius: 4
-                                Layout.margins: 10
-                                RowLayout {
-                                    Label {
-                                        text: "选择预览模式："
-                                        font.bold: true
-                                        font.pixelSize: 14
-                                    }
-                                    ComboBox {
-                                        id: viewModeBox
-                                        model: ["offline", "realtime"]
-                                        currentIndex: app.preferredViewMode === "offline" ? 0 : 1
+                            // 配置项列表：标签 + 值(跟随 DetectionApp.config 自动刷新)
+                            Column {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                Repeater {
+                                    model: [
+                                        {
+                                            "k": "模型",
+                                            "v": DetectionApp.config.modelPath
+                                        },
+                                        {
+                                            "k": "类别",
+                                            "v": DetectionApp.config.classNames.join(", ")
+                                        },
+                                        {
+                                            "k": "置信度",
+                                            "v": DetectionApp.config.confThreshold.toFixed(2)
+                                        },
+                                        {
+                                            "k": "NMS",
+                                            "v": DetectionApp.config.iouThreshold.toFixed(2)
+                                        },
+                                        {
+                                            "k": "输入尺寸",
+                                            "v": DetectionApp.config.inputWidth + "×" + DetectionApp.config.inputHeight
+                                        },
+                                        {
+                                            "k": "线程数",
+                                            "v": String(DetectionApp.config.numThreads)
+                                        },
+                                        {
+                                            "k": "设备号",
+                                            "v": String(DetectionApp.config.deviceId)
+                                        },
+                                        {
+                                            "k": "模型存在",
+                                            "v": DetectionApp.config.modelExists ? "是" : "否"
+                                        },
+                                        {
+                                            "k": "用户设置模式",
+                                            "v": DetectionApp.config.preferredModeText()
+                                        },
+                                        {
+                                            "k": "实际生效模式",
+                                            "v": DetectionApp.config.effectiveModeText()
+                                        }
+                                    ]
+
+                                    delegate: Column {
+                                        width: parent.width
+                                        spacing: 0
+                                        Label {
+                                            text: modelData.k
+                                            opacity: 0.6
+                                            font.pixelSize: 12
+                                        }
+                                        Label {
+                                            text: (modelData.v && modelData.v.length > 0) ? modelData.v : "—"
+                                            wrapMode: Text.Wrap
+                                            width: parent.width
+                                            font.pixelSize: 12
+                                        }
                                     }
                                 }
                             }
@@ -361,7 +354,9 @@ Window {
                         id: detectBtn
                         text: "开始检测"
                         Layout.fillWidth: true
+                        highlighted: true
                         onClicked: DetectionApp.onDetectClicked()
+                        enabled: !DetectionApp.busy
                     }
 
                     // 一键示例检测
@@ -429,13 +424,14 @@ Window {
                         // 停止当前检测(仅作业运行中可用)
                         Button {
                             text: "停止检测"
+                            visible: DetectionApp.busy
                             enabled: DetectionApp.busy
                             onClicked: DetectionApp.cancelCurrentJob()
                         }
 
                         // 修改配置(弹出模态配置对话框)
                         Button {
-                            text: "修改配置"
+                            text: "修改检测配置"
                             highlighted: true
                             enabled: !DetectionApp.busy
                             onClicked: configDialog.openWith(DetectionApp.config, DetectionApp.modelPath)
