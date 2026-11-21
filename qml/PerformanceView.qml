@@ -18,7 +18,7 @@ Window {
     title: "性能监控页"
     width: 1000
     height: 800
-    minimumWidth: 500 
+    minimumWidth: 500
     minimumHeight: 400
     color: performanceView.theme.window
 
@@ -142,80 +142,104 @@ Window {
                     Layout.fillHeight: true
                     Layout.preferredWidth: 270
 
-                    ColumnLayout {
+                    // 分区内容包一层 Flickable 兜底：窗口偏矮时滚动查看，
+                    // 保证级别说明和运行状态始终完整可见
+                    Flickable {
+                        id: cfgFlick
                         anchors.fill: parent
-                        spacing: 8
-                        // 选择级别
-                        ComboBox {
-                            id: levelCombo
-                            Layout.fillWidth: true
-                            model: performanceView.levelOptions
-                            currentIndex: performanceView.perf ? performanceView.perf.levelIndex : 1
-                            onActivated: function (idx) {
-                                if(!performanceView.perf) return;
-                                // 校验是否为On/Off
-                                const cur = performanceView.perf.levelIndex;
-                                if((idx===0)!==(cur===0)){
-                                    restartDialog.pendingIndex=idx;
-                                    restartDialog.open();
-                                    return; // 取消退出
-                                }
-                                // 不是on<->off就直接应用
-                                performanceView.perf.levelIndex = idx;
-                            }
-                        }
-                        // 设置上报间隔
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 6
+                        contentWidth: width
+                        contentHeight: cfgColumn.implicitHeight
+                        boundsBehavior: Flickable.StopAtBounds
+                        clip: true
+                        interactive: contentHeight > height
+                        ScrollBar.vertical: ScrollBar {}
 
-                            Label {
-                                text: "上报间隔"
-                                font.pixelSize: 12
-                            }
-                            SpinBox {
-                                id: intervalSpin
+                        ColumnLayout {
+                            id: cfgColumn
+                            width: cfgFlick.width
+                            // 放得下时撑满视口(fillHeight 的运行状态吸收多余空间)，
+                            // 放不下时按内容高度交给外层滚动
+                            height: Math.max(cfgFlick.height, implicitHeight)
+                            spacing: 8
+
+                            // 选择级别
+                            ComboBox {
+                                id: levelCombo
                                 Layout.fillWidth: true
-                                from: 50
-                                to: 5000
-                                stepSize: 50
-                                editable: true
-                                value: performanceView.perf ? performanceView.perf.reportInterval : 300
-                                onValueModified: if (performanceView.perf)
-                                    performanceView.perf.reportInterval = value
-                                HoverHandler {
-                                    id: intervalHover
+                                model: performanceView.levelOptions
+                                currentIndex: performanceView.perf ? performanceView.perf.levelIndex : 1
+                                onActivated: function (idx) {
+                                    if (!performanceView.perf)
+                                        return;
+                                    // 校验是否为On/Off
+                                    const cur = performanceView.perf.levelIndex;
+                                    if ((idx === 0) !== (cur === 0)) {
+                                        restartDialog.pendingIndex = idx;
+                                        restartDialog.open();
+                                        return; // 取消退出
+                                    }
+                                    // 不是on<->off就直接应用
+                                    performanceView.perf.levelIndex = idx;
                                 }
-                                ToolTip.visible: intervalHover.hovered
-                                ToolTip.delay: 600
-                                ToolTip.text: "性能快照的上报周期(毫秒)"
                             }
-                            Label {
-                                text: "ms"
-                                font.pixelSize: 12
-                                opacity: 0.6
-                            }
-                        }
-                        // 级别说明
-                        Label {
-                            Layout.fillWidth: true
-                            wrapMode: Text.Wrap
-                            font.pixelSize: 11
-                            opacity: 0.6
-                            color: performanceView.theme.muted
-                            text: "级别决定采集范围：Basic 仅端到端；\nDetailed 加 CPU 各阶段与下载；\nFull 再加 GPU 侧上传。\n开关监控需重启程序生效。"
-                        }
-                        // 运行状态
-                        PerformanceRect {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            theme: performanceView.theme
-                            label: "运行状态"
-                            textOverride: performanceView.perf ? performanceView.perf.isRunning ? "正在运行检测" : "空闲" : "未初始化监控器"
-                        }
+                            // 设置上报间隔
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
 
-                        Item {
-                            Layout.fillHeight: true
+                                Label {
+                                    text: "上报间隔"
+                                    font.pixelSize: 12
+                                }
+                                SpinBox {
+                                    id: intervalSpin
+                                    Layout.fillWidth: true
+                                    from: 50
+                                    to: 5000
+                                    stepSize: 50
+                                    editable: true
+                                    value: performanceView.perf ? performanceView.perf.reportInterval : 300
+                                    onValueModified: if (performanceView.perf)
+                                        performanceView.perf.reportInterval = value
+                                    HoverHandler {
+                                        id: intervalHover
+                                    }
+                                    ToolTip.visible: intervalHover.hovered
+                                    ToolTip.delay: 600
+                                    ToolTip.text: "性能快照的上报周期(毫秒)"
+                                }
+                                Label {
+                                    text: "ms"
+                                    font.pixelSize: 12
+                                    opacity: 0.6
+                                }
+                            }
+                            // 级别说明：高度跟随文字换行结果(之前 Rectangle 无高度，
+                            // anchors.fill 到 0 高父级导致整块不可见)
+                            Rectangle {
+                                radius: 8
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: levelDescLabel.implicitHeight + 16
+                                color: performanceView.theme.panel
+                                Label {
+                                    id: levelDescLabel
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    wrapMode: Text.Wrap
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                    text: "级别决定采集范围：Basic 仅端到端；\nDetailed 加 CPU 各阶段与下载；\nFull 再加 GPU 侧上传。\n开关监控需重启程序生效。"
+                                }
+                            }
+                            // 运行状态
+                            PerformanceRect {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                Layout.minimumHeight: 90
+                                theme: performanceView.theme
+                                label: "运行状态"
+                                textOverride: performanceView.perf ? performanceView.perf.isRunning ? "正在运行检测" : "空闲" : "未初始化监控器"
+                            }
                         }
                     }
                 }
@@ -343,28 +367,37 @@ Window {
                         color: performanceView.theme.muted
                         font.pixelSize: 13
                     }
-
-                    // 阶段行数随监控级别变化
-                    GridLayout {
+                    Flickable {
                         anchors.fill: parent
+                        clip: true
+
+                        contentWidth: width
+                        contentHeight: stageGrid.implicitHeight
+
                         visible: performanceView.perf && performanceView.perf.levelIndex > 0 && performanceView.perf.stageStats.length > 0
-                        columns: 2
-                        columnSpacing: 8
-                        rowSpacing: 8
 
-                        Repeater {
-                            model: performanceView.perf ? performanceView.perf.stageStats.length : 0
+                        GridLayout {
+                            id: stageGrid
+                            width: parent.width
+                            columns: 2
+                            columnSpacing: 8
+                            rowSpacing: 8
+                            visible: parent.visible
 
-                            PerformanceRect {
-                                required property int index
-                                readonly property var row: performanceView.perf ? performanceView.perf.stageStats[index] : null
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                theme: performanceView.theme
-                                label: row ? row.name : ""
-                                value: row ? row.averageMs : 0
-                                unit: "ms"
-                                caption: row ? ("最大 " + Number(row.maximumMs).toFixed(1) + " ms " + "\n平均 " + Number(row.averageMs).toFixed(1) + " ms\n共 " + row.sampleCount + " 次") : ""
+                            Repeater {
+                                model: performanceView.perf ? performanceView.perf.stageStats.length : 0
+
+                                PerformanceRect {
+                                    required property int index
+                                    readonly property var row: performanceView.perf ? performanceView.perf.stageStats[index] : null
+                                    width: parent.width / 2 - 4
+                                    height: 100
+                                    theme: performanceView.theme
+                                    label: row ? row.name : ""
+                                    value: row ? row.averageMs : 0
+                                    unit: "ms"
+                                    caption: row ? ("最大 " + Number(row.maximumMs).toFixed(1) + " ms " + "\n平均 " + Number(row.averageMs).toFixed(1) + " ms\n共 " + row.sampleCount + " 次") : ""
+                                }
                             }
                         }
                     }
@@ -386,21 +419,22 @@ Window {
     }
     // 提醒重启应用弹窗
     MessageDialog {
-    id: restartDialog
-    visible:false
-    property bool restarting: false
-    property int pendingIndex: -1
-    title: "关闭/启动性能监控需要重启应用"
-    text: "为了使更改生效，需要重启应用。"
-    buttons: MessageDialog.Ok | MessageDialog.Cancel
-    onAccepted: {
-        if (restartDialog.restarting) return;
-        restartDialog.restarting = true;
-        performanceView.perf.levelIndex = restartDialog.pendingIndex; // 确定设置级别
-        appHelper.restart();
-     }
-     onRejected:{
-        levelCombo.currentIndex = performanceView.perf ? performanceView.perf.levelIndex : 0;
-     }
+        id: restartDialog
+        visible: false
+        property bool restarting: false
+        property int pendingIndex: -1
+        title: "关闭/启动性能监控需要重启应用"
+        text: "为了使更改生效，需要重启应用。"
+        buttons: MessageDialog.Ok | MessageDialog.Cancel
+        onAccepted: {
+            if (restartDialog.restarting)
+                return;
+            restartDialog.restarting = true;
+            performanceView.perf.levelIndex = restartDialog.pendingIndex; // 确定设置级别
+            appHelper.restart();
+        }
+        onRejected: {
+            levelCombo.currentIndex = performanceView.perf ? performanceView.perf.levelIndex : 0;
+        }
     }
 }

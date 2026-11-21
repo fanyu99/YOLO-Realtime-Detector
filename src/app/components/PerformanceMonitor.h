@@ -25,7 +25,7 @@ public:
 
 	// 作业上下文
 	void setJobId( quint64 jobId ) { m_jobId = jobId; }
-	void setIsRunning( bool running ) { m_isRunning = running; }
+	void setIsRunning( bool running )override { m_isRunning = running; }
 
 	// 当前生效的级别
 	PerformanceLevel level() const noexcept { return m_level.load( std::memory_order_relaxed ); }

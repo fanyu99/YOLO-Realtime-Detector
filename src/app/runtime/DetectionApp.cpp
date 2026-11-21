@@ -2,7 +2,6 @@
 #include "PerformanceApp.h"
 #include <QFileInfo>
 #include <QCoreApplication>
-#include <QVariantMap>
 #include <algorithm>
 #include "AppConfigWriter.h"
 #include "DetectionImageProvider.h"
@@ -529,6 +528,9 @@ void DetectionApp::setSaveOptions ( bool enabled, const QUrl& dir ) {
 }
 
 // Getter
+QList<ClassColorItem> DetectionApp::clsClrInfo () const {
+	return m_classColorItems;
+}
 QUrl DetectionApp::modelPath () const {
 	// std::filesystem::path 在 Windows 上是宽字符，用 wstring 转换可正确处理中文路径
 	return QUrl::fromLocalFile ( QString::fromStdWString ( m_config.model_path.wstring () ) );
@@ -589,13 +591,16 @@ void DetectionApp::applyDetectorConfig ( const DetectorConfig& config, bool pers
 		reportError ( AppError ( QStringLiteral ( "[DetectionApp]: 配置未能应用（配置无效或检测进行中）!" ), AppErrorCode::InvalidConfig ) );
 		return;
 	}
-	// 应用成功后再进行App更改,App仅持有配置副本
+	// 应用成功后再进行App更改
 	const bool pathChanged = (m_config.model_path != config.model_path);
+	const bool clsChanged = (m_config.class_names!=config.class_names);
 
 	this->m_config = config;
 	syncPerfMode ();  // 同步性能监测器的 CPU/GPU 模式
 	if (pathChanged)
 		emit modelPathChanged ();
+	if (clsChanged)
+		setClsClrInfo ( m_config.classNamesText () );
 	emit configChanged ();		// 纯通知：让 QML 侧边栏刷新
 	Logger::instance ()->info ( QStringLiteral ( "[DetectionApp]: 检测器已就绪 -> " ) + configSummary () );
 
@@ -845,33 +850,43 @@ void DetectionApp::onJobFinished ( quint64 jobId, DetectionJobType type,
 	if (jobId != m_currentJobId)
 		return;
 
-	// 限流可能把最后一帧的通知吞掉，这里补一次，保证画面停在结果上
+	// 补帧
 	++m_frameRevision;
 	emit frameRevisionChanged ();
 
 	const int succeeded = totalTasks - failedTasks;
 
+	auto SucBanner = [ this] (QStringView info) {
+		showBanner ( info, BannerSuccess );
+	};
 	// 种类通过manager进行回传
+	QString info;
 	switch (type) {
 	case DetectionJobType::Batch:
 		// 批量只报汇总
-		Logger::instance ()->success ( QStringLiteral ( "[DetectionApp]: 批量检测完成，成功 %1 / 失败 %2（共 %3）" )
-			.arg ( succeeded ).arg ( failedTasks ).arg ( totalTasks ) );
+		info= QStringLiteral ( "[DetectionApp]: 批量检测完成，成功 %1 / 失败 %2（共 %3）" )
+			.arg ( succeeded ).arg ( failedTasks ).arg ( totalTasks );
+		Logger::instance ()->success (info);
+		SucBanner (info);
 		emit batchFinished ( jobId, totalTasks, succeeded, failedTasks );
 		break;
 
 	case DetectionJobType::SingleVideo:
 	case DetectionJobType::Camera:
-		Logger::instance ()->success ( QStringLiteral ( "[DetectionApp]: 视频检测完成，帧数: " ) + QString::number ( results.size () ) );
+		info = QStringLiteral ( "[DetectionApp]: 视频检测完成，帧数: " ) + QString::number ( results.size () );
+		Logger::instance ()->success ( info);
+		SucBanner ( info );
 		emit videoDetectionFinished ( results );
 		break;
 
 	case DetectionJobType::SingleImage:
 		if (!results.isEmpty ()) {
 			const DetectionResult& result = results.first ();
-			Logger::instance ()->success ( QStringLiteral ( "[DetectionApp]: 图片检测完成，目标数: " )
+			info = QStringLiteral ( "[DetectionApp]: 图片检测完成，目标数: " )
 				+ QString::number ( result.boxes.size () )
-				+ QStringLiteral ( "，耗时: " ) + QString::number ( result.duration ) + QStringLiteral ( "ms" ) );
+				+ QStringLiteral ( "，耗时: " ) + QString::number ( result.duration ) + QStringLiteral ( "ms" );
+			Logger::instance ()->success ( info );
+			SucBanner ( info );
 			emit imageDetectionFinished ( result );
 		}
 		break;
@@ -936,4 +951,10 @@ void DetectionApp::setState ( quint64 currentJobId, bool progressInterminate, bo
 	}
 	setBusy ( busy );
 	emit progressChanged ();
+}
+
+void DetectionApp::setClsClrInfo(const QStringList& clsNames)
+{
+	m_classColorItems = ClassPalette::getClass_ColorInfo ( clsNames );
+	emit clsClrInfoChanged ();
 }

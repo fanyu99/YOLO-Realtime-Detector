@@ -1,12 +1,8 @@
 #pragma once
 #include <QImage>
 #include <QString>
-#include <QVector>
-
 #include <opencv2/opencv.hpp>
-
 #include <span>
-
 #include "Box.h"
 
 // 把「帧 + 检测框」渲染成可以直接给 QML 的 QImage。

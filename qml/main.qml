@@ -1,5 +1,7 @@
-import QtQuick
+pragma ComponentBehavior: Bound
+
 import QtQuick.Controls
+import QtQuick
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import QtMultimedia
@@ -141,6 +143,13 @@ Window {
                     flat: true
                     onClicked: DetectionApp.dismissBanner()
                 }
+                Timer {
+                    id: hideTimer
+                    interval: 5000
+                    running: visible && warningBanner.isSuccess
+                    repeat: false
+                    onTriggered: DetectionApp.dismissBanner()
+                }
             }
         }
 
@@ -164,238 +173,327 @@ Window {
                     border.color: theme.border
                     border.width: 1
                 }
-                // 配置内容：
-                ColumnLayout {
+                // 配置内容：整体包一层 Flickable，窗口高度不足时滚动查看，
+                // 保证底部的开始/示例检测按钮始终可达
+                Flickable {
+                    id: sidebarFlick
                     anchors.fill: parent
-                    spacing: 8
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.minimumHeight: 200
-                        radius: 4
-                        clip: true
-                        color: theme.base
-                        border.color: theme.border
-                        border.width: 1
+                    contentWidth: width
+                    contentHeight: sidebarColumn.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+                    clip: true
+                    interactive: contentHeight > height
+                    ScrollBar.vertical: ScrollBar {}
 
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            spacing: 8
+                    ColumnLayout {
+                        id: sidebarColumn
+                        width: sidebarFlick.width
+                        // 放得下时撑满视口(fillHeight 的配置区吸收多余空间)，
+                        // 放不下时按内容高度，交给外层 Flickable 滚动
+                        height: Math.max(sidebarFlick.height, implicitHeight)
+                        spacing: 8
 
-                            Rectangle {
-                                radius: 4
+                        // 当前配置
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            Layout.preferredHeight: 220
+                            Layout.minimumHeight: 160
+                            radius: 4
+                            clip: true
+                            color: theme.base
+                            border.color: theme.border
+                            border.width: 1
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 5
+
                                 Label {
-                                    anchors.fill: parent
-                                    Layout.margins: 10
                                     text: "当前配置："
                                     font.bold: true
-                                    font.pixelSize: 14
+                                    font.pixelSize: 13
                                 }
-                            }
-                            // 滑动配置显示
-                            Flickable {
-                                id: configFlick
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                contentWidth: width - 12
-                                contentHeight: configColumn.height
-                                boundsBehavior: Flickable.StopAtBounds
-                                clip: true
-                                interactive: contentHeight > height
-                                ScrollBar.vertical: ScrollBar {}
 
-                                Column {
-                                    id: configColumn
-                                    width: configFlick.width
-                                    spacing: 8
+                                // 滑动配置显示
+                                Flickable {
+                                    id: configFlick
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    contentWidth: width
+                                    contentHeight: configColumn.height
+                                    boundsBehavior: Flickable.StopAtBounds
+                                    clip: true
+                                    interactive: contentHeight > height
+                                    ScrollBar.vertical: ScrollBar {}
+                                    Column {
+                                        id: configColumn
+                                        width: configFlick.width
+                                        spacing: 6
 
-                                    Repeater {
-                                        model: [
-                                            {
-                                                "k": "模型",
-                                                "v": DetectionApp.config.modelPath
-                                            },
-                                            {
-                                                "k": "类别",
-                                                "v": DetectionApp.config.classNames.join(", ")
-                                            },
-                                            {
-                                                "k": "置信度",
-                                                "v": DetectionApp.config.confThreshold.toFixed(2)
-                                            },
-                                            {
-                                                "k": "NMS",
-                                                "v": DetectionApp.config.iouThreshold.toFixed(2)
-                                            },
-                                            {
-                                                "k": "输入尺寸",
-                                                "v": DetectionApp.config.inputWidth + "×" + DetectionApp.config.inputHeight
-                                            },
-                                            {
-                                                "k": "线程数",
-                                                "v": String(DetectionApp.config.numThreads)
-                                            },
-                                            {
-                                                "k": "设备号",
-                                                "v": String(DetectionApp.config.deviceId)
-                                            },
-                                            {
-                                                "k": "模型存在",
-                                                "v": DetectionApp.config.modelExists ? "是" : "否"
-                                            },
-                                            {
-                                                "k": "用户设置模式",
-                                                "v": DetectionApp.config.preferredModeText()
-                                            },
-                                            {
-                                                "k": "实际生效模式",
-                                                "v": DetectionApp.config.effectiveModeText()
-                                            }
-                                        ]
+                                        Repeater {
+                                            model: [
+                                                {
+                                                    "k": "模型：",
+                                                    "v": DetectionApp.config.modelPath
+                                                },
+                                                {
+                                                    "k": "类别：",
+                                                    "v": DetectionApp.config.classNames.join(", ")
+                                                },
+                                                {
+                                                    "k": "置信度：",
+                                                    "v": DetectionApp.config.confThreshold.toFixed(2)
+                                                },
+                                                {
+                                                    "k": "NMS：",
+                                                    "v": DetectionApp.config.iouThreshold.toFixed(2)
+                                                },
+                                                {
+                                                    "k": "输入尺寸：",
+                                                    "v": DetectionApp.config.inputWidth + "×" + DetectionApp.config.inputHeight
+                                                },
+                                                {
+                                                    "k": "线程数：",
+                                                    "v": String(DetectionApp.config.numThreads)
+                                                },
+                                                {
+                                                    "k": "设备号：",
+                                                    "v": String(DetectionApp.config.deviceId)
+                                                },
+                                                {
+                                                    "k": "模型存在：",
+                                                    "v": DetectionApp.config.modelExists ? "是" : "否"
+                                                },
+                                                {
+                                                    "k": "用户设置模式：",
+                                                    "v": DetectionApp.config.preferredModeText()
+                                                },
+                                                {
+                                                    "k": "实际生效模式：",
+                                                    "v": DetectionApp.config.effectiveModeText()
+                                                }
+                                            ]
 
-                                        delegate: Column {
-                                            width: parent.width
-                                            spacing: 0
-                                            Label {
-                                                text: modelData.k
-                                                opacity: 0.6
-                                                font.pixelSize: 12
-                                            }
-                                            Label {
-                                                text: (modelData.v && modelData.v.length > 0) ? modelData.v : "—"
-                                                wrapMode: Text.Wrap
+                                            // 根用 Column(位置器)：高度随换行后的内容自适应，
+                                            // 之前的空 Rectangle + anchors.fill 行高实际为 0
+                                            delegate: Column {
+                                                required property var modelData
                                                 width: parent.width
-                                                font.pixelSize: 12
+                                                spacing: 1
+
+                                                Label {
+                                                    text: modelData.k
+                                                    opacity: 0.6
+                                                    font.pixelSize: 12
+                                                }
+
+                                                Label {
+                                                    width: parent.width
+                                                    text: (modelData.v && modelData.v.length > 0) ? modelData.v : "—"
+                                                    wrapMode: Text.Wrap
+                                                    font.pixelSize: 11
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    // ---------------- 结果输出 ----------------
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 4
+                        // 类别-颜色图例
+                        Rectangle {
+                            id: class_colorRect
+                            radius: 4
+                            color: theme.base
+                            border.color: theme.border
+                            border.width: 1
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 240
+                            Layout.minimumHeight: 140
 
-                        Label {
-                            text: "结果输出"
-                            font.bold: true
-                            font.pixelSize: 14
-                        }
+                            ColumnLayout {
+                                spacing: 8
+                                anchors.fill: parent
+                                anchors.margins: 8
 
-                        CheckBox {
-                            id: saveCheck
-                            text: "保存推理结果"
-                            enabled: !DetectionApp.busy
-                            onToggled: {
-                                // 还没选目录就先弹目录选择，选完自动勾上
-                                if (checked && saveDirDialog.selectedFolder.toString().length === 0) {
-                                    checked = false;
-                                    saveDirDialog.open();
-                                } else {
-                                    window.applySaveOptions();
+                                Label {
+                                    text: "颜色-类别（共%1个类别）".arg(DetectionApp.classNames.length)
+                                    font.bold: true
+                                    font.pixelSize: 13
+                                }
+
+                                Flickable {
+                                    id: clsClrFlick
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    clip: true
+                                    boundsBehavior: Flickable.StopAtBounds
+                                    interactive: contentHeight > height
+                                    ScrollBar.vertical: ScrollBar {}
+                                    contentWidth: width
+                                    contentHeight: clsClrGrid.implicitHeight
+
+                                    GridLayout {
+                                        id: clsClrGrid
+                                        width: clsClrFlick.width
+                                        // 250px 侧栏里 3 列每格太窄，改 2 列保证文字可读
+                                        columns: 2
+                                        rowSpacing: 3
+                                        columnSpacing: 5
+
+                                        Repeater {
+                                            model: DetectionApp.clsClrInfo
+                                            delegate: Rectangle {
+                                                // C++ 列表模型同样要显式声明 modelData 才拿得到（与两个对话框的写法一致）
+                                                required property var modelData
+                                                Layout.fillWidth: true
+                                                Layout.preferredWidth: 0
+                                                Layout.preferredHeight: 30
+                                                radius: 4
+                                                color: modelData.clrName()
+
+                                                Label {
+                                                    anchors.centerIn: parent
+                                                    width: parent.width - 8
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                    elide: Text.ElideRight
+                                                    text: "%1（编号：%2）".arg(modelData.clsName()).arg(modelData.cls())
+                                                    font.pixelSize: 10
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
 
-                        RowLayout {
+                        // 结果输出(保存开关 + 目录选择)
+                        ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 4
 
                             Label {
-                                Layout.fillWidth: true
-                                elide: Text.ElideMiddle
-                                font.pixelSize: 12
-                                opacity: DetectionApp.saveDir.toString().length > 0 ? 1.0 : 0.55
-                                text: DetectionApp.saveDir.toString().length > 0 ? window.fileNameFromUrl(DetectionApp.saveDir) : "未选择保存目录"
+                                text: "结果输出"
+                                font.bold: true
+                                font.pixelSize: 14
                             }
 
-                            Button {
-                                text: "选择…"
+                            CheckBox {
+                                id: saveCheck
+                                text: "保存推理结果"
+                                font.bold: true
+                                font.pointSize: 12
+                                icon.color: "#a22f435f"
                                 enabled: !DetectionApp.busy
-                                onClicked: saveDirDialog.open()
-                            }
-                        }
-                    }
-
-                    // 状态栏：显示最近一条日志(左侧色条与文字颜色随日志级别变化)
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 46
-                        color: theme.base
-                        border.color: theme.border
-                        border.width: 1
-                        radius: 4
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.margins: 6
-                            spacing: 6
-
-                            // 级别色条
-                            Rectangle {
-                                Layout.preferredWidth: 4
-                                Layout.fillHeight: true
-                                radius: 2
-                                color: theme.levelColor(window.statusLevel)
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 0
-
-                                Label {
-                                    text: window.statusTime.length > 0 ? ("状态 · " + window.statusTime) : "状态"
-                                    opacity: 0.6
-                                    font.pixelSize: 11
+                                onToggled: {
+                                    // 还没选目录就先弹目录选择，选完自动勾上
+                                    if (checked && saveDirDialog.selectedFolder.toString().length === 0) {
+                                        checked = false;
+                                        saveDirDialog.open();
+                                    } else {
+                                        window.applySaveOptions();
+                                    }
                                 }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
                                 Label {
                                     Layout.fillWidth: true
-                                    text: window.statusText
-                                    wrapMode: Text.Wrap
-                                    maximumLineCount: 2
-                                    elide: Text.ElideRight
-                                    color: theme.levelColor(window.statusLevel)
+                                    elide: Text.ElideMiddle
                                     font.pixelSize: 12
+                                    opacity: DetectionApp.saveDir.toString().length > 0 ? 1.0 : 0.55
+                                    text: DetectionApp.saveDir.toString().length > 0 ? window.fileNameFromUrl(DetectionApp.saveDir) : "未选择保存目录"
+                                }
+
+                                Button {
+                                    text: "选择…"
+                                    enabled: !DetectionApp.busy
+                                    onClicked: saveDirDialog.open()
                                 }
                             }
                         }
-                    }
 
-                    // 开始检测(自动按文件类型选择帧源)
-                    Button {
-                        id: detectBtn
-                        property bool isBusy: DetectionApp.busy
-                        text: isBusy ? "停止检测" : "开始检测"
-                        Layout.fillWidth: true
-                        highlighted: true
-                        onClicked: isBusy ? DetectionApp.cancelCurrentJob() : DetectionApp.onDetectClicked()
-                    }
-                    Shortcut {
-                        sequence: "Esc"
-                        enabled: detectBtn.isBusy
-                        autoRepeat: false
-                        onActivatedAmbiguously: Logger.warning("出现退出冲突！")
-                        onActivated: function () {
-                            if (detectBtn.isBusy)
-                                DetectionApp.cancelCurrentJob();
+                        // 状态栏
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 46
+                            color: theme.base
+                            border.color: theme.border
+                            border.width: 1
+                            radius: 4
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 6
+                                spacing: 6
+
+                                // 级别色条
+                                Rectangle {
+                                    Layout.preferredWidth: 4
+                                    Layout.fillHeight: true
+                                    radius: 2
+                                    color: theme.levelColor(window.statusLevel)
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 0
+
+                                    Label {
+                                        text: window.statusTime.length > 0 ? ("状态 · " + window.statusTime) : "状态"
+                                        opacity: 0.6
+                                        font.pixelSize: 11
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: window.statusText
+                                        wrapMode: Text.Wrap
+                                        maximumLineCount: 2
+                                        elide: Text.ElideRight
+                                        color: theme.levelColor(window.statusLevel)
+                                        font.pixelSize: 12
+                                    }
+                                }
+                            }
                         }
-                    }
 
-                    // 一键示例检测
-                    Button {
-                        text: "示例检测"
-                        Layout.fillWidth: true
-                        enabled: !DetectionApp.busy
-                        onClicked: DetectionApp.runSampleDetection()
+                        // 开始检测(自动按文件类型选择帧源)
+                        Button {
+                            id: detectBtn
+                            property bool isBusy: DetectionApp.busy
+                            text: isBusy ? "停止检测" : "开始检测"
+                            Layout.fillWidth: true
+                            highlighted: true
+                            onClicked: isBusy ? DetectionApp.cancelCurrentJob() : DetectionApp.onDetectClicked()
+                        }
+
+                        // 一键示例检测
+                        Button {
+                            text: "示例检测"
+                            Layout.fillWidth: true
+                            enabled: !DetectionApp.busy
+                            onClicked: DetectionApp.runSampleDetection()
+                        }
+
+                        Shortcut {
+                            sequence: "Esc"
+                            enabled: detectBtn.isBusy
+                            autoRepeat: false
+                            onActivatedAmbiguously: Logger.warning("出现退出冲突！")
+                            onActivated: function () {
+                                if (detectBtn.isBusy)
+                                    DetectionApp.cancelCurrentJob();
+                            }
+                        }
                     }
                 }
             }
 
-            // ---------------- 右侧主区 ----------------
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -514,6 +612,14 @@ Window {
                                     font.bold: true
                                 }
 
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: "整体帧率：%1".arg(perfWindow.perf ? perfWindow.perf.overallFPS : 0.0)
+                                    font.bold: true
+                                    visible: perfWindow.perf ? perfWindow.perf.levelIndex > 0 : false
+                                    color: "#d8249e13"
+                                }
+
                                 // 进度：摄像头这类总量未知的走忙碌态
                                 ProgressBar {
                                     Layout.fillWidth: true
@@ -628,6 +734,8 @@ Window {
         }
     }
 
+    // ---------------- 右侧主区 ----------------
+
     // ========================================================================
     //  视频播放器：只用于"检测之前"预览所选视频。
     //  检测一旦开始，画面改由检测帧提供(detectionImage)，这里主动暂停，
@@ -723,8 +831,8 @@ Window {
     PerformanceView {
         id: perfWindow
         theme: theme
-        height: window.height * 0.6
-        width: window.width * 0.4
+        height: window.height * 0.8
+        width: window.width * 0.8
         perf: perfApp
     }
 

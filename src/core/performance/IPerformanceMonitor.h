@@ -16,4 +16,5 @@ public:
 	// 记录一帧的结果与广义端到端耗时(读帧到显示/保存完成的耗时)
 	virtual void recordFrameResult( bool success, quint64 frameTotalNs ) noexcept = 0;
 	virtual void setConfig(const PerformanceConfig& config) noexcept = 0;
+	virtual  void setIsRunning ( bool running ) = 0;
 };

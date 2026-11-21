@@ -1,9 +1,8 @@
 #pragma once
 #include <QColor>
 #include <QString>
-#include <QStringList>
-#include <QVariantList>
-#include <QVariantMap>
+#include <QList>
+#include "ClassColorItem.h"
 
 // 检测框配色
 namespace ClassPalette {
@@ -13,21 +12,17 @@ namespace ClassPalette {
 
 	// 推导类别对应的颜色
 	inline QColor getClassColor ( int cls ) {
-		const int hue = ( ( cls * kHueStep ) % 360 + 360 ) % 360;
+		const int hue = ((cls * kHueStep) % 360 + 360) % 360;
 		return QColor::fromHsv ( hue, kSaturation, kValue );
 	}
 
 	// 获取类别和颜色的列表
 	// 类别号 + 类别名 + 颜色(十六进制)
-	inline QVariantList cls_colorInfo ( const QStringList& classNames ) {
-		QVariantList info;
+	inline QList<ClassColorItem> getClass_ColorInfo ( const QStringList& classNames ) {
+		QList<ClassColorItem> info;
 		info.reserve ( classNames.size () );
-		for ( int cls = 0; cls < classNames.size (); ++cls ) {
-			QVariantMap item;
-			item.insert ( QStringLiteral ( "cls" ), cls );
-			item.insert ( QStringLiteral ( "name" ), classNames.at ( cls ) );
-			item.insert ( QStringLiteral ( "color" ), getClassColor ( cls ).name ( QColor::HexRgb ) );
-			info.append ( item );
+		for (int cls = 0; cls < classNames.size (); ++cls) {
+			info.append (  ClassColorItem (getClassColor(cls).name(), classNames[cls], cls) );
 		}
 		return info;
 	}

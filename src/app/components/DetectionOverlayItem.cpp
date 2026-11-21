@@ -65,12 +65,13 @@ void DetectionOverlayItem::setSnapshot ( FrameSnapshotPtr snapshot ) {
 }
 
 // 重置帧缓冲（切换离线模式时调用）
-void DetectionOverlayItem::resetFrames() {
+void DetectionOverlayItem::resetFrames () {
 	m_frameReady = false;
+	emit snapshotChanged (); // 补发一次信号刷新
 	{
 		std::lock_guard<std::mutex> lock ( m_mutex );
 		std::exchange ( m_last, nullptr );
-		std::exchange (m_pending,nullptr);
+		std::exchange ( m_pending, nullptr );
 	}
 }
 
@@ -96,14 +97,18 @@ DetectionOverlayItem::Nodes DetectionOverlayItem::createNodes () {
 	return nodes;
 }
 
-// 渲染线程
+// 渲染线程进行更新节点
 QSGNode* DetectionOverlayItem::updatePaintNode ( QSGNode* oldNode, UpdatePaintNodeData* ) {
+	FrameSnapshotPtr temp;	 // 渲染线程中使用临时的变量指针获取帧的引用进行渲染，防止锁外访问m_last但是其他线程对m_last进行free导致访问野指针
 	{
 		std::lock_guard<std::mutex> lock ( m_mutex );
 		if (m_pending)
-			m_last = std::move ( m_pending );
+		{
+			m_last = std::move ( m_pending );	// m_last从pending移动过来，不持有单独的引用计数
+			temp = m_last;
+		} 
 	}
-	if (!m_last)
+	if (!temp)
 		return oldNode;
 
 	Nodes nodes;
@@ -117,7 +122,7 @@ QSGNode* DetectionOverlayItem::updatePaintNode ( QSGNode* oldNode, UpdatePaintNo
 		nodes.boxes = static_cast<QSGGeometryNode*>(oldNode->lastChild ());
 	}
 
-	const FrameHandlePtr& frame = m_last->frame;
+	const FrameHandlePtr& frame = temp->frame;
 	const QSizeF frameSize ( frame->width (), frame->height () );
 	const QRectF target = fittedRect ( frameSize );
 	if (target.isEmpty ())
@@ -128,7 +133,7 @@ QSGNode* DetectionOverlayItem::updatePaintNode ( QSGNode* oldNode, UpdatePaintNo
 
 	// 几何
 	const qreal scale = target.width () / frameSize.width ();
-	syncBoxes ( nodes, target, scale, m_last->boxes );
+	syncBoxes ( nodes, target, scale, temp->boxes );
 
 	return oldNode;
 }

@@ -42,9 +42,7 @@ Item {
 				text: "清空"
 				onClicked: root.activeModel.clear()
 			}
-			// 推理日志输出间隔：逐帧推理的结果日志每隔 N 帧才落一条，
-			// 避免视频 / 摄像头把日志面板刷爆。0 表示不间隔（每帧都输出）。
-			// 值直接写回 Logger 单例，Detector 侧的 infoWithInterval 立即生效。
+			// 设置日志输出间隔
 			Label {
                 text: "推理日志输出间隔"
                 opacity: 0.75
@@ -60,10 +58,14 @@ Item {
 				// 0 太长就显示成“每帧”，避免被窄列截断
 				textFromValue: function(v) { return v <= 0 ? "每帧" : String(v) }
 				valueFromText: function(t) {
-					var n = parseInt(t, 10)
+					var n = parseInt(t, 30)
 					return isNaN(n) ? inferenceIntervalSpinBox.value : n
 				}
-				onValueChanged: Logger.setInfoInterval(value)
+				onValueChanged: function()
+				{
+					Logger.setInfoInterval(value)
+					Logger.info("日志间隔已经更新为：%1".arg(inferenceIntervalSpinBox.value))
+				}
 
 				HoverHandler { id: intervalHover }
 				ToolTip.visible: intervalHover.hovered

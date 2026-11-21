@@ -94,9 +94,7 @@ void PerformanceApp::setReportInterval ( int interval ) {
 
 void PerformanceApp::setIsRunning ( bool running ) {
 	if (m_isRunning != running) {
-		auto* monitor = static_cast<PerformanceMonitor*>(m_monitor.get ());
-		if (monitor)
-			monitor->setIsRunning ( running );
+		m_monitor->setIsRunning ( running );
 		m_isRunning = running;
 		emit contextChanged ();
 	}

@@ -16,6 +16,7 @@
 #include "FrameMail.h"
 #include "DetectionOverlayItem.h"
 #include "DisplayPolicy.h"
+#include "ClassPalette.h"
 
 class DetectionImageProvider;
 class PerformanceApp;
@@ -47,6 +48,7 @@ class DetectionApp : public QObject
 	Q_PROPERTY(QString resultInfo READ resultInfo NOTIFY reviewChanged)						// 回看条目的说明文字
 	Q_PROPERTY(QString preferredViewMode READ preferredViewMode NOTIFY preferredViewModeChanged)	// 预览模式(用户模式)
 	Q_PROPERTY(QString activeViewMode READ activeViewMode NOTIFY activeViewModeChanged)			// 实际生效的预览模式
+	Q_PROPERTY(QList<ClassColorItem> clsClrInfo READ clsClrInfo NOTIFY clsClrInfoChanged)
 
 public:
 	using  AppPtr = std::unique_ptr<DetectionApp>;
@@ -65,6 +67,7 @@ public:
 	~DetectionApp() override;
 
 	// Getter
+	QList<ClassColorItem>clsClrInfo ()const;
 	QUrl modelPath() const;
 	QUrl filePath() const;
 	DetectorConfig config() const;
@@ -115,6 +118,7 @@ public:
 	void uninstallOverlay ( DetectionOverlayItem* overlay );
 
 signals:
+	void   clsClrInfoChanged ();
 	void modelPathChanged();
 	void filePathChanged();
 	void configChanged();
@@ -132,6 +136,7 @@ signals:
 	void batchFinished(quint64 jobId, int totalTasks, int succeeded, int failed);		// 批量作业完成(带汇总)
 
 private:
+	void setClsClrInfo ( const QStringList& classNames ); // 重新设置类别名的时候重新设置
 	void onFrameSnapshotPosted (); // 帧快照入邮箱,取走帧快照投递给Item
 	void syncPerfMode (); // 同步性能监测器的 CPU/GPU 模式
 	// 借用PerformanceApp并注入其监测器，需要在初始化配置前
@@ -192,6 +197,9 @@ private:
 	PerformanceApp* m_performanceApp = nullptr;			 //绑定的性能App，借用指针
 	DetectionImageProvider* m_frameProvider = nullptr;		// 帧提供器,所有权归 QML engine
 	DisplayPolicy m_displayPolicy;	// 显示策略(模式+后端)
+
+	// 类别-颜色图例
+	QList<ClassColorItem>m_classColorItems;
 
 	// 结果回看条目
 	// 回看只存序列号、目标数、耗时等元信息
