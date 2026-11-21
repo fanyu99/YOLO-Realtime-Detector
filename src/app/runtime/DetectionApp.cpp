@@ -788,9 +788,22 @@ void DetectionApp::uninstallOverlay ( DetectionOverlayItem* overlay ) {
 		m_overlay = nullptr;
 }
 
+// 借用监测器，Overlay获取监测器进行计时
+IPerformanceMonitor* DetectionApp::monitor () const {
+	return m_performanceApp ? m_performanceApp->monitor () : nullptr;
+}
+
 void DetectionApp::onFrameSnapshotPosted () {
 	if (!m_overlay)
 		return;
+	// 替换丢帧数
+	const quint64 dropped = m_frameMail->dropped ();
+	if (dropped != m_lastReportedDropped) {
+		if (auto* mon = monitor ())
+			for (quint64 i = m_lastReportedDropped; i < dropped; ++i)
+				mon->recordStage ( PerformanceStage::DisplayDropped, 0 );	// 累加
+		m_lastReportedDropped = dropped;
+	}
 	if (auto snap = m_frameMail->take ()) {
 		m_overlay->setSnapshot ( std::move ( snap ) );
 	}

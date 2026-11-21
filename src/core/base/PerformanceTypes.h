@@ -18,9 +18,13 @@ enum class PerformanceStage {
 	Inference, // 推理
 	Postprocessing,	 // 后处理
 	RenderImage,					// 渲染图片
-	ToQImage,						// 烧框结果转 QImage(离线显示链路)
+	ToQImage,						// 烧框结果转 QImage(离线显示)
+	DisplayPrepare,		// 显示数据准备：推理完成-快照打包并投递进邮箱
+	DisplayWait,				// 显示等待：快照入邮箱-Overlay取走快照渲染
+	PresentLatency,		// 提交呈现延迟：读帧开始-帧进入窗口显示
+	DisplayDropped,		// 丢弃帧数：sampleCount为丢弃数
 	Save, // 保存图像
-	endToend,		 // 端到端总耗时
+	end2End,		 // 端到端总耗时
 	Count		 // 阶段总数
 };
 
@@ -38,8 +42,12 @@ inline QString stageToString( PerformanceStage stage ) {
 	case PerformanceStage::Postprocessing: return QStringLiteral( "后处理(Postprocessing)" );
 	case PerformanceStage::RenderImage: return QStringLiteral( "渲染图像(RenderImage)" );
 	case PerformanceStage::ToQImage: return QStringLiteral( "转换QImage(ToQImage)" );
+	case PerformanceStage::DisplayPrepare: return QStringLiteral( "显示准备(DisplayPrepare)" );
+	case PerformanceStage::DisplayWait: return QStringLiteral( "显示等待(DisplayWait)" );
+	case PerformanceStage::PresentLatency: return QStringLiteral( "呈现延迟(PresentLatency)" );
+	case PerformanceStage::DisplayDropped: return QStringLiteral( "丢弃帧(DisplayDropped)" );
 	case PerformanceStage::Save: return QStringLiteral( "保存(Save)" );
-	case PerformanceStage::endToend: return QStringLiteral( "端到端(endToend)" );
+	case PerformanceStage::end2End: return QStringLiteral( "端到端(end2End)" );
 	default:
 		return QStringLiteral( "未知(Unknown)" );
 	}
@@ -53,9 +61,10 @@ public:
 	// 性能监控级别
 	enum class PerformanceLevel {
 		Off = 0,	// 关闭，不进行记录
-		Basic ,	// 仅记录端到端耗时以及整体FPS
-		Detailed, // 记录Basic+阶段耗时及实时帧率、内存占用等
-		Full  // 包含GPU侧的预处理/推理等信息
+		Minimum,	// 仅端到端耗时与整体FPS
+		Basic,		// 最小+ 推理链路全阶段(读帧/下载/预处理/推理/后处理)
+		Detailed,	// Basic+显示/保存链路(渲染/转QImage/保存/显示等待/丢弃帧) + 内存占用
+		Full		// Detailed + GPU侧阶段(上传/显示准备/呈现延迟)
 	};
 	Q_ENUM(PerformanceLevel)
 
@@ -82,33 +91,41 @@ struct CollectorSettings {
 	bool recordGpuStages = false;	// 是否跟踪 GPU 侧的性能如Upload
 };
 
-// 计算级别 ：采集点的白名单表
+// 由级别推导出采集设置
 inline CollectorSettings calcCollectSettings(PerformanceLevel level) noexcept {
 	CollectorSettings setting;
+	unsigned mask = (1u << static_cast<unsigned>(PerformanceStage::end2End));	 // 端到端皆有
 	switch (level) {
 	case PerformanceLevel::Off:
-		break;	// 关闭
-		// Basic 只采集端到端耗时
-	case PerformanceLevel::Basic:
-		setting.stageMask = (1u << static_cast<unsigned>(PerformanceStage::endToend));
+		mask = 0;	// 关闭
 		break;
-		// Detailed 采集端到端 + CPU 侧全阶段 + 内存采样
+	case PerformanceLevel::Minimum:
+		break;
+		// Basic：推理流程
+	case PerformanceLevel::Basic:
+		mask |= (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
+			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Cpu))
+			| (1u << static_cast<unsigned>(PerformanceStage::Preprocessing))
+			| (1u << static_cast<unsigned>(PerformanceStage::Inference))
+			| (1u << static_cast<unsigned>(PerformanceStage::Postprocessing));
+		break;
+		// Detailed：+ 显示/保存链路 + 内存占用
 	case PerformanceLevel::Detailed:
-		setting.stageMask = (1u << static_cast<unsigned>(PerformanceStage::endToend))
-			| (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
+		mask |= (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
 			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Cpu))
 			| (1u << static_cast<unsigned>(PerformanceStage::Preprocessing))
 			| (1u << static_cast<unsigned>(PerformanceStage::Inference))
 			| (1u << static_cast<unsigned>(PerformanceStage::Postprocessing))
 			| (1u << static_cast<unsigned>(PerformanceStage::RenderImage))
 			| (1u << static_cast<unsigned>(PerformanceStage::ToQImage))
-			| (1u << static_cast<unsigned>(PerformanceStage::Save));
+			| (1u << static_cast<unsigned>(PerformanceStage::Save))
+			| (1u << static_cast<unsigned>(PerformanceStage::DisplayWait))
+			| (1u << static_cast<unsigned>(PerformanceStage::DisplayDropped));
 		setting.enableMemoryRecord = true;
 		break;
-		// Detailed + GPU 侧阶段（Frame2Gpu）
+		// Full：+ GPU 侧的计时
 	case PerformanceLevel::Full:
-		setting.stageMask = (1u << static_cast<unsigned>(PerformanceStage::endToend))
-			| (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
+		mask |= (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
 			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Gpu))
 			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Cpu))
 			| (1u << static_cast<unsigned>(PerformanceStage::Preprocessing))
@@ -116,11 +133,16 @@ inline CollectorSettings calcCollectSettings(PerformanceLevel level) noexcept {
 			| (1u << static_cast<unsigned>(PerformanceStage::Postprocessing))
 			| (1u << static_cast<unsigned>(PerformanceStage::RenderImage))
 			| (1u << static_cast<unsigned>(PerformanceStage::ToQImage))
-			| (1u << static_cast<unsigned>(PerformanceStage::Save));
+			| (1u << static_cast<unsigned>(PerformanceStage::Save))
+			| (1u << static_cast<unsigned>(PerformanceStage::DisplayWait))
+			| (1u << static_cast<unsigned>(PerformanceStage::DisplayDropped))
+			| (1u << static_cast<unsigned>(PerformanceStage::DisplayPrepare))
+			| (1u << static_cast<unsigned>(PerformanceStage::PresentLatency));
 		setting.enableMemoryRecord = true;
 		setting.recordGpuStages = true;
 		break;
 	}
+	setting.stageMask = mask;
 	return setting;
 }
 
@@ -137,7 +159,7 @@ struct ContextInfo {
 // 阶段统计信息
 // 统一使用ns作为时间单位
 struct StageStatistics {
-	PerformanceStage stage = PerformanceStage::endToend; // 阶段
+	PerformanceStage stage = PerformanceStage::end2End; // 阶段
 	uint64_t sampleCount = 0; // 样本数
 	uint64_t averageNs = 0;	// 平均耗时
 	uint64_t maximumNs = 0;		// 最大耗时

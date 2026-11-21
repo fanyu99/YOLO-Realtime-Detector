@@ -258,6 +258,8 @@ private:
 			const QString l = level->trimmed().toLower();
 			if (l == "off")
 				cfg.setLevel(PerformanceLevel::Off);
+			else if (l == "minimum")
+				cfg.setLevel(PerformanceLevel::Minimum);
 			else if (l == "basic")
 				cfg.setLevel(PerformanceLevel::Basic);
 			else if (l == "detailed")
@@ -265,7 +267,7 @@ private:
 			else if (l == "full")
 				cfg.setLevel(PerformanceLevel::Full);
 			else
-				warn(section, "monitor_level", QStringLiteral("应为 off/basic/detailed/full，已回退默认值"), warnings);
+				warn(section, "monitor_level", QStringLiteral("应为 off/minimum/basic/detailed/full，已回退默认值"), warnings);
 		}
 
 		if (auto v = readInt(obj, "report_interval_ms", section, warnings)) {

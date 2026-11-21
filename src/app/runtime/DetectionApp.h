@@ -116,6 +116,8 @@ public:
 	// 叠加层的注册/反注册
 	void installOverlay ( DetectionOverlayItem* overlay );
 	void uninstallOverlay ( DetectionOverlayItem* overlay );
+	// 借用性能监测器指针
+	IPerformanceMonitor* monitor () const;
 
 signals:
 	void   clsClrInfoChanged ();
@@ -193,6 +195,7 @@ private:
 	inline static  AppPtr m_instance;  // 单例智能指针
 	DetectionOverlayItem* m_overlay{ nullptr };	// 检测框叠加器，借用指针
 	FrameMailPtr m_frameMail{nullptr}; // 帧快照邮箱，Worker写入快照
+	quint64 m_lastReportedDropped = 0;	// 已上报过的邮箱丢弃计数（读增量用），仅 GUI 线程读写
 	std::unique_ptr<DetectionManager> m_manager{nullptr};
 	PerformanceApp* m_performanceApp = nullptr;			 //绑定的性能App，借用指针
 	DetectionImageProvider* m_frameProvider = nullptr;		// 帧提供器,所有权归 QML engine

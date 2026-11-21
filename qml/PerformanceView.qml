@@ -24,9 +24,12 @@ Window {
 
     property var theme: null		// 由外部注入的主题对象(Theme.qml)
     property var perf: null			// PerformanceApp(全局上下文)
-
+    // 日志区开关的唯一状态源。
+    // 不能用 logView.visible 当状态：QML 的 visible 读的是有效可见性，
+    // 父项(logBox)隐藏时子项读出来恒为 false，会导致开关无法再打开
+    property bool logVisible: true
     // 性能级别选项(与 PerformanceConfig::PerformanceLevel 枚举值一一对应)
-    readonly property var levelOptions: ["关闭(Off)", "基础(Basic)", "详细(Detailed)", "完整(Full)"]
+    readonly property var levelOptions: ["关闭(Off)", "最小(Minimum)", "基础(Basic)", "详细(Detailed)", "完整(Full)"]
 
     // ------------------------------------------------------------------
     //  分区壳：圆角 Rectangle + 左上角分区名(本文件内复用，不导出)
@@ -83,8 +86,10 @@ Window {
         // ================= 左侧性能面板 =================
         ColumnLayout {
             Layout.preferredWidth: 560
+            Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.maximumWidth: parent.width * 0.6
+            // 日志区隐藏时左侧是唯一 fillWidth 项，解除 60% 上限(-1 还原隐式最大宽度)让它撑满整个窗口
+            Layout.maximumWidth: performanceView.logVisible ? parent.width * 0.6 : -1
             spacing: 10
 
             // ---- 横幅 ----
@@ -214,37 +219,26 @@ Window {
                                     opacity: 0.6
                                 }
                             }
-                            // 级别说明：高度跟随文字换行结果(之前 Rectangle 无高度，
-                            // anchors.fill 到 0 高父级导致整块不可见)
-                            Rectangle {
-                                radius: 8
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: levelDescLabel.implicitHeight + 16
-                                color: performanceView.theme.panel
-                                Label {
-                                    id: levelDescLabel
-                                    anchors.fill: parent
-                                    anchors.margins: 8
-                                    wrapMode: Text.Wrap
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                    text: "级别决定采集范围：Basic 仅端到端；\nDetailed 加 CPU 各阶段与下载；\nFull 再加 GPU 侧上传。\n开关监控需重启程序生效。"
-                                }
-                            }
                             // 运行状态
                             PerformanceRect {
                                 Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                Layout.minimumHeight: 90
+                                Layout.preferredHeight: 100
+                                Layout.minimumHeight: 50
                                 theme: performanceView.theme
                                 label: "运行状态"
                                 textOverride: performanceView.perf ? performanceView.perf.isRunning ? "正在运行检测" : "空闲" : "未初始化监控器"
                             }
+                            Button {
+                                id: logBtn
+                                Layout.fillWidth: true
+                                text: performanceView.logVisible ? "关闭日志" : "打开日志"
+                                highlighted: true
+                                onClicked: performanceView.logVisible = !performanceView.logVisible
+                            }
                         }
                     }
                 }
-
-                // ============ 右上：总体计数 ============
+                // 右上： 总体计数
                 SectionBox {
                     sectionTitle: "总体计数"
                     Layout.fillWidth: true
@@ -296,8 +290,7 @@ Window {
                         }
                     }
                 }
-
-                // ============ 左下：上下文信息 ============
+                // 左下： 上下文信息
                 SectionBox {
                     sectionTitle: "上下文信息"
                     Layout.fillWidth: true
@@ -342,8 +335,7 @@ Window {
                         }
                     }
                 }
-
-                // ============ 右下：阶段指标 ============
+                // 阶段计时
                 SectionBox {
                     sectionTitle: "阶段指标"
                     Layout.fillWidth: true
@@ -407,16 +399,19 @@ Window {
 
         // ================= 右侧日志 =================
         SectionBox {
-            sectionTitle: "日志"
+            id: logBox
             Layout.fillWidth: true
             Layout.fillHeight: true
-
+            visible: performanceView.logVisible
             LogView {
+                id: logView
                 anchors.fill: parent
                 theme: performanceView.theme
+                closeEnable: false
             }
         }
     }
+
     // 提醒重启应用弹窗
     MessageDialog {
         id: restartDialog

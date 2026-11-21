@@ -95,6 +95,7 @@ private:
 	IPerformanceMonitor* m_monitor = nullptr;	// 性能监测器(借用)
 	FrameMail* m_mail{nullptr}; // 借用App的快照邮箱，写入帧快照
 	quint64 m_displaySeq = 0;	// 投递到显示的快照序号，只在 worker 线程内自增
+	quint64 m_frameStartNs = 0;	// 当前帧的读帧开始时间戳
 
 	std::queue<std::unique_ptr<DetectionTask>> m_queue;
 	mutable std::mutex m_mutex;					// 保护 m_queue

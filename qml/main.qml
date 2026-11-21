@@ -8,17 +8,17 @@ import QtMultimedia
 
 // ============================================================================
 //  检测头 —— 主界面
-//  顶部：标题 / 主题指示（主题跟随系统，自动浅色 / 深色）
+//  顶部：标题+预览模式调节 + 主题显示
 //  左侧：常驻配置栏，展示 DetectionApp.config
 //  右侧：工具栏 + 检测结果显示区 + 日志区
 // ============================================================================
 Window {
     id: window
     visible: true
-    width: 1200
-    height: 820
-    minimumWidth: 900
-    minimumHeight: 600
+    width: 1000
+    height: 800
+    minimumWidth: 600
+    minimumHeight: 400
     title: "检测头"
     color: theme.window
 
@@ -46,6 +46,18 @@ Window {
         return i >= 0 ? s.substring(i + 1) : s;
     }
 
+    // 显示完整路径
+    function localPathFromUrl(u) {
+        var s = u.toString();
+        if (s.startsWith("file:///"))
+            s = decodeURIComponent(s.substring(8));
+        else
+        // "file:///" 后才是盘符路径
+        if (s.startsWith("file://"))
+            s = decodeURIComponent(s.substring(7));
+        return s;
+    }
+
     function applySaveOptions() {
         DetectionApp.setSaveOptions(saveCheck.checked, saveDirDialog.selectedFolder);
     }
@@ -59,6 +71,7 @@ Window {
         // ====================================================================
         ToolBar {
             Layout.fillWidth: true
+            Layout.preferredHeight: 48
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 8
@@ -66,7 +79,7 @@ Window {
                 Label {
                     text: "实时检测器"
                     font.bold: true
-                    font.pixelSize: 15
+                    font.pixelSize: 18
                 }
                 Label {
                     text: "当前预览模式："
@@ -74,6 +87,7 @@ Window {
                     font.pixelSize: 13
                 }
                 Label {
+                    Layout.fillWidth: true
                     text: DetectionApp.preferredViewMode === "offline" ? "离线预览（%1）".arg(DetectionApp.activeViewMode) : "实时预览（%1）".arg(DetectionApp.activeViewMode)
                     font.bold: true
                     font.pixelSize: 13
@@ -86,7 +100,9 @@ Window {
                 }
                 ComboBox {
                     id: viewModeCombo
+                    flat: true
                     enabled: !DetectionApp.busy
+                    implicitContentWidthPolicy: ComboBox.WidestText
                     model: ["离线预览（offline）", "实时预览（realtime）"]
                     currentIndex: DetectionApp.preferredViewMode === "offline" ? 0 : 1
                     onActivated: {
@@ -94,11 +110,11 @@ Window {
                         DetectionApp.setViewMode(modeStr);
                     }
                 }
-
                 Item {
                     Layout.fillWidth: true
                 }
                 Label {
+                    Layout.rightMargin: 3
                     text: theme.dark ? "主题：深色（跟随系统）" : "主题：浅色（跟随系统）"
                     opacity: 0.75
                 }
@@ -156,16 +172,18 @@ Window {
         // ====================================================================
         //  主体：左侧配置栏 + 右侧主区
         // ====================================================================
-        RowLayout {
+        SplitView {
+            id: mainSplit
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 0
+            orientation: Qt.Horizontal
 
             // ---------------- 左侧常驻配置栏 ----------------
             Frame {
                 id: sidebar
-                Layout.preferredWidth: 250
-                Layout.fillHeight: true
+                SplitView.preferredWidth: 300
+                SplitView.minimumWidth: 200
+                SplitView.maximumWidth: 350
                 padding: 10
                 // 侧边栏用面板色，与主区区分开
                 background: Rectangle {
@@ -173,32 +191,24 @@ Window {
                     border.color: theme.border
                     border.width: 1
                 }
-                // 配置内容：整体包一层 Flickable，窗口高度不足时滚动查看，
-                // 保证底部的开始/示例检测按钮始终可达
-                Flickable {
-                    id: sidebarFlick
+
+                ColumnLayout {
+                    id: sidebarColumn
                     anchors.fill: parent
-                    contentWidth: width
-                    contentHeight: sidebarColumn.implicitHeight
-                    boundsBehavior: Flickable.StopAtBounds
-                    clip: true
-                    interactive: contentHeight > height
-                    ScrollBar.vertical: ScrollBar {}
+                    spacing: 8
 
-                    ColumnLayout {
-                        id: sidebarColumn
-                        width: sidebarFlick.width
-                        // 放得下时撑满视口(fillHeight 的配置区吸收多余空间)，
-                        // 放不下时按内容高度，交给外层 Flickable 滚动
-                        height: Math.max(sidebarFlick.height, implicitHeight)
-                        spacing: 8
+                    SplitView {
+                        id: sidebarSplit
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        orientation: Qt.Vertical
 
-                        // 当前配置
+                        // 当前配置：弹性块之一，与保存块平分侧栏剩余高度
                         Rectangle {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            Layout.preferredHeight: 220
-                            Layout.minimumHeight: 160
+                            SplitView.fillWidth: true
+                            SplitView.fillHeight: true
+                            SplitView.preferredHeight: 250
+                            SplitView.minimumHeight: 100
                             radius: 4
                             clip: true
                             color: theme.base
@@ -309,9 +319,9 @@ Window {
                             color: theme.base
                             border.color: theme.border
                             border.width: 1
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 240
-                            Layout.minimumHeight: 140
+                            SplitView.fillWidth: true
+                            SplitView.preferredHeight: 200
+                            SplitView.minimumHeight: 100
 
                             ColumnLayout {
                                 spacing: 8
@@ -319,7 +329,7 @@ Window {
                                 anchors.margins: 8
 
                                 Label {
-                                    text: "颜色-类别（共%1个类别）".arg(DetectionApp.classNames.length)
+                                    text: "颜色-类别（共%1个类别）：".arg(DetectionApp.classNames.length)
                                     font.bold: true
                                     font.pixelSize: 13
                                 }
@@ -338,7 +348,6 @@ Window {
                                     GridLayout {
                                         id: clsClrGrid
                                         width: clsClrFlick.width
-                                        // 250px 侧栏里 3 列每格太窄，改 2 列保证文字可读
                                         columns: 2
                                         rowSpacing: 3
                                         columnSpacing: 5
@@ -346,18 +355,20 @@ Window {
                                         Repeater {
                                             model: DetectionApp.clsClrInfo
                                             delegate: Rectangle {
-                                                // C++ 列表模型同样要显式声明 modelData 才拿得到（与两个对话框的写法一致）
                                                 required property var modelData
+                                                opacity: 0.8
                                                 Layout.fillWidth: true
-                                                Layout.preferredWidth: 0
                                                 Layout.preferredHeight: 30
-                                                radius: 4
+                                                radius: 15
+
                                                 color: modelData.clrName()
 
                                                 Label {
                                                     anchors.centerIn: parent
                                                     width: parent.width - 8
                                                     horizontalAlignment: Text.AlignHCenter
+                                                    renderTypeQuality: Text.HighRenderTypeQuality
+                                                    font.bold: true
                                                     elide: Text.ElideRight
                                                     text: "%1（编号：%2）".arg(modelData.clsName()).arg(modelData.cls())
                                                     font.pixelSize: 10
@@ -369,59 +380,72 @@ Window {
                             }
                         }
 
-                        // 结果输出(保存开关 + 目录选择)
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 4
-
-                            Label {
-                                text: "结果输出"
-                                font.bold: true
-                                font.pixelSize: 14
-                            }
-
-                            CheckBox {
-                                id: saveCheck
-                                text: "保存推理结果"
-                                font.bold: true
-                                font.pointSize: 12
-                                icon.color: "#a22f435f"
-                                enabled: !DetectionApp.busy
-                                onToggled: {
-                                    // 还没选目录就先弹目录选择，选完自动勾上
-                                    if (checked && saveDirDialog.selectedFolder.toString().length === 0) {
-                                        checked = false;
-                                        saveDirDialog.open();
-                                    } else {
-                                        window.applySaveOptions();
+                        // 结果输出
+                        Rectangle {
+                            radius: 4
+                            SplitView.fillWidth: true
+                            SplitView.fillHeight: true
+                            SplitView.preferredHeight: 100
+                            SplitView.minimumHeight: 50
+                            color: theme.base
+                            ColumnLayout {
+                                anchors.fill: parent
+                                spacing: 2
+                                CheckBox {
+                                    id: saveCheck
+                                    Layout.fillWidth: true
+                                    text: "保存推理结果：%1".arg(checked ? "已打开" : "已关闭")
+                                    font.bold: true
+                                    font.pointSize: 13
+                                    icon.color: "#000000"
+                                    enabled: !DetectionApp.busy
+                                    onToggled: {
+                                        if (checked && saveDirDialog.selectedFolder.toString().length === 0) {
+                                            checked = false;
+                                            saveDirDialog.open();
+                                        } else {
+                                            window.applySaveOptions();
+                                        }
                                     }
                                 }
-                            }
 
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 4
-
-                                Label {
+                                Frame {
+                                    Layout.fillHeight: true
                                     Layout.fillWidth: true
-                                    elide: Text.ElideMiddle
-                                    font.pixelSize: 12
-                                    opacity: DetectionApp.saveDir.toString().length > 0 ? 1.0 : 0.55
-                                    text: DetectionApp.saveDir.toString().length > 0 ? window.fileNameFromUrl(DetectionApp.saveDir) : "未选择保存目录"
-                                }
-
-                                Button {
-                                    text: "选择…"
-                                    enabled: !DetectionApp.busy
-                                    onClicked: saveDirDialog.open()
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 3
+                                        Button {
+                                            Layout.fillWidth: true
+                                            text: "选择…"
+                                            enabled: !DetectionApp.busy
+                                            onClicked: saveDirDialog.open()
+                                        }
+                                        Label {
+                                            id: saveDirLabel
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                            elide: Text.ElideMiddle
+                                            font.pixelSize: 12
+                                            opacity: DetectionApp.saveDir.toString().length > 0 ? 1.0 : 0.55
+                                            text: DetectionApp.saveDir.toString().length > 0 ? window.localPathFromUrl(DetectionApp.saveDir) : "未选择保存目录"
+                                            HoverHandler {
+                                                id: saveDirHover
+                                            }
+                                            ToolTip.visible: saveDirHover.hovered
+                                            ToolTip.delay: 400
+                                            ToolTip.text: saveDirLabel.text
+                                        }
+                                    }
                                 }
                             }
                         }
 
                         // 状态栏
                         Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 46
+                            SplitView.fillWidth: true
+                            SplitView.preferredHeight: 80
+                            SplitView.minimumHeight: 50
                             color: theme.base
                             border.color: theme.border
                             border.width: 1
@@ -429,65 +453,81 @@ Window {
 
                             RowLayout {
                                 anchors.fill: parent
-                                anchors.margins: 6
-                                spacing: 6
+                                spacing: 3
 
                                 // 级别色条
                                 Rectangle {
-                                    Layout.preferredWidth: 4
+                                    Layout.preferredWidth: 5
                                     Layout.fillHeight: true
-                                    radius: 2
+                                    radius: 5
                                     color: theme.levelColor(window.statusLevel)
                                 }
 
-                                ColumnLayout {
+                                Frame {
                                     Layout.fillWidth: true
-                                    spacing: 0
-
-                                    Label {
-                                        text: window.statusTime.length > 0 ? ("状态 · " + window.statusTime) : "状态"
-                                        opacity: 0.6
-                                        font.pixelSize: 11
-                                    }
-                                    Label {
-                                        Layout.fillWidth: true
-                                        text: window.statusText
-                                        wrapMode: Text.Wrap
-                                        maximumLineCount: 2
-                                        elide: Text.ElideRight
-                                        color: theme.levelColor(window.statusLevel)
-                                        font.pixelSize: 12
+                                    Layout.fillHeight: true
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 2
+                                        spacing: 4
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: window.statusTime.length > 0 ? ("状态 · " + window.statusTime) : "状态"
+                                            font.pixelSize: 12
+                                        }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                            text: window.statusText
+                                            wrapMode: Text.Wrap
+                                            maximumLineCount: 2
+                                            elide: Text.ElideRight
+                                            color: theme.levelColor(window.statusLevel)
+                                            font.pixelSize: 9
+                                        }
                                     }
                                 }
                             }
                         }
-
                         // 开始检测(自动按文件类型选择帧源)
-                        Button {
-                            id: detectBtn
-                            property bool isBusy: DetectionApp.busy
-                            text: isBusy ? "停止检测" : "开始检测"
-                            Layout.fillWidth: true
-                            highlighted: true
-                            onClicked: isBusy ? DetectionApp.cancelCurrentJob() : DetectionApp.onDetectClicked()
-                        }
+                        Rectangle {
+                            SplitView.fillWidth: true
+                            SplitView.preferredHeight: 80
+                            SplitView.minimumHeight: 50
+                            SplitView.maximumHeight: 100
+                            color: theme.base
+                            ColumnLayout {
+                                anchors.fill: parent
+                                spacing: 3
+                                Button {
+                                    id: detectBtn
+                                    property bool isBusy: DetectionApp.busy
+                                    text: isBusy ? "停止检测" : "开始检测"
+                                    Layout.fillWidth: true
+                                    highlighted: true
+                                    onClicked: isBusy ? DetectionApp.cancelCurrentJob() : DetectionApp.onDetectClicked()
+                                }
 
-                        // 一键示例检测
-                        Button {
-                            text: "示例检测"
-                            Layout.fillWidth: true
-                            enabled: !DetectionApp.busy
-                            onClicked: DetectionApp.runSampleDetection()
-                        }
-
-                        Shortcut {
-                            sequence: "Esc"
-                            enabled: detectBtn.isBusy
-                            autoRepeat: false
-                            onActivatedAmbiguously: Logger.warning("出现退出冲突！")
-                            onActivated: function () {
-                                if (detectBtn.isBusy)
-                                    DetectionApp.cancelCurrentJob();
+                                // 一键示例检测
+                                Button {
+                                    text: "示例检测"
+                                    Layout.fillWidth: true
+                                    enabled: !DetectionApp.busy
+                                    onClicked: DetectionApp.runSampleDetection()
+                                }
+                                Item {
+                                    Layout.bottomMargin: 5
+                                }
+                            }
+                            Shortcut {
+                                sequence: "Esc"
+                                enabled: detectBtn.isBusy
+                                autoRepeat: false
+                                onActivatedAmbiguously: Logger.warning("出现退出冲突！")
+                                onActivated: function () {
+                                    if (detectBtn.isBusy)
+                                        DetectionApp.cancelCurrentJob();
+                                }
                             }
                         }
                     }
@@ -495,8 +535,7 @@ Window {
             }
 
             ColumnLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+                SplitView.fillWidth: true
                 spacing: 0
 
                 // ---------- 工具栏 ----------
@@ -526,6 +565,7 @@ Window {
 
                         // 摄像头检测(先弹对话框选设备；走 ffmpeg dshow/avfoundation/v4l2 采集)
                         Button {
+                            id: deviceBtn
                             text: "摄像头检测"
                             enabled: !DetectionApp.busy
                             onClicked: ffmpegDeviceDialog.open()
@@ -563,6 +603,9 @@ Window {
                                 perfWindow.requestActivate();
                             }
                         }
+                        Item {
+                            anchors.rightMargin: 8
+                        }
                     }
 
                     // 文件选择菜单(挂到按钮下方弹出)
@@ -589,6 +632,7 @@ Window {
 
                 // ---------- 显示区 + 日志区 ----------
                 SplitView {
+                    id: splitView
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     orientation: Qt.Vertical
@@ -606,10 +650,13 @@ Window {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 6
-
+                                Item {
+                                    Layout.leftMargin: 3
+                                }
                                 Label {
                                     text: "检测结果显示"
                                     font.bold: true
+                                    font.pixelSize: 15
                                 }
 
                                 Label {
@@ -657,6 +704,9 @@ Window {
                                     text: "回到实时"
                                     visible: DetectionApp.reviewing && DetectionApp.busy
                                     onClicked: DetectionApp.followLatest()
+                                }
+                                Item {
+                                    Layout.rightMargin: 3
                                 }
                             }
 
@@ -724,10 +774,21 @@ Window {
 
                     // ---- 日志区 ----
                     LogView {
+                        id: logView
                         theme: theme
                         SplitView.preferredHeight: 190
                         SplitView.minimumHeight: 90
-                        visible: !perfWindow.visible
+                        visible: !perfWindow.visible || !perfWindow.logVisible
+                    }
+                    Button {
+                        text: "打开日志"
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.rightMargin: 0
+                        anchors.bottomMargin: 0
+                        icon.color: "#d8249e13"
+                        onClicked: logView.visible = true
+                        visible: !logView.visible && !perfWindow.visible
                     }
                 }
             }
@@ -831,8 +892,10 @@ Window {
     PerformanceView {
         id: perfWindow
         theme: theme
-        height: window.height * 0.8
-        width: window.width * 0.8
+        height: window.height * 0.9
+        width: window.width * 0.9
+        minimumHeight: window.minimumHeight
+        minimumWidth: window.minimumWidth
         perf: perfApp
     }
 

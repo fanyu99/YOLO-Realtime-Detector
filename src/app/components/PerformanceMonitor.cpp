@@ -64,11 +64,10 @@ void PerformanceMonitor::recordStage( PerformanceStage stage, quint64 nsElapsed 
 	auto& acc = m_stageRecorder[ static_cast<size_t>( stage ) ];
 	++acc.sampleCount;
 	acc.totalNs += nsElapsed;
-	if ( nsElapsed > acc.maximumNs )
-		acc.maximumNs = nsElapsed;
+	acc.maximumNs = std::max (nsElapsed,acc.maximumNs);
 
 	// 端到端记录
-	if ( stage == PerformanceStage::endToend ) {
+	if ( stage == PerformanceStage::end2End ) {
 		m_narrowEndToEndTotalNs += nsElapsed;
 		++m_narrowEndToEndSamples;
 	}
@@ -156,8 +155,8 @@ void PerformanceMonitor::emitSnapshot() {
 		if ( ( mask & ( 1u << i ) ) == 0 )
 			continue;
 		const auto& acc = recorderCopy[ i ];
-		// 跳过没有样本的阶段
-		if ( acc.sampleCount == 0 )
+		// 跳过没有样本的阶段（丢帧除外）
+		if ( acc.sampleCount == 0 && static_cast<PerformanceStage>( i ) != PerformanceStage::DisplayDropped )
 			continue;
 		StageStatistics stat;
 		stat.stage = static_cast<PerformanceStage>( i );

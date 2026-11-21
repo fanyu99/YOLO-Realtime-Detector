@@ -106,10 +106,16 @@ QSGNode* DetectionOverlayItem::updatePaintNode ( QSGNode* oldNode, UpdatePaintNo
 		{
 			m_last = std::move ( m_pending );	// m_last从pending移动过来，不持有单独的引用计数
 			temp = m_last;
-		} 
+		}
 	}
 	if (!temp)
 		return oldNode;
+
+	// 显示等待耗时
+	// 从快照入Mail到取走去渲染
+	if (auto* app = DetectionApp::instance ())
+		if (auto* mon = app->monitor ())
+			mon->recordStage ( PerformanceStage::DisplayWait, frameClockNs () - temp->postTime );
 
 	Nodes nodes;
 	if (!oldNode) {

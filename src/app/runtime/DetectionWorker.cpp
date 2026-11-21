@@ -372,6 +372,7 @@ bool DetectionWorker::runImage ( DetectionTask& task ) {
 	// 广义端到端
 	QElapsedTimer frameClock;
 	frameClock.start ();
+	m_frameStartNs = frameClockNs ();	// 读帧开始计时
 
 	// 开启保存，如果路径为空active返回false,静默跳过，如果开启失败进行警告
 	DetectionResultSaver saver;
@@ -384,7 +385,7 @@ bool DetectionWorker::runImage ( DetectionTask& task ) {
 	DetectionResult result;
 	{
 		// 端到端（读帧到推理流程结束）计时
-		ScopedStageTimer endToEndTimer ( m_monitor, PerformanceStage::endToend );
+		ScopedStageTimer endToEndTimer ( m_monitor, PerformanceStage::end2End );
 		{
 			// 读帧计时
 			ScopedStageTimer readTimer ( m_monitor, PerformanceStage::ReadFrame );
@@ -455,9 +456,10 @@ bool DetectionWorker::runStream ( DetectionTask& task ) {
 		QElapsedTimer frameClock;
 		cv::Mat frame = cv::Mat ();
 		frameClock.start ();
+		m_frameStartNs = frameClockNs ();	// 读帧开始
 		// 读帧到完成推理
 		{
-			ScopedStageTimer endToEndTimer ( m_monitor, PerformanceStage::endToend );
+			ScopedStageTimer endToEndTimer ( m_monitor, PerformanceStage::end2End );
 			// 读帧计时
 			{
 				ScopedStageTimer readTimer ( m_monitor, PerformanceStage::ReadFrame );
@@ -524,9 +526,12 @@ cv::Mat DetectionWorker::displayResult ( DetectionTask& task, const cv::Mat& fra
 				image = DetectionRenderer::toQImage ( matWithBoxes );
 			}
 		}
-		// 投递快照
-		if (status.needSnapshot)
+		// 投递快照的准备
+		// 打包到快照
+		if (status.needSnapshot) {
+			ScopedStageTimer prepareTimer ( m_monitor, PerformanceStage::DisplayPrepare );
 			postOverlaySnapshot ( frame, result.boxes );
+		}
 	}
 	emit taskResult ( task.jobId, result, image );		// 离线显示 / 回看缓冲
 	return matWithBoxes;
@@ -538,8 +543,8 @@ void DetectionWorker::postOverlaySnapshot ( const cv::Mat& frame, const QVector<
 		return;
 	const quint64 seq = ++m_displaySeq;
 	auto handle = std::make_shared<CpuFrameHandle> ( frame, static_cast<int>(seq) );
-	m_mail->post ( std::make_shared<const FrameSnapshot> ( handle, boxes, seq, frameClockNs () ) );
-	emit frameSnapshotPosted ();	// 只通知，不带 payload：像素已经在邮箱里了
+	m_mail->post ( std::make_shared<const FrameSnapshot> ( handle, boxes, seq, m_frameStartNs, frameClockNs () ) );
+	emit frameSnapshotPosted ();	// 只通知
 }
 
 // 一个Task完成：累积结果 + 推送即时结果 + 保存结果 + 上报进度

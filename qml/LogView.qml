@@ -8,118 +8,156 @@ import QtQuick.Layouts
 //  级别配色：Debug 紫 / Info 蓝 / Success 绿 / Warning 橙 / Error 红 / Fatal 深红
 // ============================================================================
 Item {
-	id: root
+    id: root
 
-	property var theme: null		// 由外部注入的主题对象(Theme.qml)
+    property var theme: null		// 由外部注入的主题对象(Theme.qml)
 
-	// 外部传入的日志模型(可选)。为 null 时本组件自建模型并自行订阅 Logger；
-	// 传入时(如性能面板有嵌入 / 分离两处视图)，由持有者负责填充，
-	// 本组件只负责显示，两份视图共享同一份历史。
-	property ListModel logModel: null
+    property ListModel logModel: null
 
-	// 日志上限，避免长时间运行内存无限增长(仅本组件自建模型时生效)
-	readonly property int maxLines: 1000
+    // 日志上限
+    readonly property int maxLines: 1000
+    property bool closeEnable: true
 
-	// 实际使用的模型：外部给的优先，否则用自建的
-	readonly property ListModel activeModel: logModel ? logModel : internalLogModel
+    // 使用的model
+    readonly property ListModel activeModel: logModel ? logModel : internalLogModel
 
-	// 日志数据模型：每条记录含 level / time / message
-	ListModel { id: internalLogModel }
+    // 每条记录含 level / time / message
+    ListModel {
+        id: internalLogModel
+    }
 
-	ColumnLayout {
-		anchors.fill: parent
-		spacing: 4
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 4
 
-		// 标题行
-		RowLayout {
-			Layout.fillWidth: true
-			Label {
-				text: "日志"
-				font.bold: true
-				Layout.fillWidth: true
-			}
-			ToolButton {
-				text: "清空"
-				onClicked: root.activeModel.clear()
-			}
-			// 设置日志输出间隔
-			Label {
-                text: "推理日志输出间隔"
-                opacity: 0.75
-				font.pixelSize: 12
-			}
-			SpinBox {
-				id: inferenceIntervalSpinBox
-				from: 0
-				to: 200
-				stepSize: 1
-				editable: true
-				value: Logger.infoInterval()
-				// 0 太长就显示成“每帧”，避免被窄列截断
-				textFromValue: function(v) { return v <= 0 ? "每帧" : String(v) }
-				valueFromText: function(t) {
-					var n = parseInt(t, 30)
-					return isNaN(n) ? inferenceIntervalSpinBox.value : n
-				}
-				onValueChanged: function()
-				{
-					Logger.setInfoInterval(value)
-					Logger.info("日志间隔已经更新为：%1".arg(inferenceIntervalSpinBox.value))
-				}
+        // 标题行
+        Frame {
+            Layout.fillWidth: true
+            Layout.minimumHeight: 40
+            padding: 4
 
-				HoverHandler { id: intervalHover }
-				ToolTip.visible: intervalHover.hovered
-				ToolTip.delay: 600
-				ToolTip.text: "推理结果日志每隔多少帧输出一条；0 = 每帧都输出"
-			}
-		}
+            RowLayout {
+                anchors.fill: parent
+                spacing: 8
+                Item {
+                    Layout.leftMargin: 2
+                }
+                Label {
+                    text: "日志"
+                    font.bold: true
+                    font.pixelSize: 18
+                }
 
-		// 日志列表
-		Rectangle {
-			Layout.fillWidth: true
-			Layout.fillHeight: true
-			color: root.theme ? root.theme.base : "white"
-			border.color: root.theme ? root.theme.border : "gray"
-			border.width: 1
-			radius: 4
-			clip: true
+                Item {
+                    Layout.fillWidth: true
+                }
 
-			ListView {
-				id: logList
-				anchors.fill: parent
-				anchors.margins: 6
-				model: root.activeModel
-				clip: true
-				spacing: 1
+                Label {
+                    text: "信息间隔"
+                    font.pixelSize: 12
+                }
+                SpinBox {
+                    id: inferenceIntervalSpinBox
+                    from: 0
+                    to: 200
+                    stepSize: 5
+                    editable: true
+                    value: Logger.infoInterval()
+                    textFromValue: function (v) {
+                        return v <= 0 ? "每帧" : String(v);
+                    }
+                    valueFromText: function (t) {
+                        var n = parseInt(t, 30);
+                        return isNaN(n) ? inferenceIntervalSpinBox.value : n;
+                    }
+                    onValueChanged: function () {
+                        Logger.setInfoInterval(value);
+                        Logger.info("日志间隔已经更新为：%1".arg(inferenceIntervalSpinBox.value));
+                    }
 
-				// 有新日志时自动滚到底部
-				onCountChanged: if (logList.count > 0) logList.positionViewAtEnd()
+                    HoverHandler {
+                        id: intervalHover
+                    }
+                    ToolTip.visible: intervalHover.hovered
+                    ToolTip.delay: 600
+                    ToolTip.text: "推理结果日志每隔多少帧输出一条；为0每帧都输出"
+                }
 
-				delegate: Text {
-					required property int level
-					required property string time
-					required property string message
+                Button {
+                    Layout.fillHeight: true
+                    text: "清空"
+                    onClicked: root.activeModel.clear()
+                    font.pixelSize: 12
+                    flat: true
+                }
 
-					width: logList.width
-					wrapMode: Text.Wrap
-					font.family: "Consolas"
-					font.pixelSize: 12
-					color: root.theme ? root.theme.levelColor(level) : "black"
-					text: "[" + time + "] " + message
-				}
-			}
-		}
-	}
+                Button {
+                    id: closeBtn
+                    Layout.fillHeight: true
+                    text: "关闭日志"
+                    icon.color: "#b2ee0e0e"
+                    onClicked: root.visible = false
+                    font.pixelSize: 12
+                    visible: root.closeEnable
+                    flat: true
+                }
+                Item {
+                    Layout.rightMargin: 2
+                }
+            }
+        }
 
-	// 订阅日志信号：后端每写一条日志，这里就往模型里追加一行。
-	// 模型由外部提供时不订阅，避免两份视图重复写入。
-	Connections {
-		target: Logger
-		enabled: root.logModel === null
-		function onMessageLogged(level, levelName, time, message) {
-			internalLogModel.append({ "level": level, "time": time, "message": message })
-			if (internalLogModel.count > root.maxLines)
-				internalLogModel.remove(0, internalLogModel.count - root.maxLines)
-		}
-	}
+        // 日志列表
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.minimumHeight: 150
+            color: root.theme ? root.theme.base : "white"
+            border.color: root.theme ? root.theme.border : "gray"
+            border.width: 1
+            radius: 4
+            clip: true
+
+            ListView {
+                id: logList
+                anchors.fill: parent
+                anchors.margins: 6
+                model: root.activeModel
+                clip: true
+                spacing: 1
+
+                // 有新日志时自动滚到底部
+                onCountChanged: if (logList.count > 0)
+                    logList.positionViewAtEnd()
+
+                delegate: Text {
+                    required property int level
+                    required property string time
+                    required property string message
+
+                    width: logList.width
+                    wrapMode: Text.Wrap
+                    font.family: "Consolas"
+                    font.pixelSize: 12
+                    color: root.theme ? root.theme.levelColor(level) : "black"
+                    text: "[" + time + "] " + message
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: Logger
+        enabled: root.logModel === null
+        function onMessageLogged(level, levelName, time, message) {
+            internalLogModel.append({
+                "level": level,
+                "time": time,
+                "message": message
+            });
+            if (internalLogModel.count > root.maxLines)
+                internalLogModel.remove(0, internalLogModel.count - root.maxLines);
+        }
+    }
 }

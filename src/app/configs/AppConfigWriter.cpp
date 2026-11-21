@@ -29,6 +29,7 @@ QString viewModeToText ( ViewMode mode ) {
 QString levelToText ( PerformanceLevel level ) {
 	switch (level) {
 	case PerformanceLevel::Off:		 return QStringLiteral ( "off" );
+	case PerformanceLevel::Minimum:	 return QStringLiteral ( "minimum" );
 	case PerformanceLevel::Basic:	 return QStringLiteral ( "basic" );
 	case PerformanceLevel::Detailed: return QStringLiteral ( "detailed" );
 	case PerformanceLevel::Full:	 return QStringLiteral ( "full" );
