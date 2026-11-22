@@ -32,7 +32,7 @@ Window {
     property string selectedFileName: ""		// 已选文件名(仅显示)
     property url selectedFileUrl: ""			// 已选文件 url(供图片 / 视频预览)
     property bool videoMode: false				// 当前选择模式：false=图片, true=视频
-    property bool perfVisible: perfWindow.visible // 性能监控页是否可见，用来主页面的logview绑定
+    property bool logVisible: true				// 日志面板期望可见性；打开 perfWindow / 关闭日志时置为 false
 
     // ---- 状态栏(与日志同源：订阅 Logger.messageLogged) ----
     property int statusLevel: 1					// 当前状态级别(默认 INFO)
@@ -87,10 +87,10 @@ Window {
                     font.pixelSize: 13
                 }
                 Label {
-                    Layout.fillWidth: true
                     text: DetectionApp.preferredViewMode === "offline" ? "离线预览（%1）".arg(DetectionApp.activeViewMode) : "实时预览（%1）".arg(DetectionApp.activeViewMode)
                     font.bold: true
                     font.pixelSize: 13
+                    wrapMode: Text.WordWrap
                 }
 
                 Label {
@@ -100,7 +100,6 @@ Window {
                 }
                 ComboBox {
                     id: viewModeCombo
-                    flat: true
                     enabled: !DetectionApp.busy
                     implicitContentWidthPolicy: ComboBox.WidestText
                     model: ["离线预览（offline）", "实时预览（realtime）"]
@@ -598,13 +597,14 @@ Window {
                             text: "性能监控"
                             highlighted: true
                             onClicked: {
+                                window.logVisible = false;	// 打开性能页即收起日志，关闭后由"打开日志"按钮恢复
                                 perfWindow.show();
                                 perfWindow.raise();
                                 perfWindow.requestActivate();
                             }
                         }
                         Item {
-                            anchors.rightMargin: 8
+                            Layout.rightMargin: 8
                         }
                     }
 
@@ -653,6 +653,7 @@ Window {
                                 Item {
                                     Layout.leftMargin: 3
                                 }
+
                                 Label {
                                     text: "检测结果显示"
                                     font.bold: true
@@ -660,15 +661,26 @@ Window {
                                 }
 
                                 Label {
-                                    Layout.fillWidth: true
-                                    text: "整体帧率：%1".arg(perfWindow.perf ? perfWindow.perf.overallFPS : 0.0)
+                                    elide: Text.ElideNone
+                                    text: "整体帧率：%1".arg(perfWindow.perf ? perfWindow.perf.overallFPS.toFixed(1) : 0.0)
                                     font.bold: true
                                     visible: perfWindow.perf ? perfWindow.perf.levelIndex > 0 : false
                                     color: "#d8249e13"
+                                    wrapMode: Text.WordWrap
+                                }
+                                Label {
+                                    elide: Text.ElideNone
+                                    visible: perfWindow.perf ? perfWindow.perf.levelIndex > 0 : false
+                                    text: "端到端耗时：%1".arg(perfWindow.perf ? perfWindow.perf.broadEndToEndMs.toFixed(1) + "ms" : "无效")
+                                    color: "#d8249e13"
+                                    font.bold: true
+                                    wrapMode: Text.WordWrap
                                 }
 
                                 // 进度：摄像头这类总量未知的走忙碌态
+
                                 ProgressBar {
+                                    id: progressBar
                                     Layout.fillWidth: true
                                     Layout.leftMargin: 12
                                     from: 0
@@ -676,6 +688,52 @@ Window {
                                     value: DetectionApp.progress
                                     indeterminate: DetectionApp.progressIndeterminate
                                     visible: DetectionApp.busy
+                                    background: Rectangle {
+                                        implicitWidth: 200
+                                        implicitHeight: 24
+                                        radius: 4
+                                        border.color: theme.border
+                                        color: "#e0e0e0"
+                                    }
+                                    contentItem: Item {
+                                        Rectangle {
+                                            width: progressBar.visualPosition * parent.width
+                                            height: parent.height
+                                            radius: 8
+                                            gradient: Gradient {
+                                                GradientStop {
+                                                    position: 0.0
+
+                                                    color: {
+                                                        var v = progressBar.value * 100;
+                                                        if (v < 20)
+                                                            return "#FF0000";
+                                                        else if (v < 40)
+                                                            return "#FF00AA";
+                                                        else if (v < 60)
+                                                            return "#0055FF";
+                                                        else if (v < 80)
+                                                            return "#00DD99";
+                                                        else
+                                                            return "#00E600";
+                                                    }
+                                                }
+                                                GradientStop {
+                                                    position: 1.0
+                                                    color: "#43a047"
+                                                }
+                                            }
+                                        }
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: Math.round(progressBar.value * 100) + "%"
+                                            font.pixelSize: 13
+                                            font.bold: true
+                                            font.family: "Segoe UI, sans-serif"
+                                            style: Text.Sunken
+                                            styleColor: "#40ffffff"
+                                        }
+                                    }
                                 }
 
                                 // ---- 结果回看 ----
@@ -778,17 +836,16 @@ Window {
                         theme: theme
                         SplitView.preferredHeight: 190
                         SplitView.minimumHeight: 90
-                        visible: !perfWindow.visible || !perfWindow.logVisible
+                        // perfWindow 显示时强制隐藏；打开 perfWindow 时 logVisible 已被置为 false，
+                        // 故关闭 perfWindow 后日志保持关闭，由"打开日志"按钮恢复
+                        visible: window.logVisible && !perfWindow.visible
+                        onCloseRequested: window.logVisible = false
                     }
                     Button {
+                        id: openLogBtn
                         text: "打开日志"
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        anchors.rightMargin: 0
-                        anchors.bottomMargin: 0
-                        icon.color: "#d8249e13"
-                        onClicked: logView.visible = true
-                        visible: !logView.visible && !perfWindow.visible
+                        visible: !window.logVisible && !perfWindow.visible
+                        onClicked: window.logVisible = true
                     }
                 }
             }

@@ -286,3 +286,120 @@ bool launchBgr24LetterboxKernel(const uint8_t* src, int stride,
 
 	return checkLaunchError("CudaPreprocessKernels", err);
 }
+
+// =============================================================================
+// 显示用色彩转换 kernel（M3 GPU 叠加层）
+// 输出 BGRA8（DXGI_FORMAT_B8G8R8A8_UNORM：byte 序 B,G,R,A）。
+// 目标走 surface：D3D11 纹理是不透明布局，互操作只能拿到 cudaArray，
+// 不能用线性指针/pitch 访问
+// =============================================================================
+
+// NV12 → BGRA8：1:1 无缩放，Y/UV 平面 nearest 直取（显示路径不需要 bilinear）
+__global__ void nv12ToBgraKernel(
+	const uint8_t* yPlane, int yStride,
+	const uint8_t* uvPlane, int uvStride,
+	int srcW, int srcH,
+	cudaSurfaceObject_t dst, int limitedRange)
+{
+	const int x = blockIdx.x * blockDim.x + threadIdx.x;
+	const int y = blockIdx.y * blockDim.y + threadIdx.y;
+	if (x >= srcW || y >= srcH)
+		return;
+
+	const float yRaw = (float)yPlane[(size_t)y * yStride + x];
+	// UV 半分辨率：宏像素 (x>>1, y>>1)，NV12 交错 [U, V]
+	const uint8_t* uvRow = uvPlane + (size_t)(y >> 1) * uvStride;
+	const float u = (float)uvRow[(x >> 1) * 2 + 0] - 128.0f;
+	const float v = (float)uvRow[(x >> 1) * 2 + 1] - 128.0f;
+
+	float r, g, b;
+	if (limitedRange) {
+		// BT.601 limited：Y∈[16,219] → [0,255]（不做 range 扩展画面会整体发灰）
+		const float yy = clampf(1.164f * (yRaw - 16.0f), 0.0f, 255.0f);
+		r = clampf(yy + 1.596f * v, 0.0f, 255.0f);
+		g = clampf(yy - 0.391f * u - 0.806f * v, 0.0f, 255.0f);
+		b = clampf(yy + 2.018f * u, 0.0f, 255.0f);
+	} else {
+		// BT.601 full：Y∈[0,255]
+		r = clampf(yRaw + 1.402f * v, 0.0f, 255.0f);
+		g = clampf(yRaw - 0.344f * u - 0.714f * v, 0.0f, 255.0f);
+		b = clampf(yRaw + 1.772f * u, 0.0f, 255.0f);
+	}
+
+	// surface 的 x 参数是字节偏移，不是像素索引
+	surf2Dwrite ( make_uchar4 ( (uint8_t)( b + 0.5f ), (uint8_t)( g + 0.5f ),
+		(uint8_t)( r + 0.5f ), 255 ), dst, x * (int)sizeof ( uchar4 ), y );
+}
+
+// BGR24 → BGRA8：packed 直拷 + alpha 置 255
+__global__ void bgr24ToBgraKernel(
+	const uint8_t* src, int stride,
+	int srcW, int srcH,
+	cudaSurfaceObject_t dst)
+{
+	const int x = blockIdx.x * blockDim.x + threadIdx.x;
+	const int y = blockIdx.y * blockDim.y + threadIdx.y;
+	if (x >= srcW || y >= srcH)
+		return;
+	const uint8_t* p = src + (size_t)y * stride + (size_t)x * 3;
+	// BGR → BGRA：前三个字节同序，仅补 alpha
+	surf2Dwrite ( make_uchar4 ( p[0], p[1], p[2], 255 ), dst, x * (int)sizeof ( uchar4 ), y );
+}
+
+bool launchNv12ToBgraKernel(const uint8_t* yPlane, int yStride,
+	const uint8_t* uvPlane, int uvStride,
+	int srcW, int srcH,
+	cudaSurfaceObject_t dstSurface,
+	CudaColorRange range,
+	cudaStream_t stream,
+	CudaKernelError* err)
+{
+	if (!yPlane || !uvPlane || yStride <= 0 || uvStride <= 0
+		|| srcW <= 0 || srcH <= 0 || dstSurface == 0) {
+		if (err) {
+			err->hasError = true;
+			snprintf(err->message, sizeof(err->message),
+				"[Nv12ToBgra]: 参数非法: %dx%d yStride=%d uvStride=%d surface=%llu",
+				srcW, srcH, yStride, uvStride,
+				static_cast<unsigned long long>(dstSurface));
+		}
+		return false;
+	}
+
+	const dim3 block(kBlockDim, kBlockDim);
+	const dim3 grid((srcW + kBlockDim - 1) / kBlockDim,
+		(srcH + kBlockDim - 1) / kBlockDim);
+
+	nv12ToBgraKernel<<<grid, block, 0, stream>>>(
+		yPlane, yStride, uvPlane, uvStride, srcW, srcH,
+		dstSurface,
+		range == CudaColorRange::Limited ? 1 : 0);
+
+	return checkLaunchError("Nv12ToBgra", err);
+}
+
+bool launchBgr24ToBgraKernel(const uint8_t* src, int stride,
+	int srcW, int srcH,
+	cudaSurfaceObject_t dstSurface,
+	cudaStream_t stream,
+	CudaKernelError* err)
+{
+	if (!src || stride <= 0 || srcW <= 0 || srcH <= 0 || dstSurface == 0) {
+		if (err) {
+			err->hasError = true;
+			snprintf(err->message, sizeof(err->message),
+				"[Bgr24ToBgra]: 参数非法: %dx%d stride=%d surface=%llu",
+				srcW, srcH, stride, static_cast<unsigned long long>(dstSurface));
+		}
+		return false;
+	}
+
+	const dim3 block(kBlockDim, kBlockDim);
+	const dim3 grid((srcW + kBlockDim - 1) / kBlockDim,
+		(srcH + kBlockDim - 1) / kBlockDim);
+
+	bgr24ToBgraKernel<<<grid, block, 0, stream>>>(
+		src, stride, srcW, srcH, dstSurface);
+
+	return checkLaunchError("Bgr24ToBgra", err);
+}

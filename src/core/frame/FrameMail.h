@@ -32,9 +32,14 @@ public:
 		std::lock_guard<std::mutex> lock ( m_mutex );
 		return std::exchange ( m_snapshot, nullptr );
 	}
+	// 判断是否能够进行GPU互操作
+	bool isNativeOk () const { return m_nativeOk.load ( std::memory_order_relaxed ); }
+	void setNativeOk(bool ok) { m_nativeOk.store ( ok, std::memory_order_relaxed ); }
 private:
 	mutable std::mutex m_mutex;
-	FrameSnapshotPtr m_snapshot;   // 最新快照
+	FrameSnapshotPtr m_snapshot{nullptr};   // 最新快照
 	std::atomic<quint64> m_dropped{ 0 }; // 丢弃的帧数
+	std::atomic_bool m_nativeOk{ false };
+
 };
 using 	FrameMailPtr = std::unique_ptr<FrameMail>;

@@ -24,9 +24,6 @@ Window {
 
     property var theme: null		// 由外部注入的主题对象(Theme.qml)
     property var perf: null			// PerformanceApp(全局上下文)
-    // 日志区开关的唯一状态源。
-    // 不能用 logView.visible 当状态：QML 的 visible 读的是有效可见性，
-    // 父项(logBox)隐藏时子项读出来恒为 false，会导致开关无法再打开
     property bool logVisible: true
     // 性能级别选项(与 PerformanceConfig::PerformanceLevel 枚举值一一对应)
     readonly property var levelOptions: ["关闭(Off)", "最小(Minimum)", "基础(Basic)", "详细(Detailed)", "完整(Full)"]

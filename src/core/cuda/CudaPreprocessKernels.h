@@ -39,3 +39,31 @@ bool launchBgr24LetterboxKernel(const uint8_t* src, int stride,
 	const CudaLetterboxParams& params,
 	cudaStream_t stream,
 	CudaKernelError* err = nullptr);
+
+// ---- 显示用色彩转换 kernel（M3 GPU 叠加层）------------------------------------
+// 全分辨率 1:1（无 letterbox、无归一化），输出 BGRA8
+// （DXGI_FORMAT_B8G8R8A8_UNORM 布局：byte 序 B,G,R,A）。
+// 目标用 cudaSurfaceObject_t 而非裸指针：D3D11 纹理是不透明布局，互操作只能通过
+// cudaArray + surface 访问（cudaGraphicsResourceGetMappedPointer 对纹理无效）。
+
+// NVDEC 输出的色彩范围
+enum class CudaColorRange {
+	Limited,	// Y∈[16,219]（NVDEC/FFmpeg 默认）
+	Full		// Y∈[0,255]（源声明为 full/JPEG range 时）
+};
+
+// NV12 → BGRA8：Y/UV 平面直取，1:1 nearest 索引（显示路径无缩放）
+bool launchNv12ToBgraKernel(const uint8_t* yPlane, int yStride,
+	const uint8_t* uvPlane, int uvStride,
+	int srcW, int srcH,
+	cudaSurfaceObject_t dstSurface,
+	CudaColorRange range,
+	cudaStream_t stream,
+	CudaKernelError* err = nullptr);
+
+// BGR24 → BGRA8：packed 直拷 + alpha 置 255（GpuImageFrameHandle 上传的单图帧）
+bool launchBgr24ToBgraKernel(const uint8_t* src, int stride,
+	int srcW, int srcH,
+	cudaSurfaceObject_t dstSurface,
+	cudaStream_t stream,
+	CudaKernelError* err = nullptr);

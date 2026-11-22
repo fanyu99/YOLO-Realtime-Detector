@@ -66,6 +66,9 @@ signals:
 	
 private:
 
+	// 叠加层原生互操作是否可用
+	bool overlayNativeOk () const { return m_mail && m_mail->isNativeOk (); }
+
 	// 转发警告并修正尺寸
 	void reportWarnings();
 
@@ -80,11 +83,11 @@ private:
 	void execute(DetectionTask& task);  // 总入口
 	bool runImage(DetectionTask& task);
 	bool runStream(DetectionTask& task);
-	// 显示产物：按 Task 里透传过来的 DisplaySaveStatus 烧框/投快照；返回 canvas 供保存复用
-	cv::Mat displayResult ( DetectionTask& task, const cv::Mat& frame, const DetectionResult& result,float fps,const DetectionResultSaver& saver);
-	// 把一帧「原始像素 + 同一帧的框」作为快照投递到邮箱，并通知 App 取走
-	void postOverlaySnapshot ( const cv::Mat& frame, const QVector<Box>& boxes );
-	void finishUnit(DetectionTask& task, const cv::Mat& frame, DetectionResult& result,DetectionResultSaver& saver);	// 完成一个task,进行总结
+	// 根据DisplaySaveStatus 取CPU像素/发送快照，需要保存时返回画有检测框的CPU像素数据
+	cv::Mat displayResult ( DetectionTask& task, const FrameHandlePtr& handle, const DetectionResult& result,float fps,const DetectionResultSaver& saver);
+	// 把一帧像素数据和检测框结果打包为快照投递到邮箱
+	void postOverlaySnapshot ( const FrameHandlePtr& handle, const QVector<Box>& boxes, quint64 seq );
+	void finishUnit(DetectionTask& task, const FrameHandlePtr& handle, DetectionResult& result,DetectionResultSaver& saver);	// 完成一个task,进行总结
 	void reportSaveResult(const DetectionResultSaver& saver);	// Task 结束后上报一次保存结果
 	void failTaskIfUnfinished(DetectionTask& task);		// 任务抛异常时补发失败信号(避免重复发)
 

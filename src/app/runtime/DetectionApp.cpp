@@ -48,7 +48,7 @@ DetectionApp::DetectionApp ( QObject* parent ) : QObject ( parent ), m_filePath 
 	connect ( m_manager.get (), &DetectionManager::jobSaved, this, &DetectionApp::onJobSaved );
 	connect ( m_manager.get (), &DetectionManager::configAdjusted, this, &DetectionApp::onConfigAdjusted );
 	connect ( m_manager.get (), &DetectionManager::fallbackOccurred, this, &DetectionApp::onFallbackOccurred );
-	connect (m_manager.get(),&DetectionManager::frameSnapshotPosted,this,&DetectionApp::onFrameSnapshotPosted);
+	connect ( m_manager.get (), &DetectionManager::frameSnapshotPosted, this, &DetectionApp::onFrameSnapshotPosted );
 
 
 }
@@ -75,7 +75,7 @@ DetectionApp* DetectionApp::instance () {
 
 DetectionApp* DetectionApp::create ( QQmlEngine* qmlEngine, QJSEngine* jsEngine ) {
 	Q_UNUSED ( jsEngine )
-	DetectionApp* app = DetectionApp::instance ();
+		DetectionApp* app = DetectionApp::instance ();
 	if (!app)
 		return nullptr;
 	qmlEngine->setObjectOwnership ( app, QQmlEngine::CppOwnership );
@@ -593,7 +593,7 @@ void DetectionApp::applyDetectorConfig ( const DetectorConfig& config, bool pers
 	}
 	// 应用成功后再进行App更改
 	const bool pathChanged = (m_config.model_path != config.model_path);
-	const bool clsChanged = (m_config.class_names!=config.class_names);
+	const bool clsChanged = (m_config.class_names != config.class_names);
 
 	this->m_config = config;
 	syncPerfMode ();  // 同步性能监测器的 CPU/GPU 模式
@@ -652,7 +652,7 @@ void DetectionApp::setInitialDisplayPolicy ( const DisplayPolicy& policy ) {
 // 设置预览模式：应用成功后再落盘
 void DetectionApp::setViewMode ( const QString& viewMode ) {
 	const auto mode = String2ViewMode ( viewMode );
-	if (!mode) {				    
+	if (!mode) {
 		reportError ( AppError ( QStringLiteral ( "[DetectionApp]: 无效的预览模式: " ) + viewMode, AppErrorCode::InvalidConfig ) );
 		return;
 	}
@@ -662,7 +662,7 @@ void DetectionApp::setViewMode ( const QString& viewMode ) {
 // 应用预览模式
 void DetectionApp::applyViewMode ( const ViewMode& mode, bool persist ) {
 	if (!m_displayPolicy.setViewMode ( mode ))
-		return;		
+		return;
 	emit preferredViewModeChanged ();
 	emit activeViewModeChanged ();
 	// 切换后重置Overlay的帧,qml进行刷新使用ImageProvider
@@ -681,7 +681,7 @@ void DetectionApp::applyViewMode ( const ViewMode& mode, bool persist ) {
 
 // 推导显示/保存状态
 DisplaySaveStatus DetectionApp::makeDisplaySaveStatus () {
-	const bool gpuFlow = (m_config.effectiveMode () == FlowMode::GPU);	  
+	const bool gpuFlow = (m_config.effectiveMode () == FlowMode::GPU);
 	const bool overlayAvailable = (m_overlay != nullptr); // 叠加层是否可用
 	const DisplaySaveStatus status = DisplaySaveStatus::getDisplaySaveStatus (
 		m_displayPolicy.preferredMode (), gpuFlow, overlayAvailable, effectiveResultsDir () );
@@ -696,7 +696,7 @@ DisplaySaveStatus DetectionApp::makeDisplaySaveStatus () {
 	if (status.activeMode != m_displayPolicy.preferredMode ())
 	{
 		Logger::instance ()->warning ( QStringLiteral ( "[DetectionApp]: 场景中没有叠加层，实时预览已降级为图片显示" ) );
-		showBanner (QStringLiteral ( "[DetectionApp]: 场景中没有叠加层，实时预览已降级为图片显示！" ),BannerLevel::BannerWarning);
+		showBanner ( QStringLiteral ( "[DetectionApp]: 场景中没有叠加层，实时预览已降级为图片显示！" ), BannerLevel::BannerWarning );
 	}
 
 	Logger::instance ()->info ( QStringLiteral ( "[DetectionApp]: 显示需求：后端=%1 烧框=%2 QImage=%3 快照=%4 保存=%5 下载=%6" )
@@ -704,10 +704,10 @@ DisplaySaveStatus DetectionApp::makeDisplaySaveStatus () {
 			yesNo ( status.needQImage ), yesNo ( status.needSnapshot ),
 			yesNo ( status.isSaveResult () ), yesNo ( status.download2CPU ) ) );
 	// 根据当前的模式以及是否保存进行横幅警告提示
-	if (status.isSaveResult() && status.activeMode == ViewMode::Realtime)
+	if (status.isSaveResult () && status.activeMode == ViewMode::Realtime)
 	{
 		Logger::instance ()->warning ( QStringLiteral ( "[DetectionApp]: 实时检测结果将被保存" ) );
-		showBanner( QStringLiteral ( "[DetectionApp]: 实时检测结果将被保存，性能会有所下降！" ), BannerLevel::BannerWarning );
+		showBanner ( QStringLiteral ( "[DetectionApp]: 实时检测结果将被保存，性能会有所下降！" ), BannerLevel::BannerWarning );
 	}
 	return status;
 }
@@ -781,11 +781,17 @@ std::optional<FlowMode> DetectionApp::str2FlowMode ( QStringView str )const {
 // 叠加层自注册/反注册
 void DetectionApp::installOverlay ( DetectionOverlayItem* overlay ) {
 	m_overlay = overlay;
+	// 设置是否叠加层的互操作可用
+	if (m_frameMail)
+		m_frameMail->setNativeOk ( overlay != nullptr );
 }
 
 void DetectionApp::uninstallOverlay ( DetectionOverlayItem* overlay ) {
 	if (m_overlay == overlay)
+	{
+		m_frameMail->setNativeOk ( false );
 		m_overlay = nullptr;
+	}
 }
 
 // 借用监测器，Overlay获取监测器进行计时
@@ -812,9 +818,6 @@ void DetectionApp::onFrameSnapshotPosted () {
 void DetectionApp::onFrameReady ( quint64 jobId, const DetectionResult& result, const QImage& frame ) {
 	if (jobId != m_currentJobId)
 		return;
-
-	
-	// TODO:QtOverlay的几何块（检测框），待接入Overlay进行更新叠加的检测框
 
 	// 在实时模式下不进行回看
 	if (!m_frameProvider || m_displayPolicy.displayBackend () != DisplayBackend::ImageProvider
@@ -869,25 +872,25 @@ void DetectionApp::onJobFinished ( quint64 jobId, DetectionJobType type,
 
 	const int succeeded = totalTasks - failedTasks;
 
-	auto SucBanner = [ this] (QStringView info) {
+	auto SucBanner = [ this ] ( QStringView info ) {
 		showBanner ( info, BannerSuccess );
-	};
+		};
 	// 种类通过manager进行回传
 	QString info;
 	switch (type) {
 	case DetectionJobType::Batch:
 		// 批量只报汇总
-		info= QStringLiteral ( "[DetectionApp]: 批量检测完成，成功 %1 / 失败 %2（共 %3）" )
+		info = QStringLiteral ( "[DetectionApp]: 批量检测完成，成功 %1 / 失败 %2（共 %3）" )
 			.arg ( succeeded ).arg ( failedTasks ).arg ( totalTasks );
-		Logger::instance ()->success (info);
-		SucBanner (info);
+		Logger::instance ()->success ( info );
+		SucBanner ( info );
 		emit batchFinished ( jobId, totalTasks, succeeded, failedTasks );
 		break;
 
 	case DetectionJobType::SingleVideo:
 	case DetectionJobType::Camera:
 		info = QStringLiteral ( "[DetectionApp]: 视频检测完成，帧数: " ) + QString::number ( results.size () );
-		Logger::instance ()->success ( info);
+		Logger::instance ()->success ( info );
 		SucBanner ( info );
 		emit videoDetectionFinished ( results );
 		break;
@@ -966,7 +969,7 @@ void DetectionApp::setState ( quint64 currentJobId, bool progressInterminate, bo
 	emit progressChanged ();
 }
 
-void DetectionApp::setClsClrInfo(const QStringList& clsNames)
+void DetectionApp::setClsClrInfo ( const QStringList& clsNames )
 {
 	m_classColorItems = ClassPalette::getClass_ColorInfo ( clsNames );
 	emit clsClrInfoChanged ();

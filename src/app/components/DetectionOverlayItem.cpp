@@ -1,8 +1,6 @@
 #include "DetectionOverlayItem.h"
 
 #include <QColor>
-#include <QImage>
-#include <QQuickWindow>
 #include <QSGGeometry>
 #include <QSGGeometryNode>
 #include <QSGSimpleTextureNode>
@@ -23,6 +21,7 @@ DetectionOverlayItem::DetectionOverlayItem ( QQuickItem* parent )
 	setFlag ( QQuickItem::ItemHasContents, true );
 	// 叠加层盖住整个画面区，不接管鼠标，避免挡住下层的交互
 	setAcceptedMouseButtons ( Qt::NoButton );
+	m_textureSource = std::make_unique<OverlayTextureSource> ();
 }
 
 DetectionOverlayItem::~DetectionOverlayItem () {
@@ -35,20 +34,16 @@ void DetectionOverlayItem::componentComplete () {
 	QQuickItem::componentComplete ();
 	if (auto* app = DetectionApp::instance ())
 		app->installOverlay ( this );
+	// invalidate 清理Native路径的互操作资源
+	connect ( window (), &QQuickWindow::sceneGraphInvalidated, this, [this] () {
+		m_textureSource->invalidate ();
+		} );
 }
 
 // GUI 线程
 void DetectionOverlayItem::setSnapshot ( FrameSnapshotPtr snapshot ) {
 	if (!snapshot || !snapshot->frame)
 		return;
-
-	// M1 的纹理来源是CPU上传，要求快照带的是 CPU 句柄
-	if (snapshot->frame->memoryType () != MemoryType::CPU && !m_warnedNonCpuFrame) {
-		m_warnedNonCpuFrame = true;
-		Logger::instance ()->warning ( QStringLiteral (
-			"[DetectionOverlayItem]: 快照携带的是 GPU 帧句柄，M1 的上传型纹理源用不了；"
-			"请在上游先把帧下载为 CPU 帧（CpuFrameHandle）再投递" ) );
-	}
 
 	const int count = static_cast<int>(snapshot->boxes.size ());
 	if (count != m_objectCount || !m_frameReady) {
@@ -81,7 +76,9 @@ DetectionOverlayItem::Nodes DetectionOverlayItem::createNodes () {
 
 	nodes.pixels = new QSGSimpleTextureNode;
 	nodes.pixels->setFlag ( QSGNode::OwnedByParent, true );
-	nodes.pixels->setOwnsTexture ( true );
+	// 纹理生命周期归纹理源缓存和复用
+	// 节点只引用纹理指针：ownsTexture=true 时 setTexture 会销毁旧纹理，容易出现悬空访问的问题
+	nodes.pixels->setOwnsTexture ( false );
 	nodes.pixels->setFiltering ( QSGTexture::Linear );
 	nodes.root->appendChildNode ( nodes.pixels );
 
@@ -133,9 +130,10 @@ QSGNode* DetectionOverlayItem::updatePaintNode ( QSGNode* oldNode, UpdatePaintNo
 	const QRectF target = fittedRect ( frameSize );
 	if (target.isEmpty ())
 		return oldNode;
-	// 像素
-	nodes.pixels->setTexture ( textureFor ( frame ) );
-	nodes.pixels->setRect ( target );
+	if (QSGTexture* texture = textureFor ( frame )) {
+		nodes.pixels->setTexture ( texture );
+		nodes.pixels->setRect ( target );
+	}
 
 	// 几何
 	const qreal scale = target.width () / frameSize.width ();
@@ -144,18 +142,11 @@ QSGNode* DetectionOverlayItem::updatePaintNode ( QSGNode* oldNode, UpdatePaintNo
 	return oldNode;
 }
 
+// 获取像素数据
 QSGTexture* DetectionOverlayItem::textureFor ( const FrameHandlePtr& frame ) {
-	if (!frame || frame->memoryType () != MemoryType::CPU)
+	if (!frame || !m_textureSource)
 		return nullptr;
-
-	// 零拷贝取引用：QImage 只是包一层，不复制像素
-	const cv::Mat mat = toCvMat ( frame );
-	if (mat.empty () || mat.type () != CV_8UC3)
-		return nullptr;
-
-	const QImage view ( mat.data, mat.cols, mat.rows, static_cast<int>(mat.step),
-		QImage::Format_BGR888 );
-	return window ()->createTextureFromImage ( view, QQuickWindow::TextureIsOpaque );
+	return m_textureSource->textureFor ( frame, window () );
 }
 
 QRectF DetectionOverlayItem::fittedRect ( const QSizeF& frameSize ) const {
@@ -174,8 +165,6 @@ void DetectionOverlayItem::syncBoxes ( const Nodes& nodes, const QRectF& target,
 	QSGGeometry* geometry = nodes.boxes->geometry ();
 	const int needed = VerticesPerBox * static_cast<int>(boxes.size ());
 
-	// allocate 只增不减（避免逐帧重新分配），这一帧实际画多少由 setVertexCount 决定，
-	// 没有框时置 0 就等于不画
 	if (geometry->vertexCount () < needed)
 		geometry->allocate ( needed );
 	geometry->setVertexCount ( needed );

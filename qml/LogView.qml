@@ -14,6 +14,10 @@ Item {
 
     property ListModel logModel: null
 
+    // 请求关闭面板：只上报意图，由外部决定如何处理。
+    // 不能就地写 root.visible——那会覆盖外部赋给 visible 的绑定，之后外部状态变化不再生效。
+    signal closeRequested()
+
     // 日志上限
     readonly property int maxLines: 1000
     property bool closeEnable: true
@@ -96,7 +100,7 @@ Item {
                     Layout.fillHeight: true
                     text: "关闭日志"
                     icon.color: "#b2ee0e0e"
-                    onClicked: root.visible = false
+                    onClicked: root.closeRequested()
                     font.pixelSize: 12
                     visible: root.closeEnable
                     flat: true
@@ -110,6 +114,7 @@ Item {
         // 日志列表
 
         Rectangle {
+
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: 150
@@ -118,6 +123,17 @@ Item {
             border.width: 1
             radius: 4
             clip: true
+
+            Label {
+                opacity: 0.75
+                anchors.margins: 6
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                font.bold: true
+                text: "暂无日志"
+                anchors.fill: parent
+                visible: root.activeModel.count === 0
+            }
 
             ListView {
                 id: logList

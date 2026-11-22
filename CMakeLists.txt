@@ -283,6 +283,8 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
         SOURCES
                 src/app/components/DetectionOverlayItem.h
                 src/app/components/DetectionOverlayItem.cpp
+                src/app/components/OverlayTextureSource.h
+                src/app/components/OverlayTextureSource.cpp
             src/app/runtime/AppHelper.h
             src/app/runtime/PerformanceApp.h   src/app/runtime/PerformanceApp.cpp
             src/app/runtime/DetectionApp.cpp           src/app/runtime/DetectionApp.h
@@ -315,12 +317,20 @@ PRIVATE ${YOLO_SOURCE_DIRS})
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
         Qt::Quick
-        Qt::Multimedia 
+        Qt::Multimedia
         ${OpenCV_LIBS}
         onnxruntime
         yolo_core
         DetectionRuntime
 )
+
+# GPU 叠加层的 CUDA-D3D11 互操作需要系统库（仅 YOLO_HAVE_CUDA 构建才编译该路径）。
+# QRhi 是半公开头，走 Qt 官方的 GuiPrivate 导出包拿版本化 private include 目录
+# （<rhi/qrhi.h> 及其内部的 rhi/qshader.h 都在其中，版本升级无需改配置）
+if(YOLO_HAVE_CUDA)
+    find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
+    target_link_libraries(${PROJECT_NAME} PUBLIC d3d11 dxgi Qt6::GuiPrivate)
+endif()
 
 if(YOLO_ENABLE_HIK)
     target_link_libraries(${PROJECT_NAME} PUBLIC yolo_hik)

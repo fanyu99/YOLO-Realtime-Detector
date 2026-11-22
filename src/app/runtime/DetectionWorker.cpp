@@ -26,12 +26,13 @@ namespace {
 		}
 		return toCvMat ( handle );
 	}
-	// 是否需要 CPU 像素：烧框、叠加层快照（暂时）、保存都要CPU图像
-	bool needCpuCopy ( const DetectionTask& task, const DetectionResultSaver& saver ) {
+	bool needCpuPixels ( const DetectionTask& task, const DetectionResultSaver& saver,
+		bool overlayNativeOk ) {
 		if (!task.shared)
 			return saver.active ();
 		const DisplaySaveStatus& status = task.shared->display_saveStatus;
-		return status.renderBoxes || status.needSnapshot || saver.active ();
+		return status.renderBoxes || saver.active ()
+			|| (status.needSnapshot && !overlayNativeOk);
 	}
 
 }
@@ -381,7 +382,6 @@ bool DetectionWorker::runImage ( DetectionTask& task ) {
 		Logger::instance ()->warning ( QStringLiteral ( "[DetectionWorker]: " ) + saver.lastError () );
 
 	FrameHandlePtr handle;
-	cv::Mat frame;
 	DetectionResult result;
 	{
 		// 端到端（读帧到推理流程结束）计时
@@ -402,12 +402,6 @@ bool DetectionWorker::runImage ( DetectionTask& task ) {
 				mon->recordFrameResult ( false, static_cast<quint64>(frameClock.nsecsElapsed ()) );
 			return false;
 		}
-		// 只在需要 CPU 像素时才拷贝
-		if (needCpuCopy ( task, saver )) {
-			// 计时：拷贝到CPU时间
-			ScopedStageTimer copyTimer ( m_monitor, PerformanceStage::Frame2Cpu );
-			frame = frameToCvMat ( handle );
-		}
 		// 执行完整的流程：预处理 + 推理 + 后处理
 		if (!m_session->runFlow ( handle, result )) {
 			m_lastError = result.error;	// 流程失败时错误已回填到 result
@@ -420,7 +414,7 @@ bool DetectionWorker::runImage ( DetectionTask& task ) {
 	result.taskId = task.taskId;
 	result.source = task.source->displayName ();	  // 设置展示名称,例如文件路径/摄像头ID等
 
-	finishUnit ( task, frame, result, saver );
+	finishUnit ( task, handle, result, saver );
 	// 广义的端到端（包括渲染和保存时间）
 	if (auto* mon = m_monitor)
 		mon->recordFrameResult ( true, static_cast<quint64>(frameClock.nsecsElapsed ()) );
@@ -454,7 +448,6 @@ bool DetectionWorker::runStream ( DetectionTask& task ) {
 
 		// 广义端到端：读帧起算，到 finishUnit 完成后随 recordFrameResult 上报
 		QElapsedTimer frameClock;
-		cv::Mat frame = cv::Mat ();
 		frameClock.start ();
 		m_frameStartNs = frameClockNs ();	// 读帧开始
 		// 读帧到完成推理
@@ -468,14 +461,6 @@ bool DetectionWorker::runStream ( DetectionTask& task ) {
 			// 读失败/流结束：跳出循环不计入统计
 			if (!handle)
 				break;
-			// 只在需要 CPU 像素的时候才将frame进行拷贝
-			const bool needCopy = needCpuCopy ( task, saver );
-			if (needCopy)
-			{
-				// 计时：拷贝到CPU时间
-				ScopedStageTimer copyTimer ( m_monitor, PerformanceStage::Frame2Cpu );
-				frame = frameToCvMat ( handle );
-			}
 			if (!m_session->runFlow ( handle, result )) {
 				m_lastError = result.error;	// 流程失败时错误已回填到 result
 				fallbackIf ( m_lastError );
@@ -486,7 +471,7 @@ bool DetectionWorker::runStream ( DetectionTask& task ) {
 		}
 		result.taskId = task.taskId;
 		result.source = source.displayName ();
-		finishUnit ( task, frame, result, saver );
+		finishUnit ( task, handle, result, saver );
 		// 整体的端到端计时
 		if (auto* mon = m_monitor)
 			mon->recordFrameResult ( true, static_cast<quint64>(frameClock.nsecsElapsed ()) );
@@ -506,18 +491,26 @@ bool DetectionWorker::runStream ( DetectionTask& task ) {
 
 
 //   离线  画检测框和转QImage
-//   叠加层  原图片和检测框，作为快照投递到邮箱(保存时画检测框)
-cv::Mat DetectionWorker::displayResult ( DetectionTask& task, const cv::Mat& frame, const DetectionResult& result, float fps, const DetectionResultSaver& saver ) {
+//   叠加层  快照投递：互操作可用时 使用GPU 句柄
+//   互操作不可用时下载CPU句柄用于上传
+cv::Mat DetectionWorker::displayResult ( DetectionTask& task, const FrameHandlePtr& handle,
+	const DetectionResult& result, float fps, const DetectionResultSaver& saver ) {
 	const DisplaySaveStatus& status = task.shared->display_saveStatus;
 	cv::Mat matWithBoxes;  // 带检测框的图片
 	QImage image;	  // 回看需要的QImage
-	if (needCpuCopy ( task, saver )) {
+	cv::Mat cpuMat;	  // 下载的 CPU 像素（回退快照/画框）
+	if (needCpuPixels ( task, saver, overlayNativeOk () )) {
+		{
+			// 计时：拷贝到CPU时间（CPU 句柄时为零拷贝引用，窗口内接近 0）
+			ScopedStageTimer copyTimer ( m_monitor, PerformanceStage::Frame2Cpu );
+			cpuMat = frameToCvMat ( handle );
+		}
 		// 如果需要画框 / 保存，那么需要渲染
 		if (status.renderBoxes || saver.active ()) {
 			// 渲染计时
 			{
 				ScopedStageTimer renderTimer ( m_monitor, PerformanceStage::RenderImage );
-				matWithBoxes = DetectionRenderer::renderMat ( frame, result.boxes, m_config.class_names,
+				matWithBoxes = DetectionRenderer::renderMat ( cpuMat, result.boxes, m_config.class_names,
 					result.duration, fps );
 			}
 			if (status.needQImage) {
@@ -526,11 +519,20 @@ cv::Mat DetectionWorker::displayResult ( DetectionTask& task, const cv::Mat& fra
 				image = DetectionRenderer::toQImage ( matWithBoxes );
 			}
 		}
-		// 投递快照的准备
-		// 打包到快照
-		if (status.needSnapshot) {
+	}
+	if (status.needSnapshot) {
+		const quint64 seq = ++m_displaySeq;
+		FrameHandlePtr snapHandle = handle;
+		// GPU数据但是互操作失效，将其下载到CPU后打包
+		if (handle->memoryType () == MemoryType::GPU && !overlayNativeOk ()) {
+			if (cpuMat.empty ())
+				return matWithBoxes;	
+			snapHandle = std::make_shared<CpuFrameHandle> ( cpuMat, static_cast<int>( seq ) );
+		}
+		// 打包到快照（显示数据准备）
+		{
 			ScopedStageTimer prepareTimer ( m_monitor, PerformanceStage::DisplayPrepare );
-			postOverlaySnapshot ( frame, result.boxes );
+			postOverlaySnapshot ( snapHandle, result.boxes, seq );
 		}
 	}
 	emit taskResult ( task.jobId, result, image );		// 离线显示 / 回看缓冲
@@ -538,17 +540,15 @@ cv::Mat DetectionWorker::displayResult ( DetectionTask& task, const cv::Mat& fra
 }
 
 // 把一帧快照投递到邮箱
-void DetectionWorker::postOverlaySnapshot ( const cv::Mat& frame, const QVector<Box>& boxes ) {
-	if (!m_mail || frame.empty ())
+void DetectionWorker::postOverlaySnapshot ( const FrameHandlePtr& handle, const QVector<Box>& boxes, quint64 seq ) {
+	if (!m_mail || !handle)
 		return;
-	const quint64 seq = ++m_displaySeq;
-	auto handle = std::make_shared<CpuFrameHandle> ( frame, static_cast<int>(seq) );
 	m_mail->post ( std::make_shared<const FrameSnapshot> ( handle, boxes, seq, m_frameStartNs, frameClockNs () ) );
 	emit frameSnapshotPosted ();	// 只通知
 }
 
 // 一个Task完成：累积结果 + 推送即时结果 + 保存结果 + 上报进度
-void DetectionWorker::finishUnit ( DetectionTask& task, const cv::Mat& frame,
+void DetectionWorker::finishUnit ( DetectionTask& task, const FrameHandlePtr& handle,
 	DetectionResult& result, DetectionResultSaver& saver ) {
 	// 累计结果(摄像头不累计)
 	if (task.accumulateResults)
@@ -558,7 +558,7 @@ void DetectionWorker::finishUnit ( DetectionTask& task, const cv::Mat& frame,
 	const float fps = task.fps.tick ();
 
 	// 获取烧录检测框/检测框后的产物
-	const cv::Mat canvas = displayResult ( task, frame, result, fps, saver );  // 在未开启保存/实时模式并不开保存时会返回空
+	const cv::Mat canvas = displayResult ( task, handle, result, fps, saver );  // 在未开启保存/实时模式并不开保存时会返回空
 
 	// 保存产物
 	if (saver.active ()) {
