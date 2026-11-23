@@ -77,9 +77,8 @@ public:
 	int input_width = 640;				// 推理输入宽度
 	int input_height = 640;				// 推理输入高度
 	FlowMode preferred_mode = FlowMode::CPU;	// 用户选择的模式：CPU/GPU
-	// 实际使用的模式：CPU/GPU。
-	// 创建各个实例时优先使用 active_mode，未设置(nullopt)时跟随 preferred_mode；
-	// 创建成功后由 Session 写回为实际生效的模式，fallback 重建时由 Worker 更改为 CPU。
+	// 实际使用的模式 CPU/GPU
+	// 创建成功后由 Session 写回为实际生效的模式
 	std::optional<FlowMode> active_mode = std::nullopt;
 
 	// getter 供 QML 读取

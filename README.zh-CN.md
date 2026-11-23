@@ -49,7 +49,7 @@
 | 图像处理 | OpenCV，现有配置使用 5.0，负责读图、CPU 预处理、绘制和图像转换 |
 | 视频与普通摄像头 | FFmpeg，包含软解与 CUDA 硬件上下文 |
 | GPU | CUDA Toolkit、cuDNN、自定义 BGR/NV12 预处理 kernel |
-| 工业相机 | 海康 MVS SDK，当前构建必须提供 |
+| 工业相机 | 海康 MVS SDK；SDK 缺失时配置阶段给出警告并跳过该层 |
 | 性能监控 | `IPerformanceMonitor`、`PerformanceMonitor`、`NullPerformanceMonitor`、`ScopedStageTimer` |
 | 构建与测试 | CMake、Ninja/MSVC、Qt Test、CTest |
 
@@ -138,7 +138,7 @@ GPU 图片：CPU BGR 帧 -> Session 上传显存 -> BGR CUDA kernel -> GpuDetect
 ├── qml/                  # main, dialogs, PerformanceView, LogView, Theme
 ├── examples/             # Sample image and ONNX model, deployed beside the executable
 ├── models/               # Local model directory
-├── tests/test_performance/
+├── tests/                # Qt Test 测试源码，纳入 git 追踪
 └── docs/
     ├── ARCHITECTURE.md
     └── architecture.html
@@ -146,46 +146,78 @@ GPU 图片：CPU BGR 帧 -> Session 上传显存 -> BGR CUDA kernel -> GpuDetect
 
 ## 编译构建
 
-使用支持项目 C++23 代码的 MSVC 开发者终端，准备 Qt 6（Core、Gui、Qml、Quick、QuickControls2、Multimedia、Test）、OpenCV、ONNX Runtime、FFmpeg 开发包，以及海康 MVS SDK。GPU 编译和运行还需要 CUDA Toolkit、cuDNN。下面沿用现有依赖路径作为示例，需要按自己的安装位置修改。
+Windows x64，MSVC + Ninja。先进入 x64 的 MSVC 开发者终端（vcvars64）：preset 沿用环境里已有的工具链，不会自己搭一套。
+
+需要支持 C++23 的 MSVC、Ninja，以及 Qt 6（Core、Gui、Qml、Quick、QuickControls2、Multimedia、Test）、OpenCV、ONNX Runtime、FFmpeg 的开发包；GPU 路径还需要 CUDA Toolkit 与 cuDNN。海康 MVS SDK 可选：缺失时构建会跳过海康相机层并给出警告。
+
+### 指定依赖位置
+
+每个依赖目录都从环境变量读取，再转成缓存变量的默认值，因此每一项也都能用 `-D` 覆盖；仓库里没有任何写死的路径。
+
+| 环境变量 | 指向 |
+|---|---|
+| `QTDIR` | Qt 6 安装目录（也可以走 `CMAKE_PREFIX_PATH` / `Qt6_DIR`） |
+| `YOLO_OPENCV_RELEASE_DIR` | Release 包中含 `OpenCVConfig.cmake` 的目录 |
+| `YOLO_OPENCV_DEBUG_DIR` | Debug 包同理；只有 `debug` 构建需要 |
+| `ONNXRUNTIME_ROOT` | ONNX Runtime 解压包根目录，含 `include/`、`lib/` |
+| `FFMPEG_DIR` | FFmpeg 安装目录，含 `include/`、`lib/`、`bin/` |
+| `MVCAM_COMMON_RUNENV` | MVS SDK 根目录；MVS 安装器会自己设置 |
+
+一组典型的取值示例：
+
+```powershell
+$env:QTDIR = "D:/Qt/6.11.1/msvc2022_64"
+$env:YOLO_OPENCV_RELEASE_DIR = "D:/opencv/build"
+$env:YOLO_OPENCV_DEBUG_DIR = "D:/opencv/build-debug"
+$env:ONNXRUNTIME_ROOT = "D:/onnxruntime-win-x64-gpu_cuda13-1.30.0"
+$env:FFMPEG_DIR = "D:/ffmpeg"
+$env:MVCAM_COMMON_RUNENV = "D:/MVS/Development"
+```
+
+### 配置与构建
 
 ```powershell
 git clone https://github.com/fanyu99/YOLO-Realtime-Detector.git
 cd YOLO-Realtime-Detector
-$env:MVCAM_COMMON_RUNENV = "D:/MVS/Development"
-cmake -S . -B build -G Ninja `
-  -DCMAKE_PREFIX_PATH="D:/Qt/6.11.1/msvc2022_64" `
-  -DYOLO_OPENCV_RELEASE_DIR="D:/opencv/build" `
-  -Donnxruntime_DIR="D:/onnxruntime-win-x64-gpu_cuda13-1.30.0/lib/cmake/onnxruntime" `
-  -DFFMPEG_ROOT="D:/ffmpeg" `
-  -DYOLO_BUILD_DEBUG=OFF
-cmake --build build --parallel
-.\build\YOLO.exe
+cmake --preset release
+cmake --build out/build/release --parallel
+.\out\build\release\YOLO.exe
 ```
 
-当前 CMake 会根据 `YOLO_OPENCV_RELEASE_DIR` 或 `YOLO_OPENCV_DEBUG_DIR` 强制设置 `OpenCV_DIR`，因此应设置前两者。Debug 构建需要匹配的 OpenCV Debug 库，并传入 `-DYOLO_BUILD_DEBUG=ON`。
+`CMakePresets.json` 提供两个 preset：`release`，以及使用 OpenCV Debug 包的 `debug`。它只描述生成器、输出目录和构建类型，不含绝对路径；机器特有的目录放在不入库的 `CMakeUserPresets.json` 里，它继承这些 preset 并补一个 `environment` 块——换机器时照着其中的 `local-deps` 改路径即可。
 
-| 选项 | 默认值或作用 |
-|---|---|
-| `YOLO_BUILD_DEBUG` | `OFF`，使用 Release 和对应的 OpenCV 包 |
-| `YOLO_OPENCV_RELEASE_DIR` | `D:/opencv/build` |
-| `YOLO_OPENCV_DEBUG_DIR` | `D:/opencv/build-official-20261023` |
-| `FFMPEG_ROOT` | 优先读取 `FFMPEG_DIR` 环境变量，否则使用 `D:/ffmpeg`；目录需要含 `include/`、`lib/`、`bin/` |
-| `YOLO_ENABLE_CUDA` | `ON`；未找到 Toolkit 时跳过 CUDA 源文件，设为 `OFF` 可关闭自定义 CUDA 代码编译 |
-| `BUILD_TESTS` | `ON`，接入 `tests/test_performance` |
-| `DEPLOY_CUDA_RUNTIME` | `ON`，尝试部署 CUDA/cuDNN DLL |
-| `DEPLOY_MVS_RUNTIME` | `ON`，尝试部署 MVS 运行库；可用 `MVS_RUNTIME_DIR` 指定位置 |
-
-当前脚本将 `CMAKE_CUDA_ARCHITECTURES` 固定为 `120`。需要根据目标 GPU 检查并调整该设置，不能假设生成的程序适用于所有 NVIDIA GPU。关闭 CUDA 编译仍然需要 FFmpeg 和 MVS。MVS SDK 路径从 `MVCAM_COMMON_RUNENV` 获取，找不到时使用 `D:/MVS/Development`；当前不是普通的缓存覆盖参数。
-
-构建会复制部分运行库，并将 `examples/` 放到程序目录。将程序移到其他电脑之前，需要确认对应的运行库也已部署。
-
-完成构建后，可以运行已注册的测试：
+不用 preset 时，配置方式相同：
 
 ```powershell
-ctest --test-dir build --output-on-failure
+cmake -S . -B out/build/release -G Ninja
+cmake --build out/build/release --parallel
 ```
 
-本次文档更新不代表已经在当前机器完成编译、测试或 GPU 运行验证。
+### 选项
+
+| 变量（环境变量，或 `-D` 缓存变量） | 默认值或作用 |
+|---|---|
+| `YOLO_BUILD_DEBUG` | `OFF`：Release 构建 + Release OpenCV 包；`ON`：Debug 构建 + Debug OpenCV 包 |
+| `YOLO_ENABLE_HIK` | `ON`；找不到可用的 MVS SDK 时配置阶段给出警告、跳过海康层，并把缓存写成 `OFF`，之后用 `-DYOLO_ENABLE_HIK=ON` 恢复 |
+| `YOLO_ENABLE_CUDA` | `ON`；找不到 Toolkit 时给出警告并跳过自定义 CUDA 源码 |
+| `CMAKE_CUDA_ARCHITECTURES` | `120`（Blackwell / RTX 50 系）；按目标显卡设置 |
+| `BUILD_TESTS` | `ON`；当 `tests/CMakeLists.txt` 存在时接入 `tests/` |
+| `DEPLOY_CUDA_RUNTIME` | `ON`；把 CUDA/cuDNN 运行库复制到程序目录 |
+| `DEPLOY_MVS_RUNTIME` | `ON`；把 MVS 运行库复制到程序目录，可用 `MVS_RUNTIME_DIR` 指定位置 |
+
+`FFMPEG_DIR` 是必需的：未设置、或目录下找不到 `libavcodec/avcodec.h` 时，配置会明确报错并停止。`YOLO_OPENCV_*_DIR` 留空也可以——此时 `find_package(OpenCV)` 会走 `OpenCV_DIR`、`CMAKE_PREFIX_PATH` 这些常规途径，把 OpenCV 装在标准位置就不需要额外配置。之所以保留两个变量而不是只留一个 `OpenCV_DIR`：缓存里的单一 `OpenCV_DIR` 在切换 `YOLO_BUILD_DEBUG` 之后仍会指向上一次构建类型的包。
+
+### 运行库部署
+
+构建会把 OpenCV、ONNX Runtime、CUDA/cuDNN、MVS 的运行库复制到程序目录，并在 `examples/` 存在时一并复制。CUDA 与 MVS 这两步还会探测厂商的标准安装位置（`CUDA_PATH`、`CUDNN_PATH`、`C:\Program Files\...\MVS\Runtime`），探测不到只警告不失败。把程序移到其他电脑之前，先确认部署的运行库齐全。
+
+### 测试
+
+```powershell
+ctest --test-dir out/build/release --output-on-failure
+```
+
+测试源码放在 `tests/` 并纳入 git 追踪；测试用的大体积视频/模型不要入库，通过环境变量指给测试程序。
 
 ## 使用与配置
 
@@ -220,9 +252,9 @@ ctest --test-dir build --output-on-failure
 
 | 问题 | 检查方向 |
 |---|---|
-| OpenCV 配置或链接失败 | 通过 `YOLO_OPENCV_*_DIR` 选择匹配的 Debug/Release 包，并保持编译器与位数一致 |
-| 找不到 FFmpeg 头文件或库 | 检查 `FFMPEG_ROOT` 下的头文件、lib，以及脚本需要的开发导入库 |
-| 找不到 `MvCameraControl` 或启动缺 DLL | 检查 x64 MVS SDK/运行库和部署或 PATH；当前即使不使用海康相机也会链接它 |
+| OpenCV 配置或链接失败 | 把 `YOLO_OPENCV_RELEASE_DIR` / `YOLO_OPENCV_DEBUG_DIR` 指向匹配的包，并保持编译器与位数一致 |
+| 找不到 FFmpeg 头文件或库 | 检查 `FFMPEG_DIR`（`include/`、`lib/`、`bin/`）以及 CMake 需要的导入库 |
+| 找不到 `MvCameraControl` 或启动缺 DLL | 设置 `MVCAM_COMMON_RUNENV`（或 `-DMVS_SDK_ROOT=`）；检查部署的运行库与 PATH。缺 DLL 说明海康层已经编入，即配置时 SDK 是存在的 |
 | GPU 模式回退 | 检查编译支持、CUDA/cuDNN/ORT 运行库兼容性、GPU 架构和 fallback 日志 |
 | 没有阶段统计 | Basic 只采集端到端数据，切换 Detailed/Full 并运行检测 |
 | 无法切换监控开关 | 启动时决定监测器类型，切换需要重启；当前配置仍在源码中 |

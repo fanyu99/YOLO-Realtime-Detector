@@ -45,7 +45,9 @@ DetectionTask
 ---
 
 ### 正在进行的更改：
-- 添加QTableView（QtWidget）作为显示结果的表格显示、添加QChartView作为柱状图显示、添加性能监控的内存占用图到performanceView页面中
+- 添加各种测试到tests中并添加tests到CI中进行自动化测试
+- 添加CUDAEvent、ffmpegdecoder解码以及ORT端的探测计时，完善性能监控模块
+- 添加检测结果的tableview显示以及内存占用的柱状图/扇形图
 
 
 - 调整执行模型：

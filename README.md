@@ -49,7 +49,7 @@ The current build scripts target Windows x64 and include Windows library and DLL
 | Image processing | OpenCV; existing setup uses 5.0, for image reading, CPU preprocessing, drawing, and conversion |
 | Media input | FFmpeg, including software decode and CUDA hardware contexts |
 | GPU | CUDA Toolkit, cuDNN, custom BGR/NV12 preprocessing kernels |
-| Industrial cameras | Hikvision MVS SDK, required by the current build |
+| Industrial cameras | Hikvision MVS SDK; the configure warns and skips this layer when the SDK is absent |
 | Monitoring | `IPerformanceMonitor`, `PerformanceMonitor`, `NullPerformanceMonitor`, `ScopedStageTimer` |
 | Build and tests | CMake, Ninja/MSVC, Qt Test, CTest |
 
@@ -136,7 +136,7 @@ The startup report interval is 300 ms. Changing between enabled levels or changi
 ├── qml/                  # main, dialogs, PerformanceView, LogView, Theme
 ├── examples/             # Sample image and ONNX model, deployed beside the executable
 ├── models/               # Local model directory
-├── tests/test_performance/
+├── tests/                # Qt Test sources, tracked in git
 └── docs/
     ├── ARCHITECTURE.md
     └── architecture.html
@@ -144,46 +144,78 @@ The startup report interval is 300 ms. Changing between enabled levels or changi
 
 ## Build
 
-Use an MSVC developer shell with a compiler that supports the project's C++23 code. Install Qt 6 (Core, Gui, Qml, Quick, QuickControls2, Multimedia, Test), OpenCV, ONNX Runtime, FFmpeg development files, and the Hikvision MVS SDK. CUDA Toolkit and cuDNN are needed for the GPU build/runtime. The paths below are examples of the existing dependency layout; adjust them for your machine.
+Windows x64 with MSVC and Ninja. Start an x64 MSVC developer shell (vcvars64) first: the presets reuse the toolchain already present in the environment instead of setting one up.
+
+Install a C++23-capable MSVC, Ninja, and the development packages for Qt 6 (Core, Gui, Qml, Quick, QuickControls2, Multimedia, Test), OpenCV, ONNX Runtime and FFmpeg. The GPU path additionally needs the CUDA Toolkit and cuDNN. The Hikvision MVS SDK is optional — without it the build drops the Hik camera layer and says so in a warning.
+
+### Point CMake at the dependencies
+
+Every dependency directory is read from an environment variable and converted into a cache variable, so each one can also be overridden with `-D`. Nothing is hard-coded in the repository.
+
+| Environment variable | Value |
+|---|---|
+| `QTDIR` | Qt 6 installation directory (`CMAKE_PREFIX_PATH` and `Qt6_DIR` work as well) |
+| `YOLO_OPENCV_RELEASE_DIR` | Directory containing the Release package's `OpenCVConfig.cmake` |
+| `YOLO_OPENCV_DEBUG_DIR` | Same for the Debug package; only needed for `debug` builds |
+| `ONNXRUNTIME_ROOT` | ONNX Runtime package root, containing `include/` and `lib/` |
+| `FFMPEG_DIR` | FFmpeg installation directory, containing `include/`, `lib/` and `bin/` |
+| `MVCAM_COMMON_RUNENV` | MVS SDK root; the MVS installer sets this one itself |
+
+Example values for a typical layout:
+
+```powershell
+$env:QTDIR = "D:/Qt/6.11.1/msvc2022_64"
+$env:YOLO_OPENCV_RELEASE_DIR = "D:/opencv/build"
+$env:YOLO_OPENCV_DEBUG_DIR = "D:/opencv/build-debug"
+$env:ONNXRUNTIME_ROOT = "D:/onnxruntime-win-x64-gpu_cuda13-1.30.0"
+$env:FFMPEG_DIR = "D:/ffmpeg"
+$env:MVCAM_COMMON_RUNENV = "D:/MVS/Development"
+```
+
+### Configure and build
 
 ```powershell
 git clone https://github.com/fanyu99/YOLO-Realtime-Detector.git
 cd YOLO-Realtime-Detector
-$env:MVCAM_COMMON_RUNENV = "D:/MVS/Development"
-cmake -S . -B build -G Ninja `
-  -DCMAKE_PREFIX_PATH="D:/Qt/6.11.1/msvc2022_64" `
-  -DYOLO_OPENCV_RELEASE_DIR="D:/opencv/build" `
-  -Donnxruntime_DIR="D:/onnxruntime-win-x64-gpu_cuda13-1.30.0/lib/cmake/onnxruntime" `
-  -DFFMPEG_ROOT="D:/ffmpeg" `
-  -DYOLO_BUILD_DEBUG=OFF
-cmake --build build --parallel
-.\build\YOLO.exe
+cmake --preset release
+cmake --build out/build/release --parallel
+.\out\build\release\YOLO.exe
 ```
 
-The current CMake script overrides `OpenCV_DIR` from `YOLO_OPENCV_RELEASE_DIR` or `YOLO_OPENCV_DEBUG_DIR`. Set those variables rather than only passing `OpenCV_DIR`. Debug builds need matching OpenCV Debug binaries and `-DYOLO_BUILD_DEBUG=ON`.
+`CMakePresets.json` provides two presets: `release`, and `debug` for a Debug build against the Debug OpenCV package. It describes the generator, output directory and build type only, and contains no absolute paths. Machine-specific layout belongs in the untracked `CMakeUserPresets.json`, which inherits these presets and adds an `environment` block — copy its `local-deps` preset when setting up a new machine.
 
-| Option | Default / behavior |
-|---|---|
-| `YOLO_BUILD_DEBUG` | `OFF`: Release and the Release OpenCV package |
-| `YOLO_OPENCV_RELEASE_DIR` | `D:/opencv/build` |
-| `YOLO_OPENCV_DEBUG_DIR` | `D:/opencv/build-official-20261023` |
-| `FFMPEG_ROOT` | `FFMPEG_DIR` environment variable, otherwise `D:/ffmpeg`; must contain `include/`, `lib/`, `bin/` |
-| `YOLO_ENABLE_CUDA` | `ON`; missing Toolkit skips CUDA source compilation; `OFF` selects a build without custom CUDA code |
-| `BUILD_TESTS` | `ON`; adds `tests/test_performance` |
-| `DEPLOY_CUDA_RUNTIME` | `ON`; attempts CUDA/cuDNN DLL deployment |
-| `DEPLOY_MVS_RUNTIME` | `ON`; attempts MVS runtime deployment; `MVS_RUNTIME_DIR` overrides discovery |
-
-The current script sets `CMAKE_CUDA_ARCHITECTURES` to `120`. Review that setting in `CMakeLists.txt` for your target GPU rather than assuming every NVIDIA GPU is supported by the produced binary. CPU-only compilation does not remove FFmpeg or MVS dependencies. MVS SDK discovery uses `MVCAM_COMMON_RUNENV`, falling back to `D:/MVS/Development`; it is not a normal cache override in the current script.
-
-The build deploys selected runtime DLLs and copies `examples/` beside the executable. Confirm the runtime dependencies are present before moving the application to another machine.
-
-To run the registered test target after building:
+The same configure works without presets:
 
 ```powershell
-ctest --test-dir build --output-on-failure
+cmake -S . -B out/build/release -G Ninja
+cmake --build out/build/release --parallel
 ```
 
-A successful documentation update does not establish that the build or these tests pass on a particular machine.
+### Options
+
+| Variable (environment, or `-D` cache) | Default / behavior |
+|---|---|
+| `YOLO_BUILD_DEBUG` | `OFF`: Release build with the Release OpenCV package. `ON` selects the Debug build and the Debug OpenCV package |
+| `YOLO_ENABLE_HIK` | `ON`; without a usable MVS SDK the configure warns, skips the Hik layer and stores `OFF` in the cache — restore it with `-DYOLO_ENABLE_HIK=ON` |
+| `YOLO_ENABLE_CUDA` | `ON`; without a Toolkit the configure warns and skips the custom CUDA sources |
+| `CMAKE_CUDA_ARCHITECTURES` | `120` (Blackwell / RTX 50 series); set it to match the target GPU |
+| `BUILD_TESTS` | `ON`; adds `tests/` when `tests/CMakeLists.txt` exists |
+| `DEPLOY_CUDA_RUNTIME` | `ON`; copies CUDA/cuDNN runtime DLLs next to the executable |
+| `DEPLOY_MVS_RUNTIME` | `ON`; copies the MVS runtime next to the executable; `MVS_RUNTIME_DIR` overrides discovery |
+
+`FFMPEG_DIR` is required: the configure stops with an explicit message when it is unset or when `libavcodec/avcodec.h` is missing underneath it. Leaving `YOLO_OPENCV_*_DIR` empty is supported — `find_package(OpenCV)` then searches `OpenCV_DIR` and `CMAKE_PREFIX_PATH`, so a standard OpenCV installation needs no configuration. Two variables are kept instead of one because a single cached `OpenCV_DIR` would keep pointing at the previous build type's package after switching `YOLO_BUILD_DEBUG`.
+
+### Runtime deployment
+
+The build copies the runtime DLLs of OpenCV, ONNX Runtime, CUDA/cuDNN and MVS next to the executable, and copies `examples/` when that directory exists. The CUDA and MVS steps also probe the standard vendor locations (`CUDA_PATH`, `CUDNN_PATH`, `C:\Program Files\...\MVS\Runtime`) and warn instead of failing when they find nothing. Confirm the deployed runtime files are complete before moving the application to another machine.
+
+### Tests
+
+```powershell
+ctest --test-dir out/build/release --output-on-failure
+```
+
+Test sources live in `tests/` and are tracked in git. Keep large test videos and models out of the repository and point the tests at them through environment variables.
 
 ## Usage and configuration
 
@@ -218,9 +250,9 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for development notes. Its opening s
 
 | Symptom | Check |
 |---|---|
-| OpenCV configure or link failure | Select the matching Release/Debug package through `YOLO_OPENCV_*_DIR`; use the same toolchain and architecture |
-| Missing FFmpeg headers or libraries | Check `FFMPEG_ROOT/include`, `lib`, and the development import libraries expected by CMake |
-| Missing `MvCameraControl` or startup DLL failure | Install the x64 MVS SDK/runtime and check deployment or PATH; MVS is currently linked even without a camera task |
+| OpenCV configure or link failure | Point `YOLO_OPENCV_RELEASE_DIR` / `YOLO_OPENCV_DEBUG_DIR` at the matching package, and keep toolchain and architecture consistent |
+| Missing FFmpeg headers or libraries | Check `FFMPEG_DIR` (`include/`, `lib/`, `bin/`) and the import libraries CMake expects |
+| Missing `MvCameraControl` or startup DLL failure | Set `MVCAM_COMMON_RUNENV` (or `-DMVS_SDK_ROOT=`); check the deployed runtime and PATH. A missing DLL means the Hik layer was built, so the SDK was present at configure time |
 | GPU mode falls back | Check Toolkit/build support, CUDA/cuDNN/ORT runtime compatibility, GPU architecture, and the fallback log |
 | No stage rows in monitoring | Basic only collects end-to-end data; select Detailed/Full and run a job |
 | Off/On change does not apply | Startup monitor selection requires restart and currently comes from source configuration |

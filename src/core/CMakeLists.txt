@@ -172,7 +172,21 @@ if(YOLO_HAVE_CUDA)
 endif()
 
 # ---- yolo_hik：海康相机帧源，私有依赖 MVS SDK -------------------------------
+# SDK 缺失时不中断构建，只降级跳过这一层（与顶层 CUDA 探测同一策略）。
+if(YOLO_ENABLE_HIK AND NOT EXISTS "${MVS_LIBRARY_DIRS}/MvCameraControl.lib")
+    message(WARNING
+        "YOLO_ENABLE_HIK=ON，但 ${MVS_LIBRARY_DIRS} 下没有 MvCameraControl.lib。\n"
+        "将跳过海康相机帧源的编译。请设置环境变量 MVCAM_COMMON_RUNENV，"
+        "或用 -DMVS_SDK_ROOT=<SDK 根目录> 指定；"
+        "之后装了 SDK 要恢复支持，请用 -DYOLO_ENABLE_HIK=ON 重新配置。")
+    # 必须写进缓存：普通变量只在本目录作用域生效，顶层 CMakeLists 里的
+    # if(YOLO_ENABLE_HIK) 仍会去链接并不存在的 yolo_hik。
+    set(YOLO_ENABLE_HIK OFF CACHE BOOL "编译海康相机帧源（需要本机 MVS SDK）" FORCE)
+endif()
+
 if(YOLO_ENABLE_HIK)
+    message(STATUS "海康 MVS SDK: ${MVS_LIBRARY_DIRS}/MvCameraControl.lib")
+
     find_library(MVS_CAMERA_CONTROL_LIB
         NAMES MvCameraControl
         PATHS "${MVS_LIBRARY_DIRS}"

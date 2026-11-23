@@ -5,10 +5,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Qt 版本兼容垫片（qt_standard_project_setup / qt_add_executable 等）。
 # 注意用完整路径：include() 的参数若带 .cmake 扩展名会被当成「文件路径」，
 # 不会去 CMAKE_MODULE_PATH 里搜索。
-set(MVS_SDK_ROOT "$ENV{MVCAM_COMMON_RUNENV}")
-if(NOT MVS_SDK_ROOT)
-    set(MVS_SDK_ROOT "D:/MVS/Development")
-endif()
+# --------------------------------------------------------------------------
+# 海康 MVS SDK
+#
+# 根目录取自环境变量 MVCAM_COMMON_RUNENV（MVS 安装器会设置它），
+# 也可以在配置时用缓存变量覆盖：-DMVS_SDK_ROOT=<SDK 根目录>。
+# 这里不再回退到某个本机路径：猜错目录只会让后续的链接错误更难定位。
+# --------------------------------------------------------------------------
+set(MVS_SDK_ROOT "$ENV{MVCAM_COMMON_RUNENV}" CACHE PATH
+    "海康 MVS SDK 根目录（应包含 Includes/、Libraries/）")
 
 # 根据目标架构选择 win32 / win64 库目录
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -30,9 +35,9 @@ set(CMAKE_AUTOMOC ON)
 # Release OpenCV 的组合：Debug 下头文件会把 cv:: 放进 cv::debug_build_guard 命名
 # 空间，与 release 库的符号名不一致，会直接链接失败。
 # -----------------------------------------------------------------------------
-option(YOLO_BUILD_DEBUG 
-"ON = Debug 构建并使用 OpenCV debug 库；OFF = Release（默认）" 
-ON
+option(YOLO_BUILD_DEBUG
+"ON = Debug 构建并使用 OpenCV debug 库；OFF = Release（默认）"
+OFF
 )
 if(YOLO_BUILD_DEBUG)
     message(STATUS "YOLO_BUILD_DEBUG= ON : Debug 构建 + OpenCV Debug 库")
@@ -40,18 +45,22 @@ else()
     message(STATUS "YOLO_BUILD_DEBUG= OFF : Release 构建 + OpenCV Release 库")
 endif()
 
-set(YOLO_OPENCV_RELEASE_DIR "D:/opencv/build" CACHE PATH "OpenCV Release 包根目录（含 OpenCVConfig.cmake）")
-set(YOLO_OPENCV_DEBUG_DIR "D:/opencv/build-official-20261023" CACHE PATH "OpenCV Debug 包根目录（含 OpenCVConfig.cmake）")
+# 包目录默认取同名环境变量，也可以在配置时用 -D 覆盖。
+# 目标机把 OpenCV 装在标准位置（或已加入 CMAKE_PREFIX_PATH）时两者留空即可。
+set(YOLO_OPENCV_RELEASE_DIR "$ENV{YOLO_OPENCV_RELEASE_DIR}" CACHE PATH "OpenCV Release 包根目录（含 OpenCVConfig.cmake）")
+set(YOLO_OPENCV_DEBUG_DIR "$ENV{YOLO_OPENCV_DEBUG_DIR}" CACHE PATH "OpenCV Debug 包根目录（含 OpenCVConfig.cmake）")
 
 
 if(YOLO_BUILD_DEBUG)
     set(_yolo_build_type "Debug")
     set(_yolo_opencv_dir "${YOLO_OPENCV_DEBUG_DIR}")
     set(_yolo_opencv_label "Debug")
+    set(_yolo_opencv_var "YOLO_OPENCV_DEBUG_DIR")
 else()
     set(_yolo_build_type "Release")
     set(_yolo_opencv_dir "${YOLO_OPENCV_RELEASE_DIR}")
     set(_yolo_opencv_label "Release")
+    set(_yolo_opencv_var "YOLO_OPENCV_RELEASE_DIR")
 endif()
 
 # 单配置生成器（Ninja / Makefiles）靠 CMAKE_BUILD_TYPE 决定优化级别与 CRT；
@@ -65,32 +74,40 @@ else()
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
 endif()
 
-if(NOT EXISTS "${_yolo_opencv_dir}/OpenCVConfig.cmake")
-    message(FATAL_ERROR
-        "YOLO_BUILD_DEBUG=${YOLO_BUILD_DEBUG} 需要 OpenCV ${_yolo_opencv_label} 包，"
-        "但在 ${_yolo_opencv_dir} 下找不到 OpenCVConfig.cmake。\n"
-        "请把包放到该目录，或修改缓存变量 YOLO_OPENCV_DEBUG_DIR / YOLO_OPENCV_RELEASE_DIR。")
-endif()
+if(_yolo_opencv_dir)
+    if(NOT EXISTS "${_yolo_opencv_dir}/OpenCVConfig.cmake")
+        message(FATAL_ERROR
+            "YOLO_BUILD_DEBUG=${YOLO_BUILD_DEBUG} 需要 OpenCV ${_yolo_opencv_label} 包，"
+            "但在 ${_yolo_opencv_dir} 下找不到 OpenCVConfig.cmake。\n"
+            "请改正 ${_yolo_opencv_var}（环境变量，或配置时用 -D${_yolo_opencv_var}=<包根目录> 传入）。")
+    endif()
 
-# 必须 FORCE 覆盖缓存里的 OpenCV_DIR：否则上一次 configure 留下的路径会被沿用，
-# 切换开关后依旧链到旧包（find_package 优先读 cache）。
-set(OpenCV_DIR "${_yolo_opencv_dir}" CACHE PATH "OpenCV 包目录（由 YOLO_BUILD_DEBUG 决定）" FORCE)
-message(STATUS "构建模式: ${_yolo_build_type}；OpenCV: ${_yolo_opencv_label} (${OpenCV_DIR})")
+    # 必须 FORCE 覆盖缓存里的 OpenCV_DIR：否则上一次 configure 留下的路径会被沿用，
+    # 切换开关后依旧链到旧包（find_package 优先读 cache）。
+    set(OpenCV_DIR "${_yolo_opencv_dir}" CACHE PATH "OpenCV 包目录（由 YOLO_BUILD_DEBUG 决定）" FORCE)
+    message(STATUS "构建模式: ${_yolo_build_type}；OpenCV: ${_yolo_opencv_label} (${OpenCV_DIR})")
+else()
+    # 未指定包目录时不预设 OpenCV_DIR，交给 find_package(OpenCV) 走 OpenCV_DIR /
+    # CMAKE_PREFIX_PATH 等常规途径 —— 把 OpenCV 装在标准位置的机器无需任何配置。
+    message(STATUS "构建模式: ${_yolo_build_type}；未指定 OpenCV ${_yolo_opencv_label} 包目录，"
+        "由 find_package(OpenCV) 自行查找（可设环境变量 ${_yolo_opencv_var} 指定）")
+endif()
 
 # --------------------------------------------------------------------------
 # FFmpeg
 #
-# 安装目录优先取环境变量 FFMPEG_DIR，没有则使用 D:/ffmpeg。
-# 也可以在配置时覆盖：-DFFMPEG_ROOT=D:/some/other/ffmpeg
+# 安装目录取自环境变量 FFMPEG_DIR，也可以在配置时用缓存变量覆盖：
+# -DFFMPEG_ROOT=<FFmpeg 安装目录>
 # ---------------------------------------------------------------------------
-set(_ffmpeg_default "$ENV{FFMPEG_DIR}")
-if(NOT _ffmpeg_default)
-    set(_ffmpeg_default "D:/ffmpeg")
-endif()
-
-set(FFMPEG_ROOT "${_ffmpeg_default}" CACHE PATH
+set(FFMPEG_ROOT "$ENV{FFMPEG_DIR}" CACHE PATH
     "FFmpeg 安装目录（应包含 include/、lib/、bin/）")
 file(TO_CMAKE_PATH "${FFMPEG_ROOT}" FFMPEG_ROOT)
+
+if(NOT FFMPEG_ROOT)
+    message(FATAL_ERROR
+        "未指定 FFmpeg 安装目录：请设置环境变量 FFMPEG_DIR，"
+        "或配置时传入 -DFFMPEG_ROOT=<FFmpeg 安装目录>。")
+endif()
 
 set(FFMPEG_INCLUDE_DIR "${FFMPEG_ROOT}/include")
 set(FFMPEG_LIBRARY_DIR "${FFMPEG_ROOT}/lib")
@@ -100,7 +117,7 @@ if(NOT EXISTS "${FFMPEG_INCLUDE_DIR}/libavcodec/avcodec.h")
     message(FATAL_ERROR
         "在 ${FFMPEG_INCLUDE_DIR} 下找不到 libavcodec/avcodec.h。\n"
         "请检查 FFMPEG_ROOT（当前为 ${FFMPEG_ROOT}），"
-        "或配置时传入 -DFFMPEG_ROOT=<FFmpeg 安装目录>。")
+        "或设置环境变量 FFMPEG_DIR 指向正确的安装目录。")
 endif()
 
 # 使用 DLL 的 import lib（avcodec.lib 等），不要用 lib*.lib 静态库。
@@ -151,8 +168,11 @@ if(YOLO_ENABLE_CUDA)
     find_package(CUDAToolkit QUIET)
     if(CUDAToolkit_FOUND)
         set(YOLO_HAVE_CUDA ON)
+        # 计算能力按目标显卡改：120 = Blackwell（RTX 50 系）。
+        # 编错架构的程序在别的卡上会直接跑不起来，所以留成可覆盖的缓存变量。
+        set(CMAKE_CUDA_ARCHITECTURES "120" CACHE STRING
+            "目标 GPU 的计算能力（如 89 / 120；多个用分号分隔）")
         enable_language(CUDA)
-        set(CMAKE_CUDA_ARCHITECTURES 120)
         set(CMAKE_CUDA_STANDARD 17)
         message(STATUS "CUDA编译开启：CUDA Toolkit: ${CUDAToolkit_VERSION} (${CUDAToolkit_LIBRARY_DIR})")
     else()
@@ -163,11 +183,40 @@ if(YOLO_ENABLE_CUDA)
     endif()
 endif()
 
+# --------------------------------------------------------------------------
+# Qt
+#
+# 安装目录取自环境变量 QTDIR（Qt 官方安装器与 Qt Creator presets 的约定），
+# 也可以走 CMAKE_PREFIX_PATH 或 -DQt6_DIR=<Qt 安装目录>/lib/cmake/Qt6。
+# --------------------------------------------------------------------------
+if(DEFINED ENV{QTDIR})
+    list(APPEND CMAKE_PREFIX_PATH "$ENV{QTDIR}")
+endif()
+
 find_package(OpenCV REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Core Test)
 # 海康 MVS SDK 的 find_library 在 src/core/CMakeLists.txt 中执行（yolo_hik）
 
-find_package(onnxruntime CONFIG REQUIRED)
+# --------------------------------------------------------------------------
+# ONNX Runtime
+#
+# 解压包根目录取自环境变量 ONNXRUNTIME_ROOT（包内应有 lib/cmake/onnxruntime/），
+# 也可以直接指定包目录：-Donnxruntime_DIR=<包根目录>/lib/cmake/onnxruntime。
+# --------------------------------------------------------------------------
+set(ONNXRUNTIME_ROOT "$ENV{ONNXRUNTIME_ROOT}" CACHE PATH
+    "ONNX Runtime 解压包根目录（含 include/、lib/）")
+if(ONNXRUNTIME_ROOT AND NOT onnxruntime_DIR)
+    set(onnxruntime_DIR "${ONNXRUNTIME_ROOT}/lib/cmake/onnxruntime" CACHE PATH
+        "onnxruntime 的 CMake 包目录（由 ONNXRUNTIME_ROOT 推导）")
+endif()
+
+find_package(onnxruntime CONFIG QUIET)
+if(NOT onnxruntime_FOUND)
+    message(FATAL_ERROR
+        "找不到 onnxruntime 的 CMake 包。\n"
+        "请设置环境变量 ONNXRUNTIME_ROOT=<解压包根目录>，"
+        "或配置时传入 -Donnxruntime_DIR=<包根目录>/lib/cmake/onnxruntime。")
+endif()
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
 find_package(Qt${QT_VERSION_MAJOR}
     COMPONENTS

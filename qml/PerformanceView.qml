@@ -241,8 +241,18 @@ Window {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.preferredWidth: 270
+                    // 空显示
+                    Label {
+                        id: emptyLabel
+                        anchors.centerIn: parent
+                        visible: !performanceView.perf || performanceView.perf.levelIndex === 0
+                        text: "性能监控已关闭"
+                        color: performanceView.theme.muted
+                        font.pixelSize: 13
+                    }
 
                     GridLayout {
+                        visible: !emptyLabel.visible
                         anchors.fill: parent
                         columns: 2
                         columnSpacing: 8
@@ -293,7 +303,7 @@ Window {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.preferredWidth: 270
-
+                    
                     GridLayout {
                         anchors.fill: parent
                         columns: 2
@@ -338,8 +348,7 @@ Window {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.preferredWidth: 270
-
-                    // 监控关闭时给空态，而不是一排假 0
+                    // 空显示
                     Label {
                         anchors.centerIn: parent
                         visible: !performanceView.perf || performanceView.perf.levelIndex === 0
