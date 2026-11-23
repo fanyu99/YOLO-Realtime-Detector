@@ -15,10 +15,10 @@ import QtMultimedia
 Window {
     id: window
     visible: true
-    width: 1000
-    height: 800
+    width: 1200
+    height: 900
     minimumWidth: 600
-    minimumHeight: 400
+    minimumHeight: 450
     title: "检测头"
     color: theme.window
 

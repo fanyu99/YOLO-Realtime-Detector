@@ -17,6 +17,7 @@
 #include "DetectionOverlayItem.h"
 #include "DisplayPolicy.h"
 #include "ClassPalette.h"
+#include <QFutureWatcher>
 
 class DetectionImageProvider;
 class PerformanceApp;
@@ -49,6 +50,7 @@ class DetectionApp : public QObject
 	Q_PROPERTY(QString preferredViewMode READ preferredViewMode NOTIFY preferredViewModeChanged)	// 预览模式(用户模式)
 	Q_PROPERTY(QString activeViewMode READ activeViewMode NOTIFY activeViewModeChanged)			// 实际生效的预览模式
 	Q_PROPERTY(QList<ClassColorItem> clsClrInfo READ clsClrInfo NOTIFY clsClrInfoChanged)
+	Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
 
 public:
 	using  AppPtr = std::unique_ptr<DetectionApp>;
@@ -67,6 +69,7 @@ public:
 	~DetectionApp() override;
 
 	// Getter
+	bool loading ()const { return m_loading; }
 	QList<ClassColorItem>clsClrInfo ()const;
 	QUrl modelPath() const;
 	QUrl filePath() const;
@@ -89,6 +92,9 @@ public:
 	// 实际生效的预览模式：由 App 在链路重建后写回，未写回时跟回用户模式
 	QString activeViewMode() const { return ViewMode2String(m_displayPolicy.activeMode()); }
 
+	void setNativeOk ( bool ok );
+	bool isNativeOk ()const { return m_frameMail->isNativeOk (); }
+
 	// 供 QML 调用
 	Q_INVOKABLE void setFlowMode( const QString& flow_mode );	// 设置 CPU/GPU 模式
 	Q_INVOKABLE void setViewMode( const QString& viewMode );	// 设置预览模式(离线/实时)
@@ -102,8 +108,8 @@ public:
 	Q_INVOKABLE void runSampleDetection();						// 一键示例检测
 	Q_INVOKABLE void onDetectHikCameraClicked(const QString& serial, const QString& triggerMode);	// qml 海康相机检测(带序列号)
 	Q_INVOKABLE void onDetectFfmpegDeviceClicked(const QString& deviceName, const QString& formatName = QString());	// qml Ffmpeg设备检测(带设备名)
-	Q_INVOKABLE QVariantList hikDevices() const;				// 枚举在线海康相机(供选择对话框填列表)
-	Q_INVOKABLE QVariantList ffmpegVideoDevices(const QString& formatName = QString()) const;	// 枚举 ffmpeg video 输入设备(供选择对话框填列表，阻塞操作)
+	Q_INVOKABLE void  hikDevices() ;				// 枚举在线海康相机(供选择对话框填列表)
+	Q_INVOKABLE void ffmpegVideoDevices(const QString& formatName = QString()) ;	// 枚举 ffmpeg video 输入设备(供选择对话框填列表，阻塞操作)
 	Q_INVOKABLE quint64 submitBatch(const QList<QUrl>& urls);	// qml 批量检测：一个 Job 含多个 Task
 	Q_INVOKABLE void cancelCurrentJob();						// qml 停止按钮
 	Q_INVOKABLE void dismissBanner();							// qml 关闭横幅
@@ -120,7 +126,10 @@ public:
 	IPerformanceMonitor* monitor () const;
 
 signals:
-	void   clsClrInfoChanged ();
+	void loadingChanged (); // 耗时加载信号改变
+	void loadingResult ( const QVariantList& result );
+
+	void clsClrInfoChanged ();
 	void modelPathChanged();
 	void filePathChanged();
 	void configChanged();
@@ -190,6 +199,9 @@ private:
 	void showBanner(QStringView text, BannerLevel level);	// 统一的横幅出口
 	void onConfigAdjusted(const DetectorConfig& config);		// 检测器对齐了配置尺寸 -> 同步本地副本
 
+
+	std::unique_ptr<QFutureWatcher<QVariantList>>m_watcher{nullptr};	// 监测异步（进度条）
+	bool m_loading{ false }; // 耗时加载属性
 
 	explicit DetectionApp ( QObject* parent = nullptr );
 	inline static  AppPtr m_instance;  // 单例智能指针

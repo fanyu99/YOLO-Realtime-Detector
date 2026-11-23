@@ -45,19 +45,9 @@ DetectionTask
 ---
 
 ### 正在进行的更改：
-- 准备添加GPU像素的Overlay显示，完善整个实时预览模式的显示逻辑：
-    - 预览模式分为离线预览模式和实时预览模式，对照表为：
+- 添加QTableView（QtWidget）作为显示结果的表格显示、添加QChartView作为柱状图显示、添加性能监控的内存占用图到performanceView页面中
 
-| 用户选的 ViewMode | 生效 FlowMode | 保存 | 实际后端 | 是否下载 
-|---|---|---|---|---|
-| Live | GPU，互操作可用 | 关 | Overlay（零拷贝） | 否，直接使用GPU像素|
-| Live | GPU，互操作可用 | **开** | Overlay（零拷贝） | 是，保存需要渲染 |
-| Live | GPU，互操作失败 | 任意 | Overlay（上传） | 是，需要下载到CPU使用|
-| Live | CPU | 任意 | Overlay（上传） | 否，直接使用CPU数据进行|
-| Offline | 任意 | 任意 | ImageProvider | 是，需要渲染检测框和转为QImage|
 
-- 添加Overlay的叠加层显示，作为实时预览的显示后端；离线预览模式下沿用当前的QImageProvider和结果回看
-- 添加各个阶段的计时以及性能监控界面，使用策略模式+依赖注入+模块化设计当前的性能监控模块，使用依赖倒置原则
 - 调整执行模型：
   - Worker 以 Job 为最小执行单元，并负责 Session 管理。
   - 每个 Job 包含多个 Task，Worker 根据配置复用或创建 Session。
@@ -75,6 +65,22 @@ DetectionTask
 ---
 
 当前完成：
+- 为前端的QML以及App添加了QFuture异步和QConcurrent的枚举设备逻辑，防止在阻塞UI线程，并添加了Busy动画
+- 准备添加GPU像素的Overlay显示，完善整个实时预览模式的显示逻辑：
+    - 预览模式分为离线预览模式和实时预览模式，对照表为：
+
+| 用户选的 ViewMode | 生效 FlowMode | 保存 | 实际后端 | 是否下载 
+|---|---|---|---|---|
+| Live | GPU，互操作可用 | 关 | Overlay（零拷贝） | 否，直接使用GPU像素|
+| Live | GPU，互操作可用 | **开** | Overlay（零拷贝） | 是，保存需要渲染 |
+| Live | GPU，互操作失败 | 任意 | Overlay（上传） | 是，需要下载到CPU使用|
+| Live | CPU | 任意 | Overlay（上传） | 否，直接使用CPU数据进行|
+| Offline | 任意 | 任意 | ImageProvider | 是，需要渲染检测框和转为QImage|
+
+- 添加Overlay的叠加层显示，作为实时预览的显示后端；离线预览模式下沿用当前的QImageProvider和结果回看
+- 添加各个阶段的计时以及性能监控界面，使用策略模式+依赖注入+模块化设计当前的性能监控模块，使用依赖倒置原则
+
+
 - Overlay层当前仍然使用CPU像素数据，等待添加GPU的像素数据的Overlay显示
 - 新增Overlay显示叠加层作为检测框的显示，然后添加对应颜色的图例进行区分不同类别
 - 优化主界面以及性能监控页面的布局，添加SplitView进行分割

@@ -44,6 +44,7 @@ public:
 
 signals:
 	void snapshotChanged();
+	void nativeChanged (bool ok);
 
 private:
 	FrameTextureSourcePtr m_textureSource{nullptr};	// 纹理源，根据帧句柄内存的类型选择上传或互操作

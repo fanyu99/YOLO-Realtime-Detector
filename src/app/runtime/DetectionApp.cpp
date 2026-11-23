@@ -9,6 +9,8 @@
 #include "HikCameraFrameSource.h"
 #include "FfmpegFrameSource.h"	
 #include "Logger.h"
+#include <QFuture>
+#include <QtConcurrent/QtConcurrent>
 
 // 匿名工具函数: 帧信号通知限流
 namespace {
@@ -31,10 +33,16 @@ namespace {
 	QString yesNo ( bool value ) { return value ? QStringLiteral ( "是" ) : QStringLiteral ( "否" ); }
 }
 
+void DetectionApp::setNativeOk(bool ok)
+{
+	if (m_frameMail)
+		m_frameMail->setNativeOk ( ok );
+}
+
 DetectionApp::DetectionApp ( QObject* parent ) : QObject ( parent ), m_filePath ( "" ), m_config{}
 {
 	Logger::instance ()->success ( QStringLiteral ( "[DetectionApp]: 应用已初始化" ) );
-
+	m_watcher = std::make_unique<QFutureWatcher <QVariantList>> ();
 	m_frameMail = std::make_unique<FrameMail> ();
 	m_manager = std::make_unique<DetectionManager> ( this );
 	m_manager->transMailPtr ( m_frameMail.get () );	// 注入邮箱指针
@@ -49,8 +57,11 @@ DetectionApp::DetectionApp ( QObject* parent ) : QObject ( parent ), m_filePath 
 	connect ( m_manager.get (), &DetectionManager::configAdjusted, this, &DetectionApp::onConfigAdjusted );
 	connect ( m_manager.get (), &DetectionManager::fallbackOccurred, this, &DetectionApp::onFallbackOccurred );
 	connect ( m_manager.get (), &DetectionManager::frameSnapshotPosted, this, &DetectionApp::onFrameSnapshotPosted );
-
-
+	connect ( m_watcher.get (), &QFutureWatcher<QVariantList>::finished, this, [ this ] () {
+		m_loading = false;
+		emit loadingChanged ();
+		emit loadingResult ( m_watcher->result () );
+		} );	// 耗时完成了发送完成信号
 }
 
 DetectionApp* DetectionApp::initialize ( const DetectorConfig& config, const DisplayPolicy& displayPolicy, PerformanceApp* perfApp ) {
@@ -165,34 +176,47 @@ CameraTriggerMode DetectionApp::str2TriggerMode ( QStringView str ) const {
 }
 
 // 枚举在线海康相机，供 HikCameraDialog 填列表(为阻塞操作)
-QVariantList DetectionApp::hikDevices () const {
-	QVariantList list;
-	const QVector<HikCameraFrameSource::DeviceInfo> devices = HikCameraFrameSource::enumerateDevices ();
-	list.reserve ( devices.size () );
-	for (const HikCameraFrameSource::DeviceInfo& device : devices) {
-		QVariantMap item;
-		item.insert ( QStringLiteral ( "serial" ), device.serial );
-		item.insert ( QStringLiteral ( "model" ), device.model );
-		item.insert ( QStringLiteral ( "userDefinedName" ), device.userDefinedName );
-		item.insert ( QStringLiteral ( "online" ), device.online );
-		list.append ( item );
-	}
-	return list;
+void  DetectionApp::hikDevices () {
+	if (m_loading)
+		return;
+	m_loading = true;
+	emit loadingChanged ();	// 耗时操作开始
+	QFuture<QVariantList> future = QtConcurrent::run ( [ this ] () {
+		QVariantList list;
+		const QVector<HikCameraFrameSource::DeviceInfo> devices = HikCameraFrameSource::enumerateDevices ();
+		list.reserve ( devices.size () );
+		for (const HikCameraFrameSource::DeviceInfo& device : devices) {
+			QVariantMap item;
+			item.insert ( QStringLiteral ( "serial" ), device.serial );
+			item.insert ( QStringLiteral ( "model" ), device.model );
+			item.insert ( QStringLiteral ( "userDefinedName" ), device.userDefinedName );
+			item.insert ( QStringLiteral ( "online" ), device.online );
+			list.append ( item );
+		}
+		return list;	  } );
+	m_watcher->setFuture ( future );
 }
 
 // 枚举 ffmpeg video 输入设备(摄像头等)，供选择对话框填列表(为阻塞操作)
-QVariantList DetectionApp::ffmpegVideoDevices ( const QString& formatName ) const {
-	QVariantList list;
-	const FfmpegDeviceInfoList devices = FfmpegFrameSource::enumerateVideoDevices ( formatName );
-	list.reserve ( devices.size () );
-	for (const FfmpegDeviceInfo& device : devices) {
-		QVariantMap item;
-		item.insert ( QStringLiteral ( "name" ), device.name );		// 友好名：列表显示 + 创建帧源都用它
-		item.insert ( QStringLiteral ( "id" ), device.originalId );			// 原始标识（PNP 路径），仅排查用
-		item.insert ( QStringLiteral ( "isDefault" ), device.isDefault );
-		list.append ( item );
-	}
-	return list;
+void DetectionApp::ffmpegVideoDevices ( const QString& formatName ) {
+	if (m_loading)
+		return;
+	m_loading = true;
+	emit loadingChanged ();
+	QFuture<QVariantList> future = QtConcurrent::run ( [ &formatName,this] () {
+		QVariantList list;
+		const FfmpegDeviceInfoList devices = FfmpegFrameSource::enumerateVideoDevices ( formatName );
+		list.reserve ( devices.size () );
+		for (const FfmpegDeviceInfo& device : devices) {
+			QVariantMap item;
+			item.insert ( QStringLiteral ( "name" ), device.name );		// 友好名：列表显示 + 创建帧源都用它
+			item.insert ( QStringLiteral ( "id" ), device.originalId );			// 原始标识（PNP 路径），仅排查用
+			item.insert ( QStringLiteral ( "isDefault" ), device.isDefault );
+			list.append ( item );
+		}
+		return list;
+		} );
+	m_watcher->setFuture ( future );
 }
 
 // 配置摘要(用于日志)

@@ -35,9 +35,14 @@ void DetectionOverlayItem::componentComplete () {
 	if (auto* app = DetectionApp::instance ())
 		app->installOverlay ( this );
 	// invalidate 清理Native路径的互操作资源
-	connect ( window (), &QQuickWindow::sceneGraphInvalidated, this, [this] () {
+	connect ( window (), &QQuickWindow::sceneGraphInvalidated, this, [ this ] () {
 		m_textureSource->invalidate ();
 		} );
+	connect(this, &DetectionOverlayItem::nativeChanged, this, [ this ] ( bool ok ) {
+		auto* app = DetectionApp::instance ();
+		if (app)
+			app->setNativeOk ( ok );
+	});
 }
 
 // GUI 线程
@@ -145,8 +150,14 @@ QSGNode* DetectionOverlayItem::updatePaintNode ( QSGNode* oldNode, UpdatePaintNo
 // 获取像素数据
 QSGTexture* DetectionOverlayItem::textureFor ( const FrameHandlePtr& frame ) {
 	if (!frame || !m_textureSource)
+	{
+		emit nativeChanged (false);
 		return nullptr;
-	return m_textureSource->textureFor ( frame, window () );
+	}
+	auto* node = m_textureSource->textureFor ( frame, window () );
+	if (!node)
+		emit nativeChanged (false);
+	return node;
 }
 
 QRectF DetectionOverlayItem::fittedRect ( const QSizeF& frameSize ) const {
