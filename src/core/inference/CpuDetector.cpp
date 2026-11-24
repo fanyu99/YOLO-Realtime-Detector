@@ -1,6 +1,5 @@
 #include "CpuDetector.h"
 #include <QDebug>
-#include <QElapsedTimer>
 #include <vector>
 #include <span>
 #include <algorithm>

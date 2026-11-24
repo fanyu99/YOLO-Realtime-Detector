@@ -1,7 +1,7 @@
 #include "CpuDetectionFlow.h"
 #include "ScopedStageTimer.h"
+#include "TimeBases.h"
 #include <QString>
-#include <QElapsedTimer>
 #include <vector>
 #include "Logger.h"
 
@@ -75,22 +75,22 @@ bool CpuDetectionFlow::run( const FrameHandlePtr& handle, DetectionResult& outRe
 		outResult.error = m_lastError;
 		return false;
 	}
-	// 2. 将预处理结果交给CPU推理器进行纯推理(计时，日志在流程层输出)
+	// 2. 将预处理结果交给CPU推理器进行纯推理
 	std::vector<float> output_data;
 	std::vector<int64_t> output_shape;
-	QElapsedTimer timer; // 推理计时ms
-	timer.start();
-	ScopedStageTimer inferTimer( m_monitor, PerformanceStage::Inference );
-	if (!m_detector.infer( preprocessed.value(), output_data, output_shape )) {
-		m_lastError = m_detector.lastError();
-		if (!m_lastError.has_error()) { // 兜底错误
-			m_lastError = DetectionError( QStringLiteral( "[CpuDetectionFlow]: 推理失败" ), DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
+	quint64 inferNs = 0;  // 出参推理阶段计时
+	{
+		ScopedStageTimer inferTimer( m_monitor, PerformanceStage::Inference, &inferNs );
+		if (!m_detector.infer( preprocessed.value(), output_data, output_shape )) {
+			m_lastError = m_detector.lastError();
+			if (!m_lastError.has_error()) { // 兜底错误
+				m_lastError = DetectionError( QStringLiteral( "[CpuDetectionFlow]: 推理失败" ), DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
+			}
+			outResult.error = m_lastError;
+			return false;
 		}
-		outResult.error = m_lastError;
-		return false;
 	}
-	const quint64 duration = timer.elapsed(); // 获取推理耗时(ms)
-	inferTimer.end();	// 结束推理阶段计时(不含 shape 解析与后处理)
+	const quint64 duration = inferNs / TimeBases::Ms2Ns; // 推理耗时(ms)
 	// 3. 由输出 shape 反推解析维度：输出布局为 [1, 4+num_classes, num_anchors]
 	if (output_shape.size() < 3) {
 		m_lastError = DetectionError( QStringLiteral( "[CpuDetectionFlow]: 输出张量维度异常，期望 3 维，实际 " )

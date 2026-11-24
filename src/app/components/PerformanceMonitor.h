@@ -64,7 +64,7 @@ private:
 	// 计时器
 	QElapsedTimer m_clock;	// 记录窗口时间
 	QTimer m_reportTimer;	// 性能快照上报定时器,控制上报时间
-	int m_reportIntervalMs = DefaultReportInterval;
+	int m_reportIntervalMs = TimeBases::DefaultReportIntervalMs;
 
 	PerformanceConfig m_config;	// 配置副本
 

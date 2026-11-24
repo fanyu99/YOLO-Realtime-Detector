@@ -65,13 +65,13 @@ namespace FfmpegDecode {
 
 	// 中断上下文
 	struct InterruptContext {
-		int timeoutMs{ DEFAULT_DECODE_READ_TIMEOUT_MS }; // 超时时间
+		int timeoutMs{ TimeBases::DefaultDecodeReadTimeoutMs }; // 超时时间
 		// 原子变量用于中断回调函数
 		std::atomic<bool> pause{ false }; // 外部的中断标志
 		std::atomic<bool>stop{ false }; // 外部的停止标志，用于解码会话的停止（直接退出循环）
 		QElapsedTimer timer; // 计时器
 
-		explicit InterruptContext( int timeout = DEFAULT_DECODE_READ_TIMEOUT_MS )
+		explicit InterruptContext( int timeout = TimeBases::DefaultDecodeReadTimeoutMs )
 			: timeoutMs( timeout ) {
 			timer.start();  // 开始计时
 		}

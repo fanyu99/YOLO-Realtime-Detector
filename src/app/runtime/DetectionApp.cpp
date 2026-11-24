@@ -9,14 +9,12 @@
 #include "HikCameraFrameSource.h"
 #include "FfmpegFrameSource.h"	
 #include "Logger.h"
+#include "TimeBases.h"
 #include <QFuture>
 #include <QtConcurrent/QtConcurrent>
 
 // 匿名工具函数: 帧信号通知限流
 namespace {
-	// 帧通知间隔，防止频繁发信号
-	constexpr int kFrameNotifyIntervalMs = 16;
-
 	// 判断是否重复，放置重复配置
 	bool sameDetectorConfig ( const DetectorConfig& a, const DetectorConfig& b ) {
 		return a.model_path == b.model_path
@@ -875,7 +873,7 @@ void DetectionApp::onFrameReady ( quint64 jobId, const DetectionResult& result, 
 		return;
 
 	// 控制刷新频率（60fps）
-	if (!m_signalLimitTimer.isValid () || m_signalLimitTimer.elapsed () >= kFrameNotifyIntervalMs) {
+	if (!m_signalLimitTimer.isValid () || m_signalLimitTimer.elapsed () >= TimeBases::DefaultFrameNotifyIntervalMs) {
 		m_signalLimitTimer.restart ();
 		++m_frameRevision;
 		emit frameRevisionChanged ();

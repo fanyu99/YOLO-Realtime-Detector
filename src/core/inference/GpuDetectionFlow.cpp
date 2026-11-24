@@ -1,7 +1,7 @@
 #include  "GpuDetectionFlow.h"
 #include "ScopedStageTimer.h"
+#include "TimeBases.h"
 #include "Logger.h"
-#include <QElapsedTimer>
 
 GpuDetectionFlow::GpuDetectionFlow( const DetectorConfig& config, IPerformanceMonitor* monitor )
 	: m_config( config )
@@ -77,22 +77,22 @@ bool GpuDetectionFlow::run( const FrameHandlePtr& handle, DetectionResult& outRe
 		return false;
 	}
 	const auto& preprocessed = preprocessedOpt.value();
-	// 推理(阶段计时；QElapsedTimer 为结果展示用ms计时，与性能统计互不影响)
+	// 推理(阶段计时，耗时同时用于结果展示)
 	std::vector<float> output_data;
 	std::vector<int64_t> output_shape;
-	QElapsedTimer timer;
-	timer.start();
-	ScopedStageTimer inferTimer( m_monitor, PerformanceStage::Inference );
-	if (!m_detector.infer( preprocessed, output_data, output_shape )) {
-		m_lastError = m_detector.lastError();
-		if (!m_lastError.has_error()) { // 兜底错误
-			m_lastError = DetectionError( QStringLiteral( "[GpuDetectionFlow]: 推理失败" ), DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
+	quint64 inferNs = 0;
+	{
+		ScopedStageTimer inferTimer( m_monitor, PerformanceStage::Inference, &inferNs );
+		if (!m_detector.infer( preprocessed, output_data, output_shape )) {
+			m_lastError = m_detector.lastError();
+			if (!m_lastError.has_error()) { // 兜底错误
+				m_lastError = DetectionError( QStringLiteral( "[GpuDetectionFlow]: 推理失败" ), DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
+			}
+			outResult.error = m_lastError;
+			return false;
 		}
-		outResult.error = m_lastError;
-		return false;
 	}
-	const quint64 duration = timer.elapsed();
-	inferTimer.end();	// 结束推理阶段计时(不含输出校验与后处理)
+	const quint64 duration = inferNs / TimeBases::Ms2Ns;
 	// 校验结果
 	if (output_shape.size() < 3) {
 		m_lastError = DetectionError(

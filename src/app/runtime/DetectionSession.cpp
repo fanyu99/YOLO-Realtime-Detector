@@ -10,7 +10,6 @@
 #endif
 #include "Logger.h"
 #include "ScopedStageTimer.h"
-#include <QElapsedTimer>
 
 namespace {
 	// 预热次数
@@ -65,10 +64,8 @@ DetectionSession::DetectionSession( const DetectorConfig& config, IPerformanceMo
 
 // 预热 构造函数内自动调用，日志在会话内部完成
 void DetectionSession::warmup() {
-	QElapsedTimer timer;
-	timer.start();
+	// TODO: 预热耗时待接入 PerformanceMonitor 的阶段统计（需先扩展 PerformanceStage / 快照）
 	const bool warmupSuc = m_detectionFlow->warmup( kDefaultWarmupIterations );
-	const quint64 duration = timer.elapsed();
 	// 构造/预热产生的警告上报
 	m_warnings = m_detectionFlow->warnings();
 	for (const DetectorWarning& warning : m_warnings) {
@@ -76,8 +73,8 @@ void DetectionSession::warmup() {
 	}
 
 	if (warmupSuc)
-		Logger::instance()->info( QStringLiteral( "[DetectionSession]: 检测器预热完成，轮数: %1 耗时：%2ms  平均耗时：%3ms" )
-			.arg( kDefaultWarmupIterations ).arg( duration ).arg( duration / kDefaultWarmupIterations ) );
+		Logger::instance()->info( QStringLiteral( "[DetectionSession]: 检测器预热完成，轮数: %1" )
+			.arg( kDefaultWarmupIterations ) );
 	Logger::instance()->info( QStringLiteral( "[DetectionSession]: 检测器就绪（%1）" ).arg( m_config.effectiveModeText() ) );
 }
 

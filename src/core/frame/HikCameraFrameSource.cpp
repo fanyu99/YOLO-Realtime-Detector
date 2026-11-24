@@ -4,6 +4,7 @@
 #include <opencv2/opencv.hpp>
 #include <QStringList>
 #include "Logger.h"
+#include "TimeBases.h"
 namespace {
 	// 获取受支持的枚举值
 	bool getSupportedEnumValues(void* handle, const char* featureName, MVCC_ENUMVALUE& values) {
@@ -251,12 +252,12 @@ FrameHandlePtr HikCameraFrameSource::getFrame() {
 	}
 
 	MV_FRAME_OUT frame{};
-	int ret = MV_CC_GetImageBuffer(m_camera->handle.get(), &frame, 1000);
+	int ret = MV_CC_GetImageBuffer(m_camera->handle.get(), &frame, TimeBases::DefaultHikFrameTimeoutMs);
 	if (ret != MV_OK) {
 		// 重试两次,重试1秒
 		bool retryOK = false;
 		for (int i = 0;i < 2;i++) {
-			ret = MV_CC_GetImageBuffer(m_camera->handle.get(), &frame, 500);
+			ret = MV_CC_GetImageBuffer(m_camera->handle.get(), &frame, TimeBases::DefaultHikFrameRetryTimeoutMs);
 			if (ret == MV_OK) {
 				retryOK = true;
 				break;

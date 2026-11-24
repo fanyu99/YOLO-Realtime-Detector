@@ -1,9 +1,5 @@
 #include "PerformanceMonitor.h"
-
-namespace {
-	// ns -> ms
-	constexpr double ns2ms = 1.0e-6;
-}
+#include "TimeBases.h"
 
 PerformanceMonitor::PerformanceMonitor( QObject* parent )
 	: QObject( parent )
@@ -130,7 +126,7 @@ void PerformanceMonitor::emitSnapshot() {
 	PerformanceSnapshot snapshot;
 	snapshot.m_context.jobId = m_jobId;
 	snapshot.m_context.snapshotIndex = m_snapshotIndex;
-	snapshot.m_context.windowDurationMs = static_cast<double>( m_clock.nsecsElapsed() - static_cast<qint64>( windowStartNs ) ) * ns2ms;
+	snapshot.m_context.windowDurationMs = static_cast<double>( m_clock.nsecsElapsed() - static_cast<qint64>( windowStartNs ) ) * TimeBases::Ns2Ms;
 	snapshot.m_context.level = m_level.load( std::memory_order_relaxed );
 
 	// 整体计数
@@ -139,7 +135,7 @@ void PerformanceMonitor::emitSnapshot() {
 	snapshot.m_overall.successfulFrames = static_cast<int>( successfulFrames );
 	snapshot.m_overall.failedFrames = static_cast<int>( failedFrames );
 	snapshot.m_overall.overallFPS = snapshot.m_context.windowDurationMs > 0.0
-		? static_cast<float>( recorded * 1000.0 / snapshot.m_context.windowDurationMs )
+		? static_cast<float>( recorded * TimeBases::Ms2S / snapshot.m_context.windowDurationMs )
 		: 0.0f;
 	if ( narrowSamples > 0 ) {
 		snapshot.m_overall.narrowEndToEndNs = narrowTotalNs / narrowSamples;

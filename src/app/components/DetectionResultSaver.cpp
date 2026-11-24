@@ -6,10 +6,10 @@
 
 #include "DetectionRenderer.h"
 #include "DetectionTypes.h"
+#include "TimeBases.h"
 
 namespace {
 	constexpr const char* kResultsSubDir = "detection_results";
-	constexpr double kFallbackFps = 25.0;		// 摄像头取不到帧率时用
 
 	bool exists(const QDir& dir, const QString& stem) {
 		return QFileInfo::exists(dir.filePath(stem + QStringLiteral(".jpg")))
@@ -64,7 +64,7 @@ bool DetectionResultSaver::begin(const DetectionTask& task, int width, int heigh
 	m_isVideo = (task.source && task.source->type() != FrameSourceType::SingleImage);
 
 	if (m_isVideo) {
-		const double useFps = fps > 1.0 ? fps : kFallbackFps;
+		const double useFps = fps > 1.0 ? fps : TimeBases::DefaultVideoWriterFps;
 		const QString path = dir.filePath(stem + QStringLiteral(".mp4"));
 		// mp4v 在 FFMPEG 后端上通用性最好
 		const int fourcc = cv::VideoWriter::fourcc('m', 'p', '4', 'v');

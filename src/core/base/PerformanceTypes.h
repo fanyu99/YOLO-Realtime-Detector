@@ -3,11 +3,7 @@
 #include <QVector>
 #include <QObject>
 #include "DetectionTypes.h"
-
-namespace {
-	// 默认的性能监控上报间隔（单位：毫秒）
-	constexpr int DefaultReportInterval = 300;
-}
+#include "TimeBases.h"
 
 // 检测的当前的状态阶段
 enum class PerformanceStage {
@@ -80,7 +76,7 @@ public:
 
 	// 成员
 	PerformanceLevel m_level = PerformanceLevel::Basic;	// 性能监控级别
-	int m_reportInterval = DefaultReportInterval;	// 上报间隔，单位毫秒
+	int m_reportInterval = TimeBases::DefaultReportIntervalMs;	// 上报间隔，单位毫秒
 };
 using PerformanceLevel = PerformanceConfig::PerformanceLevel;
 

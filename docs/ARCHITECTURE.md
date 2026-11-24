@@ -45,6 +45,8 @@ DetectionTask
 ---
 
 ### 正在进行的更改：
+1.	预热耗时接入监控：需新增 PerformanceStage（如 Warmup）并扩展快照与 PerformanceApp，代码中已留 TODO。
+2.	总体统计与日志汇报：平均处理帧率、平均推理帧率、平均推理时长的汇总；后续从 PerformanceApp/monitor 数据生成日志，替代已删除的 worker 端帧率日志。
 - 添加性能面板的总体平均数据总结显示，例如平均处理帧率、平均推理帧率、平均推理时长等
 - 添加CUDAEvent、ffmpegdecoder解码以及ORT端的探测计时，完善性能监控模块
 - 添加检测结果的tableview显示以及内存占用的柱状图/扇形图

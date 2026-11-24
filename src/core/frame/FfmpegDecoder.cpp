@@ -1,4 +1,5 @@
 #include "FfmpegDecoder.h"
+#include "TimeBases.h"
 #include <QFile>
 #include <QElapsedTimer>
 #include <algorithm>
@@ -252,7 +253,7 @@ bool FfmpegDecoder::openInput() {
 	rawFormatContext->interrupt_callback.callback = &FfmpegDecode::interrupt_cb;
 	// 设置选项
 	AVDictionary* options = nullptr;
-	av_dict_set_int( &options, "timeout", static_cast<int64_t>(m_config.connectTimeoutMs) * 1000, 0 );	 // 设置超时时间(us)
+	av_dict_set_int( &options, "timeout", static_cast<int64_t>(m_config.connectTimeoutMs) * TimeBases::Ms2Us, 0 );	 // 设置超时时间(us)
 	// 设置其他选项，例如 rtsp_transport
 	for (const auto& [key, value] : m_config.options) {
 		if (int optRet = av_dict_set( &options, key.toUtf8().constData(), value.toUtf8().constData(), 0 ); optRet < 0) {

@@ -4,13 +4,11 @@
 #include <QVector>
 #include <optional>
 #include <map>
+#include "TimeBases.h"
 extern "C" {
 #include <libavutil/frame.h>
 #include <libavutil/rational.h>
 }
-//  默认的读取和连接超时时间（毫秒）
-constexpr int DEFAULT_DECODE_READ_TIMEOUT_MS = 5000;
-constexpr int DEFAULT_DECODE_CONNECT_TIMEOUT_MS = 5000;
 // 解码类型：读取状态、错误、流信息、解码配置、解码统计、解码结果等
 // 解码读取Packet状态
 enum class ReadStatus {
@@ -128,8 +126,8 @@ struct DecodeConfig {
 	std::optional<QString> deviceDisplayName;
 	std::optional<QString> inputFormat; // 输入格式，dshow等
 	std::map<QString, QString>options; // 选项，rtsp_transport、stimeout、max_delay、buffer_size
-	int connectTimeoutMs{ DEFAULT_DECODE_CONNECT_TIMEOUT_MS };
-	int readTimeoutMs{ DEFAULT_DECODE_READ_TIMEOUT_MS };
+	int connectTimeoutMs{ TimeBases::DefaultDecodeConnectTimeoutMs };
+	int readTimeoutMs{ TimeBases::DefaultDecodeReadTimeoutMs };
 	int videoStreamIndex{ -1 }; // 视频流索引，-1表示自动选择
 	bool useGpuDecode{ false }; // 是否启用GPU硬解码（NVDEC），需要配合setHwDevice传入hwdevice 到解码器
 	// 是否为采集设备源
