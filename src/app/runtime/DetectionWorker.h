@@ -84,7 +84,7 @@ private:
 	bool runImage(DetectionTask& task);
 	bool runStream(DetectionTask& task);
 	// 根据DisplaySaveStatus 取CPU像素/发送快照，需要保存时返回画有检测框的CPU像素数据
-	cv::Mat displayResult ( DetectionTask& task, const FrameHandlePtr& handle, const DetectionResult& result,float fps,const DetectionResultSaver& saver);
+	cv::Mat displayResult ( DetectionTask& task, const FrameHandlePtr& handle, const DetectionResult& result, const DetectionResultSaver& saver);
 	// 把一帧像素数据和检测框结果打包为快照投递到邮箱
 	void postOverlaySnapshot ( const FrameHandlePtr& handle, const QVector<Box>& boxes, quint64 seq );
 	void finishUnit(DetectionTask& task, const FrameHandlePtr& handle, DetectionResult& result,DetectionResultSaver& saver);	// 完成一个task,进行总结

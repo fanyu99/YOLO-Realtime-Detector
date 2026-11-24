@@ -61,10 +61,14 @@ private:
 	uint64_t m_broadEndToEndSamples = 0;	// 广义端到端样本数
 	int m_snapshotIndex = 0;	 // 快照序号
 
-	QElapsedTimer m_clock;	// 记录起始时间
-	QTimer m_reportTimer;	// 上报定时器
+	// 计时器
+	QElapsedTimer m_clock;	// 记录窗口时间
+	QTimer m_reportTimer;	// 性能快照上报定时器,控制上报时间
 	int m_reportIntervalMs = DefaultReportInterval;
+
 	PerformanceConfig m_config;	// 配置副本
+
+	// 运行上下文
 	quint64 m_jobId = 0;	// 当前作业 ID
 	bool m_isRunning = false;	// 是否有作业在运行，有才进行快照统计和发送信号
 };

@@ -15,12 +15,13 @@ struct FrameSnapshot {
 	FrameSnapshot () = default;
 	~FrameSnapshot () = default;
 	FrameSnapshot(const FrameHandlePtr& f, const QVector<Box>& bxs, quint64 s,
-		quint64 startNs, quint64 t)
-		: frame(f), boxes(bxs), seq(s), frameStartNs(startNs), postTime(t) {}
+		quint64 startNs, quint64 postTimeNs)
+		: frame(f), boxes(bxs), seq(s), frameStartNs(startNs), postTime(postTimeNs) {}
 };
 using FrameSnapshotPtr = std::shared_ptr<const FrameSnapshot>;
 
 // 单调时钟，开始-结束，获取差值
+// 获取从投递邮箱开始到显示（Overlay等）的时间
 inline quint64 frameClockNs () {
 	static QElapsedTimer clock = [] { QElapsedTimer t; t.start (); return t; } ();
 	return static_cast<quint64>(clock.nsecsElapsed ());

@@ -4,9 +4,9 @@
 #include "DetectionTypes.h"
 #include "IPerformanceMonitor.h"
 
-// 会话，统一管理 FrameSource 和 DetectionFlow 的生命周期以及配置和配对
+// 检测会话，统一管理 FrameSource 和 DetectionFlow 的生命周期以及配置和配对
 // 由Worker统一管理Session生命周期，Manager管理Session状态
-// 一个Session对应一个Job，Session的配置由Manager传入，Session的错误由Worker上传到Manager
+// Session复用，Session的配置由Manager传入，Session的错误由Worker上传到Manager
 // 触发fallback后Worker直接释放Session并重新创建
 // 错误通过返回值 + lastError()/fallbackRequested() 查询
 class DetectionSession final

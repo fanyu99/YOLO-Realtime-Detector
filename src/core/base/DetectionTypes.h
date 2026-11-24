@@ -1,5 +1,4 @@
 #pragma once
-#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -343,38 +342,6 @@ struct TaskShared {
 };
 using TaskSharedPtr = std::shared_ptr<TaskShared>;
 
-// 整体处理帧率计数器
-struct FpsCounter {
-	float alpha = 0.15f;		// 平滑系数
-	float initialFps = 30.0f;	// 初始帧率
-	float fps = initialFps;		// 当前平滑帧率
-
-	void reset() {
-		fps = initialFps;
-		m_clock.invalidate();
-	}
-
-	// 一个工作单元完成时调用一次，返回平滑后的帧率
-	float tick() {
-		if (!m_clock.isValid()) {						// 第一次：先返回初始值
-			m_clock.start();
-			return fps;
-		}
-		const qint64 ms = m_clock.restart();
-		if (ms <= 0)
-			return fps;
-		const float instant = 1000.0f / static_cast<float>(ms);		// 瞬时帧率
-		fps = alpha * instant + (1.0f - alpha) * fps;	// 计算平滑帧率
-		return fps;
-	}
-
-private:
-	QElapsedTimer m_clock;		// 上一次采样时刻
-};
-
-
-
-
 // 一个可执行的任务单元
 struct DetectionTask {
 	quint64 taskId = 0;
@@ -387,7 +354,6 @@ struct DetectionTask {
 
 	// 只由执行该 Task 的 worker 线程读写 :
 	int lastReportedPercent = -2;					// 上次已上报的百分比（-2 表示尚未上报）
-	FpsCounter fps;									// 整体处理帧率（画在画面左上角）
 };
 
 // 一个作业：持有共享状态与它的任务列表

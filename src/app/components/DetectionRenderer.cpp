@@ -3,16 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <span>
- // 画框 + 画类别 + 画帧率+ 画推理延迟
+ // 画框 + 画类别
 namespace DetectionRenderer {
 
 	namespace {
-		// 左上角状态文字的统一样式(以短边 1080 为基准，实际尺寸按分辨率放大)
-		constexpr double kStatusFontScale = 1.0;
-		constexpr int    kStatusLineHeight = 18;
-		constexpr int    kStatusLeft = 10;
-		constexpr int    kStatusTop = 18;
-
 		// 基准分辨率：短边 1080 时上述常量按原值使用
 		constexpr double kReferenceShortSide = 1080.0;
 		// 缩放限幅：过小的图不把字缩到看不清，过大的图也不无限放大
@@ -30,17 +24,6 @@ namespace DetectionRenderer {
 		// 线宽至少 1 像素，并按缩放取整
 		int scaledThickness(int base, double scale, int minimum = 1) {
 			return std::max(minimum, static_cast<int>(std::lround(base * scale)));
-		}
-
-		void putStatusText(cv::Mat& img, const std::string& text, int lineIndex, double scale) {
-			const int left = scaledThickness(kStatusLeft, scale);
-			const int top = scaledThickness(kStatusTop, scale);
-			const int lineHeight = scaledThickness(kStatusLineHeight, scale);
-			const cv::Point org(left, top + lineIndex * lineHeight);
-			cv::putText(img, text, org, cv::FONT_HERSHEY_SIMPLEX, kStatusFontScale * scale,
-				cv::Scalar(0, 0, 0), scaledThickness(3, scale), cv::LINE_AA);		// 描边
-			cv::putText(img, text, org, cv::FONT_HERSHEY_SIMPLEX, kStatusFontScale * scale,
-				cv::Scalar(0, 255, 0), scaledThickness(1, scale), cv::LINE_AA);		// 字身
 		}
 	}
 
@@ -61,7 +44,7 @@ namespace DetectionRenderer {
 	}
 
 	cv::Mat renderMat(const cv::Mat& frame, std::span<const Box> boxes,
-		std::span<const QString> classNames, long long durationMs, float fps)
+		std::span<const QString> classNames)
 	{
 		if (frame.empty())
 			return cv::Mat();
@@ -70,20 +53,6 @@ namespace DetectionRenderer {
 
 		// 所有文字/线宽都按画布短边等比放大，高分辨率下才不会缩成看不清的小字
 		const double scale = uiScale(canvas);
-
-		// 左上角状态：帧率一行、耗时一行，都缩到 0.5 倍字号
-		int line = 0;
-		if (fps > 0.0f) {
-			putStatusText(canvas,
-				(QString::number(static_cast<double>(fps), 'f', 1)
-					+ QStringLiteral(" fps")).toStdString(),
-				line++, scale);
-		}
-		if (durationMs > 0) {
-			putStatusText(canvas,
-				(QString::number(durationMs) + QStringLiteral(" ms")).toStdString(),
-				line++, scale);
-		}
 
 		// 检测框与类别标签同样随分辨率缩放
 		const double labelFontScale = std::clamp(1.0 * scale, 1.0, kMaxUiScale);
@@ -112,9 +81,9 @@ namespace DetectionRenderer {
 	}
 
 	QImage render(const cv::Mat& frame, std::span<const Box> boxes,
-		std::span<const QString> classNames, long long durationMs, float fps)
+		std::span<const QString> classNames)
 	{
-		return toQImage(renderMat(frame, boxes, classNames, durationMs, fps));
+		return toQImage(renderMat(frame, boxes, classNames));
 	}
 
 }

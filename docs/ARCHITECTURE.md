@@ -45,9 +45,10 @@ DetectionTask
 ---
 
 ### 正在进行的更改：
-- 添加各种测试到tests中并添加tests到CI中进行自动化测试
+- 添加性能面板的总体平均数据总结显示，例如平均处理帧率、平均推理帧率、平均推理时长等
 - 添加CUDAEvent、ffmpegdecoder解码以及ORT端的探测计时，完善性能监控模块
 - 添加检测结果的tableview显示以及内存占用的柱状图/扇形图
+- 添加各种测试到tests中并添加tests到CI中进行自动化测试
 
 
 - 调整执行模型：
@@ -282,7 +283,7 @@ ONNX 会话的封装，负责预处理、推理与后处理。
 ### 推理所需要的各种类型 `DetectionTypes.h`
 
 类型中枢：`LetterboxInfo`、`DetectorConfig`、`DetectionError`、`DetectorWarning`、
-`DetectionResult`、`TaskShared`、`FpsCounter`、`DetectionTask`、`DetectionJob`、
+`DetectionResult`、`TaskShared`、`DetectionTask`、`DetectionJob`、
 `DetectionJobType`，以及 `jobTypeOf()` / `makeSingleTaskJob()` / `makeBatchJob()`。
 
 `DetectionTask` 只持有一个 抽象类`FrameSourcePtr`指针，其中Task的执行方式、展示种类、是否累积结果（摄像头等不进行累积），全部由`source->type()`决定 。
@@ -356,7 +357,7 @@ worker 的上报汇总成 job 级事件。
 
 ### 渲染器`DetectionRenderer`
 
-把「帧 + 检测框」渲染成可直接给 QML 的 `QImage`。
+把「帧 + 检测框」渲染成可直接给 QML 的 `QImage`。画面只叠加检测框与类别标签，不再绘制帧率或推理耗时。
 
 渲染**必须**放在 worker 线程：`cv::Mat` **浅拷贝**共享像素，跨线程传 `Mat` 等于传一块会被下一帧
 覆写的内存。在 worker 线程内一次性画好框并转成 `QImage`，上层拿到的是一份独立、可安全

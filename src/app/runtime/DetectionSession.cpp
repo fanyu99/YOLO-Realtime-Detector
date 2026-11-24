@@ -70,7 +70,6 @@ void DetectionSession::warmup() {
 	const bool warmupSuc = m_detectionFlow->warmup( kDefaultWarmupIterations );
 	const quint64 duration = timer.elapsed();
 	// 构造/预热产生的警告上报
-	// 预热失败时 Detector 会追加 WarmUpFailed 警告，这里重新捕获一次
 	m_warnings = m_detectionFlow->warnings();
 	for (const DetectorWarning& warning : m_warnings) {
 		Logger::instance()->warning( warning.message );

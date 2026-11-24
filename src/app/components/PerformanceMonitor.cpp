@@ -8,7 +8,7 @@ namespace {
 PerformanceMonitor::PerformanceMonitor( QObject* parent )
 	: QObject( parent )
 {
-	m_clock.start();
+	m_clock.start();  // 窗口开始
 	m_reportTimer.setInterval( m_reportIntervalMs );
 	connect( &m_reportTimer, &QTimer::timeout, this, &PerformanceMonitor::emitSnapshot );
 	m_reportTimer.start();

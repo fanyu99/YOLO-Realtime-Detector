@@ -871,12 +871,10 @@ void DetectionApp::onFrameReady ( quint64 jobId, const DetectionResult& result, 
 	}
 	emit reviewChanged ();
 
-	// 回看模式下不跟随实时：否则每来一帧都会把画面重新加载成回看图，白费算力
 	if (m_reviewIndex >= 0)
 		return;
 
-	// 通知 QML 要限流：30fps 逐帧通知会把 GUI 线程压满
-	// 这里控制信号发出的频率
+	// 控制刷新频率（60fps）
 	if (!m_signalLimitTimer.isValid () || m_signalLimitTimer.elapsed () >= kFrameNotifyIntervalMs) {
 		m_signalLimitTimer.restart ();
 		++m_frameRevision;

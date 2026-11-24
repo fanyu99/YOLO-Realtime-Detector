@@ -238,5 +238,5 @@ private:
 	BannerLevel m_bannerLevel = BannerNone;					// 横幅级别
 	QVector<ReviewItem> m_review;							// 回看缓冲的元信息(有界)
 	int m_reviewIndex = -1;									// -1 = 跟随实时画面
-	QElapsedTimer m_signalLimitTimer;							// 限制 revision 的通知频率
+	QElapsedTimer m_signalLimitTimer;							// 限制 revision 的通知频率(60fps)
 };

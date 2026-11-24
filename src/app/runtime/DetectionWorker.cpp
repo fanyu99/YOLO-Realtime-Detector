@@ -317,7 +317,6 @@ void DetectionWorker::execute ( DetectionTask& task ) {
 
 	shared->status.store ( DetectionTaskStatus::Running, std::memory_order_relaxed );
 	shared->resetCurrentUnit ();			// 清掉上一个 Task 留下的单元进度
-	task.fps.reset ();					// 帧率从初始值重新起算，不继承上一个 Task
 	emit taskStarted ( task.jobId );
 
 	bool ok = false;	// 执行是否成功
@@ -373,7 +372,7 @@ bool DetectionWorker::runImage ( DetectionTask& task ) {
 	// 广义端到端
 	QElapsedTimer frameClock;
 	frameClock.start ();
-	m_frameStartNs = frameClockNs ();	// 读帧开始计时
+	m_frameStartNs = frameClockNs ();	// 全局的时钟从读帧开始计时 ，获取总的流程耗时
 
 	// 开启保存，如果路径为空active返回false,静默跳过，如果开启失败进行警告
 	DetectionResultSaver saver;
@@ -436,9 +435,6 @@ bool DetectionWorker::runStream ( DetectionTask& task ) {
 
 	FrameHandlePtr handle; // 统一的帧句柄指针
 	DetectionResult result;
-	int processed = 0;
-	QElapsedTimer clock;
-	clock.start ();
 
 	// 读失败/流结束都返回空指针，循环退出
 	while (true) {
@@ -475,17 +471,10 @@ bool DetectionWorker::runStream ( DetectionTask& task ) {
 		// 整体的端到端计时
 		if (auto* mon = m_monitor)
 			mon->recordFrameResult ( true, static_cast<quint64>(frameClock.nsecsElapsed ()) );
-		++processed;
 	}
 
 	reportSaveResult ( saver );
 
-	const qint64 elapsedMs = clock.elapsed ();
-	if (processed > 0 && elapsedMs > 0) {
-		const double fps = static_cast<double>(processed) * 1000.0 / static_cast<double>(elapsedMs);
-		Logger::instance ()->info ( QStringLiteral ( "[DetectionWorker]: 实际处理帧率 %1 fps（%2 帧 / %3 ms）" )
-			.arg ( fps, 0, 'f', 1 ).arg ( processed ).arg ( elapsedMs ) );
-	}
 	return true;
 }
 
@@ -494,7 +483,7 @@ bool DetectionWorker::runStream ( DetectionTask& task ) {
 //   叠加层  快照投递：互操作可用时 使用GPU 句柄
 //   互操作不可用时下载CPU句柄用于上传
 cv::Mat DetectionWorker::displayResult ( DetectionTask& task, const FrameHandlePtr& handle,
-	const DetectionResult& result, float fps, const DetectionResultSaver& saver ) {
+	const DetectionResult& result, const DetectionResultSaver& saver ) {
 	const DisplaySaveStatus& status = task.shared->display_saveStatus;
 	cv::Mat matWithBoxes;  // 带检测框的图片
 	QImage image;	  // 回看需要的QImage
@@ -510,8 +499,7 @@ cv::Mat DetectionWorker::displayResult ( DetectionTask& task, const FrameHandleP
 			// 渲染计时
 			{
 				ScopedStageTimer renderTimer ( m_monitor, PerformanceStage::RenderImage );
-				matWithBoxes = DetectionRenderer::renderMat ( cpuMat, result.boxes, m_config.class_names,
-					result.duration, fps );
+				matWithBoxes = DetectionRenderer::renderMat ( cpuMat, result.boxes, m_config.class_names );
 			}
 			if (status.needQImage) {
 				// 转为QImage的计时
@@ -554,11 +542,8 @@ void DetectionWorker::finishUnit ( DetectionTask& task, const FrameHandlePtr& ha
 	if (task.accumulateResults)
 		task.results.push_back ( result );
 
-	// 整体处理帧率
-	const float fps = task.fps.tick ();
-
 	// 获取烧录检测框/检测框后的产物
-	const cv::Mat canvas = displayResult ( task, handle, result, fps, saver );  // 在未开启保存/实时模式并不开保存时会返回空
+	const cv::Mat canvas = displayResult ( task, handle, result, saver );  // 在未开启保存/实时模式并不开保存时会返回空
 
 	// 保存产物
 	if (saver.active ()) {
