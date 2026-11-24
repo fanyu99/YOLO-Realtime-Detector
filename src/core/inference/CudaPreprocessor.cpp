@@ -7,6 +7,11 @@
 #include "CudaDevice.h"
 #endif
 
+CudaPreprocessor::CudaPreprocessor( IPerformanceMonitor* monitor )
+	: m_kernelTimer( CudaDevice::instance().stream(), monitor, PerformanceStage::PreprocessKernel )
+{
+}
+
 CudaPreprocessor::~CudaPreprocessor() {
 #ifdef	YOLO_HAVE_CUDA
 	if (m_inputBuffer) {
@@ -134,6 +139,7 @@ CudaPreprocessor::preprocess( const FrameHandlePtr& frame, int dstW, int dstH ) 
 	// 按像素格式分发到对应kernel（平面设备指针所有权归帧句柄，kernel只读借用）
 	CudaKernelError kernelError;
 	bool launchOk = false;
+	m_kernelTimer.begin();
 	if (isNv12) {
 		// NV12：Y 平面 + 交错 UV 平面
 		launchOk = launchNv12LetterboxKernel( plane0.data, plane0.stride, plane1.data, plane1.stride, params, device.stream(), &kernelError );
@@ -142,6 +148,7 @@ CudaPreprocessor::preprocess( const FrameHandlePtr& frame, int dstW, int dstH ) 
 		// BGR24 packed：单一平面
 		launchOk = launchBgr24LetterboxKernel( plane0.data, plane0.stride, params, device.stream(), &kernelError );
 	}
+	m_kernelTimer.markStop();
 	if (!launchOk) {
 		m_lastError = DetectionError(
 			QString::fromLocal8Bit( kernelError.hasError ? kernelError.message : "kernel launch 失败" ),
@@ -160,4 +167,8 @@ CudaPreprocessor::preprocess( const FrameHandlePtr& frame, int dstW, int dstH ) 
 	result.letterboxInfo.pad_h = iy;
 	result.letterboxInfo.scale = scale;
 	return std::make_optional( result );
+}
+
+void CudaPreprocessor::waitForKernelTime() {
+	m_kernelTimer.waitForResult();
 }

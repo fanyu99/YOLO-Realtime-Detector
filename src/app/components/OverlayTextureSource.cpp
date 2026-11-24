@@ -8,16 +8,19 @@
 #include "FrameConversion.h"
 #include "Logger.h"
 #if YOLO_HAVE_CUDA
+#include <optional>
 #include <QSGRendererInterface>
 #include <rhi/qrhi.h>
 #include <d3d11.h>
 #include <dxgi.h>
 #include <cuda_runtime.h>
-#include <cuda_d3d11_interop.h>	
+#include <cuda_d3d11_interop.h>
 #include <libavutil/hwcontext.h>
 
 #include "CudaDevice.h"
 #include "CudaPreprocessKernels.h"
+#include "CudaStageTimer.h"
+#include "DetectionApp.h"
 #include "GpuFrameHandle.h"
 #endif
 
@@ -58,6 +61,9 @@ public:
 		}
 		m_cudaDeviceId = CudaDevice::instance ().deviceId ();
 		m_stream = CudaDevice::instance ().stream ();
+		if (auto* app = DetectionApp::instance ())
+			if (auto* monitor = app->monitor ())
+				m_convertTimer.emplace ( m_stream, monitor, PerformanceStage::ConvertKernel );
 		// 适配器核对
 		if (!luidMatches ( d3d, m_cudaDeviceId )) {
 			fail ( QStringLiteral ( "D3D11 适配器与 CUDA 设备 LUID 不匹配" ) );
@@ -112,6 +118,8 @@ public:
 			if (cudaCreateSurfaceObject ( &surf, &resDesc ) != cudaSuccess) {
 				failOnce ( QStringLiteral ( "CUDA 创建 surface 失败" ) );
 			} else {
+				if (m_convertTimer)
+					m_convertTimer->begin ();
 				const PixelFormat fmt = gpu->pixelFormat ();
 				if (fmt == PixelFormat::NV12) {
 					const auto p0 = gpu->plane ( 0 );
@@ -125,9 +133,13 @@ public:
 				} else {
 					failOnce ( QStringLiteral ( "暂不支持的 GPU 帧格式: " ) + pixelFormatToString ( fmt ) );
 				}
+				if (m_convertTimer)
+					m_convertTimer->markStop ();
 			}
 		}
-		cudaStreamSynchronize ( m_stream );	
+		cudaStreamSynchronize ( m_stream );
+		if (m_convertTimer)
+			m_convertTimer->waitForResult ();	// 上面的同步已完成，读取事件无额外等待
 		// 等到完成了再析构
 		if (surf)
 			cudaDestroySurfaceObject ( surf );
@@ -279,6 +291,7 @@ private:
 	QRhiTexture* m_rhiTex[2]{};					// 包装原生纹理，双缓冲复用（所有权在创建后交给 QSGTexture 包装）
 	QSGTexture* m_qsgTex[2]{};					// 缓存的包装纹理，每帧直接复用（节点 ownsTexture=false）
 	cudaStream_t m_stream{};					// 借用CudaDevice的统一的stream
+	std::optional<CudaStageTimer> m_convertTimer;	// 显示转换 kernel 的设备耗时
 	int m_cudaDeviceId = -1;
 	int m_slot = 0;	   // 当前的槽位，后续进行交换（异或）
 	bool m_ok = false;

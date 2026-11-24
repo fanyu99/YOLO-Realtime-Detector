@@ -6,7 +6,7 @@
 GpuDetectionFlow::GpuDetectionFlow( const DetectorConfig& config, IPerformanceMonitor* monitor )
 	: m_config( config )
 	, m_detector( config )
-	, m_preprocessor()
+	, m_preprocessor( monitor )
 	,m_postprocessor()
 	,m_monitor( monitor )
 {
@@ -69,6 +69,8 @@ bool GpuDetectionFlow::run( const FrameHandlePtr& handle, DetectionResult& outRe
 		preprocessedOpt = m_preprocessor.preprocess( handle, m_detector.inputWidth(), m_detector.inputHeight() );
 	}
 	if (!preprocessedOpt.has_value()) {
+		// 预处理 kernel 已入队但流程失败
+		m_preprocessor.waitForKernelTime();	 // 阻塞等待获取耗时
 		m_lastError = m_preprocessor.lastError();
 		if (!m_lastError.has_error()) { // 兜底错误
 			m_lastError = DetectionError( QStringLiteral( "[GpuDetectionFlow]: 预处理失败" ), DetectionErrorCategory::Preprocess, DetectionErrorCode::PreprocessFailed );
@@ -81,16 +83,20 @@ bool GpuDetectionFlow::run( const FrameHandlePtr& handle, DetectionResult& outRe
 	std::vector<float> output_data;
 	std::vector<int64_t> output_shape;
 	quint64 inferNs = 0;
+	bool inferOk = false;
 	{
 		ScopedStageTimer inferTimer( m_monitor, PerformanceStage::Inference, &inferNs );
-		if (!m_detector.infer( preprocessed, output_data, output_shape )) {
-			m_lastError = m_detector.lastError();
-			if (!m_lastError.has_error()) { // 兜底错误
-				m_lastError = DetectionError( QStringLiteral( "[GpuDetectionFlow]: 推理失败" ), DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
-			}
-			outResult.error = m_lastError;
-			return false;
+		inferOk = m_detector.infer( preprocessed, output_data, output_shape );
+	}
+	// 共用一条stream,返回时已经完成同步，直接获取耗时
+	m_preprocessor.waitForKernelTime();
+	if (!inferOk) {
+		m_lastError = m_detector.lastError();
+		if (!m_lastError.has_error()) { // 兜底错误
+			m_lastError = DetectionError( QStringLiteral( "[GpuDetectionFlow]: 推理失败" ), DetectionErrorCategory::Detection, DetectionErrorCode::DetectionFailed );
 		}
+		outResult.error = m_lastError;
+		return false;
 	}
 	const quint64 duration = inferNs / TimeBases::Ms2Ns;
 	// 校验结果

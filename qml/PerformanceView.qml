@@ -28,6 +28,27 @@ Window {
     // 性能级别选项(与 PerformanceConfig::PerformanceLevel 枚举值一一对应)
     readonly property var levelOptions: ["关闭(Off)", "最小(Minimum)", "基础(Basic)", "详细(Detailed)", "完整(Full)"]
 
+    // 性能阶段计时说明(详细信息浮窗正文)。
+    readonly property string stageInfoMarkdown: 
+    [
+    "1.读帧耗时：从调用获取帧句柄到接收到帧句柄的耗时 
+    2.上传耗时：从创建图片CPU句柄到上传到显存句柄可用的耗时
+    3.预处理耗时：从预处理器开始到预处理完成的耗时
+    4.推理耗时：从检测器开始检测到成功返回检测框结果的耗时
+    5.后处理耗时： 从后处理器开始到后处理完成的耗时
+    6.下载耗时： 从句柄下载/拷贝到CPU内存中的耗时
+    7.渲染耗时： 从开始渲染到完成为止的耗时
+    8.转换QImage耗时：将图像数据转换为QImage的耗时
+    9. 显示准备： 从开始投递图像快照到完成打包并投送图像快照到邮箱为止的耗时
+    10.显示等待： 从快照投递到邮箱到渲染线程取走快照准备渲染为止的耗时
+    11. 呈现延迟： 从读帧开始到帧真正进入窗口显示为止的耗时
+    12.丢弃帧：非耗时项，邮箱丢帧的数量
+    13.保存耗时： 从保存开始到写入到文件完成为止的耗时
+    14.狭义端到端：从读帧开始到推理流程完成的耗时
+    15.广义端到端： 从读帧开始到完成渲染+保存结果完成为止
+    "
+    ].join("\n")
+
     // ------------------------------------------------------------------
     //  分区壳：圆角 Rectangle + 左上角分区名(本文件内复用，不导出)
     // ------------------------------------------------------------------
@@ -225,6 +246,19 @@ Window {
                                 label: "运行状态"
                                 textOverride: performanceView.perf ? performanceView.perf.isRunning ? "正在运行检测" : "空闲" : "未初始化监控器"
                             }
+
+                            // 查看性能计时详细信息
+                            Button {
+                                id: infoBtn
+                                Layout.fillWidth: true
+                                text: perfInfoPopup.opened ? "关闭详细信息浮窗" : "查看性能详细信息……"
+                                onClicked: {
+                                    if (perfInfoPopup.opened)
+                                        perfInfoPopup.close();
+                                    else
+                                        perfInfoPopup.open();
+                                }
+                            }
                             Button {
                                 id: logBtn
                                 Layout.fillWidth: true
@@ -303,7 +337,7 @@ Window {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.preferredWidth: 270
-                    
+
                     GridLayout {
                         anchors.fill: parent
                         columns: 2
@@ -414,6 +448,70 @@ Window {
                 anchors.fill: parent
                 theme: performanceView.theme
                 closeEnable: false
+            }
+        }
+    }
+
+    // 用于显示对应的性能计时详细描述
+    Popup {
+        id: perfInfoPopup
+        modal: false
+        focus: false
+        closePolicy: Popup.NoAutoClose
+        anchors.centerIn: parent
+        width: parent.width * 0.5
+        height: parent.height * 0.7
+        padding: 16
+
+        background: Rectangle {
+            radius: 12
+            color: performanceView.theme.panel
+            border.color: performanceView.theme.border
+            border.width: 1
+        }
+
+        contentItem: Item {
+            width: perfInfoPopup.availableWidth
+            height: perfInfoPopup.availableHeight
+
+            Flickable {
+                id: infoFlick
+                anchors.fill: parent
+                contentWidth: width
+                contentHeight: infoText.implicitHeight
+                boundsBehavior: Flickable.StopAtBounds
+                clip: true
+                interactive: contentHeight > height
+                ScrollBar.vertical: ScrollBar {}
+
+                TextArea {
+                    id: infoText
+                    width: infoFlick.width
+                    text: performanceView.stageInfoMarkdown
+                    readOnly: true
+                    selectByMouse: true
+                    textFormat: TextEdit.MarkdownText
+                    wrapMode: TextEdit.Wrap
+                    color: performanceView.theme.windowText
+                    font.pixelSize: 13
+                    leftPadding: 0
+                    rightPadding: 28
+                    topPadding: 0
+                    bottomPadding: 0
+                    background: null
+                }
+            }
+
+            Button {
+                anchors.top: parent.top
+                anchors.right: parent.right
+                width: 24
+                height: 24
+                text: "×"
+                flat: true
+                font.pixelSize: 16
+                z: 1
+                onClicked: perfInfoPopup.close()
             }
         }
     }

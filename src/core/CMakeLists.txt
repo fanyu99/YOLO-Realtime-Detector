@@ -94,6 +94,7 @@ if(YOLO_HAVE_CUDA)
         cuda/CudaKernelError.h
         cuda/CudaPreprocessKernels.h
         cuda/CudaPreprocessKernels.cu
+        cuda/CudaStageTimer.h
 
         frame/GpuFrameHandle.h
         frame/GpuFrameHandle.cpp

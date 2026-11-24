@@ -11,12 +11,14 @@ enum class PerformanceStage {
 	Frame2Gpu,		  // 上传到GPU
 	Frame2Cpu,  // 下载到CPU(拷贝)
 	Preprocessing,		// 预处理
+	PreprocessKernel,	// 预处理 kernel 设备耗时
 	Inference, // 推理
 	Postprocessing,	 // 后处理
 	RenderImage,					// 渲染图片
 	ToQImage,						// 烧框结果转 QImage(离线显示)
 	DisplayPrepare,		// 显示数据准备：推理完成-快照打包并投递进邮箱
 	DisplayWait,				// 显示等待：快照入邮箱-Overlay取走快照渲染
+	ConvertKernel,		// 显示转换 kernel 设备耗时(NV12/BGR24→BGRA)
 	PresentLatency,		// 提交呈现延迟：读帧开始-帧进入窗口显示
 	DisplayDropped,		// 丢弃帧数：sampleCount为丢弃数
 	Save, // 保存图像
@@ -34,12 +36,14 @@ inline QString stageToString( PerformanceStage stage ) {
 	case PerformanceStage::Frame2Gpu: return QStringLiteral( "上传(Upload)" );
 	case PerformanceStage::Frame2Cpu: return QStringLiteral ( "下载(Download)" );
 	case PerformanceStage::Preprocessing: return QStringLiteral( "预处理(Preprocessing)" );
+	case PerformanceStage::PreprocessKernel: return QStringLiteral( "预处理Kernel(PreprocessKernel)" );
 	case PerformanceStage::Inference: return QStringLiteral( "推理(Inference)" );
 	case PerformanceStage::Postprocessing: return QStringLiteral( "后处理(Postprocessing)" );
 	case PerformanceStage::RenderImage: return QStringLiteral( "渲染图像(RenderImage)" );
 	case PerformanceStage::ToQImage: return QStringLiteral( "转换QImage(ToQImage)" );
 	case PerformanceStage::DisplayPrepare: return QStringLiteral( "显示准备(DisplayPrepare)" );
 	case PerformanceStage::DisplayWait: return QStringLiteral( "显示等待(DisplayWait)" );
+	case PerformanceStage::ConvertKernel: return QStringLiteral( "显示转换Kernel(ConvertKernel)" );
 	case PerformanceStage::PresentLatency: return QStringLiteral( "呈现延迟(PresentLatency)" );
 	case PerformanceStage::DisplayDropped: return QStringLiteral( "丢弃帧(DisplayDropped)" );
 	case PerformanceStage::Save: return QStringLiteral( "保存(Save)" );
@@ -60,7 +64,7 @@ public:
 		Minimum,	// 仅端到端耗时与整体FPS
 		Basic,		// 最小+ 推理链路全阶段(读帧/下载/预处理/推理/后处理)
 		Detailed,	// Basic+显示/保存链路(渲染/转QImage/保存/显示等待/丢弃帧) + 内存占用
-		Full		// Detailed + GPU侧阶段(上传/显示准备/呈现延迟)
+		Full		// Detailed + GPU侧阶段(上传/预处理Kernel/显示准备/显示转换Kernel/呈现延迟)
 	};
 	Q_ENUM(PerformanceLevel)
 
@@ -125,6 +129,7 @@ inline CollectorSettings calcCollectSettings(PerformanceLevel level) noexcept {
 			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Gpu))
 			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Cpu))
 			| (1u << static_cast<unsigned>(PerformanceStage::Preprocessing))
+			| (1u << static_cast<unsigned>(PerformanceStage::PreprocessKernel))
 			| (1u << static_cast<unsigned>(PerformanceStage::Inference))
 			| (1u << static_cast<unsigned>(PerformanceStage::Postprocessing))
 			| (1u << static_cast<unsigned>(PerformanceStage::RenderImage))
@@ -133,6 +138,7 @@ inline CollectorSettings calcCollectSettings(PerformanceLevel level) noexcept {
 			| (1u << static_cast<unsigned>(PerformanceStage::DisplayWait))
 			| (1u << static_cast<unsigned>(PerformanceStage::DisplayDropped))
 			| (1u << static_cast<unsigned>(PerformanceStage::DisplayPrepare))
+			| (1u << static_cast<unsigned>(PerformanceStage::ConvertKernel))
 			| (1u << static_cast<unsigned>(PerformanceStage::PresentLatency));
 		setting.enableMemoryRecord = true;
 		setting.recordGpuStages = true;

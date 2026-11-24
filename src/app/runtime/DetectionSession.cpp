@@ -118,7 +118,7 @@ bool DetectionSession::runFlow( FrameHandlePtr frame, DetectionResult& outResult
 			outResult.error = m_lastError;
 			return false;
 		}
-		// 单图路径的显存上传计时(仅此一处测 Upload；GPU视频链路的解码+上传在decoder内部完成，包含在 ReadFrame 中)
+		// 单图路径的显存上传计时
 		std::shared_ptr<GpuImageFrameHandle> gpuHandle;
 		{
 			ScopedStageTimer uploadTimer( m_monitor, PerformanceStage::Frame2Gpu );
