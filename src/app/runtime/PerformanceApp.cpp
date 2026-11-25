@@ -107,6 +107,8 @@ void PerformanceApp::onSnapshotReady ( const PerformanceSnapshot& snapshot ) {
 	m_overallFPS = snapshot.m_overall.overallFPS;
 	m_narrowEndToEndMs = static_cast<double>(snapshot.m_overall.narrowEndToEndNs) * TimeBases::Ns2Ms;
 	m_broadEndToEndMs = static_cast<double>(snapshot.m_overall.broadEndToEndNs) * TimeBases::Ns2Ms;
+	m_warmupMs = static_cast<double>(snapshot.m_overall.warmupNs) * TimeBases::Ns2Ms;
+	m_warmupIterations = snapshot.m_overall.warmupIterations;
 	m_recordedFrames = snapshot.m_overall.recordedFrames;
 	m_successfulFrames = snapshot.m_overall.successfulFrames;
 	m_failedFrames = snapshot.m_overall.failedFrames;

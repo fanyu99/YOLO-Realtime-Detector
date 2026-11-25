@@ -13,7 +13,7 @@ class DetectionSession final
 {
 public:
 	explicit DetectionSession(const DetectorConfig& config, IPerformanceMonitor* monitor = nullptr);
-	~DetectionSession();
+	~DetectionSession() = default;
 	// 创建图片帧源（cv::imread，固定 CPU 内存）
 	FrameSourcePtr createImageFrameSource(QStringView filePath);
 	// 创建视频帧源（ffmpeg），内存类型由会话按当前生效模式决定

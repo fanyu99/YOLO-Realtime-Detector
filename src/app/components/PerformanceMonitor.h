@@ -25,6 +25,7 @@ public:
 
 	// 作业上下文
 	void setJobId( quint64 jobId ) { m_jobId = jobId; }
+	void setWarmupIterations( int iterations ) noexcept override;
 	void setIsRunning( bool running )override { m_isRunning = running; }
 
 	// 当前生效的级别
@@ -35,10 +36,10 @@ signals:
 	void snapshotReady( const PerformanceSnapshot& snapshot );
 
 private:
-	void resetWindow() noexcept;	// 清空窗口和snapshotIndex 归零（调用方需已持有锁）
+	void resetWindow() noexcept;	// 清空窗口和snapshotIndex 归零，需要有锁
 	void emitSnapshot(); // 生成快照并发信号
 
-	// 采集设置（热路径原子读，setConfig 单线程写）
+	// 采集设置（setConfig 单线程写）
 	std::atomic<unsigned> m_stageMask{ 0 };	// 监控级别允许记录的阶段位掩码
 	std::atomic<bool> isMemoryRecord{ false }; // 是否采集内存占用
 	std::atomic<PerformanceLevel> m_level{ PerformanceLevel::Basic };	//监控级别
@@ -59,6 +60,8 @@ private:
 	uint64_t m_narrowEndToEndSamples = 0;	// 狭义端到端样本数
 	uint64_t m_broadEndToEndTotalNs = 0;	// 广义端到端总耗时
 	uint64_t m_broadEndToEndSamples = 0;	// 广义端到端样本数
+	uint64_t m_warmupNs=0; // 预热耗时
+	int m_warmupIterations = 0;	// 预热轮数
 	int m_snapshotIndex = 0;	 // 快照序号
 
 	// 计时器

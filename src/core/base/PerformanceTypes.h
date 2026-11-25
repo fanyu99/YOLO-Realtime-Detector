@@ -7,6 +7,7 @@
 
 // 检测的当前的状态阶段
 enum class PerformanceStage {
+	Warmup, // 预热
 	ReadFrame,	   // 读取帧
 	Frame2Gpu,		  // 上传到GPU
 	Frame2Cpu,  // 下载到CPU(拷贝)
@@ -32,11 +33,12 @@ inline constexpr size_t PerformanceStageCount = static_cast<size_t>( Performance
 // 将阶段枚举转换为字符串
 inline QString stageToString( PerformanceStage stage ) {
 	switch (stage) {
-	case PerformanceStage::ReadFrame: return QStringLiteral( "读帧(ReadFrame)" );
-	case PerformanceStage::Frame2Gpu: return QStringLiteral( "上传(Upload)" );
-	case PerformanceStage::Frame2Cpu: return QStringLiteral ( "下载(Download)" );
-	case PerformanceStage::Preprocessing: return QStringLiteral( "预处理(Preprocessing)" );
-	case PerformanceStage::PreprocessKernel: return QStringLiteral( "预处理Kernel(PreprocessKernel)" );
+		case PerformanceStage::Warmup: return QStringLiteral( "预热(Warmup)" );
+		case PerformanceStage::ReadFrame: return QStringLiteral( "读帧(ReadFrame)" );
+		case PerformanceStage::Frame2Gpu: return QStringLiteral( "上传(Upload)" );
+		case PerformanceStage::Frame2Cpu: return QStringLiteral ( "下载(Download)" );
+		case PerformanceStage::Preprocessing: return QStringLiteral( "预处理(Preprocessing)" );
+		case PerformanceStage::PreprocessKernel: return QStringLiteral( "预处理Kernel(PreprocessKernel)" );
 	case PerformanceStage::Inference: return QStringLiteral( "推理(Inference)" );
 	case PerformanceStage::Postprocessing: return QStringLiteral( "后处理(Postprocessing)" );
 	case PerformanceStage::RenderImage: return QStringLiteral( "渲染图像(RenderImage)" );
@@ -62,7 +64,7 @@ public:
 	enum class PerformanceLevel {
 		Off = 0,	// 关闭，不进行记录
 		Minimum,	// 仅端到端耗时与整体FPS
-		Basic,		// 最小+ 推理链路全阶段(读帧/下载/预处理/推理/后处理)
+		Basic,		// 最小+ 推理链路全阶段(预热/读帧/下载/预处理/推理/后处理)
 		Detailed,	// Basic+显示/保存链路(渲染/转QImage/保存/显示等待/丢弃帧) + 内存占用
 		Full		// Detailed + GPU侧阶段(上传/预处理Kernel/显示准备/显示转换Kernel/呈现延迟)
 	};
@@ -103,7 +105,8 @@ inline CollectorSettings calcCollectSettings(PerformanceLevel level) noexcept {
 		break;
 		// Basic：推理流程
 	case PerformanceLevel::Basic:
-		mask |= (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
+		mask |= (1u << static_cast<unsigned>(PerformanceStage::Warmup))
+			| (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
 			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Cpu))
 			| (1u << static_cast<unsigned>(PerformanceStage::Preprocessing))
 			| (1u << static_cast<unsigned>(PerformanceStage::Inference))
@@ -111,7 +114,9 @@ inline CollectorSettings calcCollectSettings(PerformanceLevel level) noexcept {
 		break;
 		// Detailed：+ 显示/保存链路 + 内存占用
 	case PerformanceLevel::Detailed:
-		mask |= (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
+		mask |= 
+			(1u << static_cast<unsigned>(PerformanceStage::Warmup))
+			| (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
 			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Cpu))
 			| (1u << static_cast<unsigned>(PerformanceStage::Preprocessing))
 			| (1u << static_cast<unsigned>(PerformanceStage::Inference))
@@ -125,7 +130,9 @@ inline CollectorSettings calcCollectSettings(PerformanceLevel level) noexcept {
 		break;
 		// Full：+ GPU 侧的计时
 	case PerformanceLevel::Full:
-		mask |= (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
+		mask |= 
+			(1u << static_cast<unsigned>(PerformanceStage::Warmup))
+			| (1u << static_cast<unsigned>(PerformanceStage::ReadFrame))
 			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Gpu))
 			| (1u << static_cast<unsigned>(PerformanceStage::Frame2Cpu))
 			| (1u << static_cast<unsigned>(PerformanceStage::Preprocessing))
@@ -151,27 +158,29 @@ inline CollectorSettings calcCollectSettings(PerformanceLevel level) noexcept {
 // 上下文信息
 struct ContextInfo {
 	quint64 jobId = 0; // 作业ID
+	double windowDurationMs = 0.0; // 统计窗口时长，单位毫秒
+	int snapshotIndex = 0; // 快照序号
 	FlowMode   activeMode = FlowMode::CPU; // 实际的计算模式
 	FlowMode  preferredMode = FlowMode::CPU; // 用户选择的模式
-	int snapshotIndex = 0; // 快照序号
-	double windowDurationMs = 0.0; // 统计窗口时长，单位毫秒
 	PerformanceLevel level = PerformanceLevel::Basic; // 快照的监控级别
 };
 
 // 阶段统计信息
 // 统一使用ns作为时间单位
 struct StageStatistics {
-	PerformanceStage stage = PerformanceStage::end2End; // 阶段
 	uint64_t sampleCount = 0; // 样本数
 	uint64_t averageNs = 0;	// 平均耗时
 	uint64_t maximumNs = 0;		// 最大耗时
+	PerformanceStage stage = PerformanceStage::end2End; // 阶段
 };
 
 // 整体计数
 struct OverallStatistics{
-	float overallFPS = 0.0f;	// 处理帧率(等于成功处理的帧数除以统计窗口时长)
 	uint64_t narrowEndToEndNs = 0;	// 从读帧到推理完成的平均耗时
 	uint64_t broadEndToEndNs = 0;	// // 从读帧到一帧完成显示的平均耗时
+	uint64_t warmupNs=0; // 预热耗时
+	int warmupIterations = 0; // 预热轮数
+	float overallFPS = 0.0f;	// 处理帧率(等于成功处理的帧数除以统计窗口时长)
 	int recordedFrames = 0;	// 统计窗口内记录的帧数(成功+失败)
 	int successfulFrames = 0;	// 成功处理的帧数
 	int failedFrames = 0;		// 失败的帧数

@@ -17,4 +17,5 @@ namespace TimeBases {
 	inline constexpr double DefaultVideoWriterFps = 25.0;		// 帧源未知时的录像帧率
 	inline constexpr int    DefaultHikFrameTimeoutMs = 1000;	// 海康取帧超时
 	inline constexpr int    DefaultHikFrameRetryTimeoutMs = 500;	// 海康取帧重试超时
+	inline constexpr int DefaultInfoLogInterval = 30; // 默认的Info级别日志输出间隔
 }

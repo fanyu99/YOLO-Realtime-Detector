@@ -4,6 +4,7 @@
 #include <QMutex>
 #include <atomic>
 #include <QtQmlIntegration/QtQmlIntegration>
+#include "TimeBases.h"
 
 class QQmlEngine;
 class QJSEngine;
@@ -81,7 +82,7 @@ private:
 	inline static Logger* s_instance{ nullptr };		// 单例
 	//  添加一个info计数,用于视频推理时每隔n个进行一次汇总而不是每帧都输出日志
 	std::atomic<int> m_infoCount{ 0 };			// 记录当前的计数
-	std::atomic<int> m_infoInterval{ 10 };		// 每隔多少次输出一次(<=0 表示每次都输出)
+	std::atomic<int> m_infoInterval{ TimeBases::DefaultInfoLogInterval };		// 每隔多少次输出一次(<=0 表示每次都输出)
 	// 计数器+1,并在达到间隔时归零；返回本次是否应该输出
 	bool nextInfoCount();
 

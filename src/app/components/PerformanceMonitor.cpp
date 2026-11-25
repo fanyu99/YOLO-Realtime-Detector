@@ -67,6 +67,17 @@ void PerformanceMonitor::recordStage( PerformanceStage stage, quint64 nsElapsed 
 		m_narrowEndToEndTotalNs += nsElapsed;
 		++m_narrowEndToEndSamples;
 	}
+	// 预热记录
+	if (stage == PerformanceStage::Warmup)
+	{
+		m_warmupNs = nsElapsed;
+	}
+}
+
+// 记录本次会话的预热轮数
+void PerformanceMonitor::setWarmupIterations( int iterations ) noexcept {
+	std::lock_guard<std::mutex> lock( m_mutex );
+	m_warmupIterations = iterations;
 }
 
 // 记录一帧的结果；frameTotalNs 为该帧从读帧开始的累计耗时(广义端到端)
@@ -93,6 +104,7 @@ void PerformanceMonitor::resetWindow() noexcept {
 	m_narrowEndToEndSamples = 0;
 	m_broadEndToEndTotalNs = 0;
 	m_broadEndToEndSamples = 0;
+	// m_warmupNs 不重置
 	// 重置后记录新窗口的起始时间
 	m_windowStartNs = static_cast<quint64>( m_clock.nsecsElapsed() );
 }
@@ -108,6 +120,8 @@ void PerformanceMonitor::emitSnapshot() {
 	uint64_t narrowSamples = 0;
 	uint64_t broadTotalNs = 0;
 	uint64_t broadSamples = 0;
+	uint64_t warmupNs = 0;
+	int warmupIterations = 0;
 	quint64 windowStartNs = 0;
 	// 用锁拷贝数据到快照，防止一读一写脏数据
 	{
@@ -119,6 +133,8 @@ void PerformanceMonitor::emitSnapshot() {
 		narrowSamples = m_narrowEndToEndSamples;
 		broadTotalNs = m_broadEndToEndTotalNs;
 		broadSamples = m_broadEndToEndSamples;
+		warmupNs = m_warmupNs;
+		warmupIterations = m_warmupIterations;
 		windowStartNs = m_windowStartNs;
 	}
 
@@ -134,6 +150,8 @@ void PerformanceMonitor::emitSnapshot() {
 	snapshot.m_overall.recordedFrames = static_cast<int>( recorded );
 	snapshot.m_overall.successfulFrames = static_cast<int>( successfulFrames );
 	snapshot.m_overall.failedFrames = static_cast<int>( failedFrames );
+	snapshot.m_overall.warmupNs = warmupNs;
+	snapshot.m_overall.warmupIterations = warmupIterations;
 	snapshot.m_overall.overallFPS = snapshot.m_context.windowDurationMs > 0.0
 		? static_cast<float>( recorded * TimeBases::Ms2S / snapshot.m_context.windowDurationMs )
 		: 0.0f;

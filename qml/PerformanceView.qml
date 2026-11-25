@@ -29,25 +29,28 @@ Window {
     readonly property var levelOptions: ["关闭(Off)", "最小(Minimum)", "基础(Basic)", "详细(Detailed)", "完整(Full)"]
 
     // 性能阶段计时说明(详细信息浮窗正文)。
-    readonly property string stageInfoMarkdown: 
-    [
-    "1.读帧耗时：从调用获取帧句柄到接收到帧句柄的耗时 
-    2.上传耗时：从创建图片CPU句柄到上传到显存句柄可用的耗时
-    3.预处理耗时：从预处理器开始到预处理完成的耗时
-    4.推理耗时：从检测器开始检测到成功返回检测框结果的耗时
-    5.后处理耗时： 从后处理器开始到后处理完成的耗时
-    6.下载耗时： 从句柄下载/拷贝到CPU内存中的耗时
-    7.渲染耗时： 从开始渲染到完成为止的耗时
-    8.转换QImage耗时：将图像数据转换为QImage的耗时
-    9. 显示准备： 从开始投递图像快照到完成打包并投送图像快照到邮箱为止的耗时
-    10.显示等待： 从快照投递到邮箱到渲染线程取走快照准备渲染为止的耗时
-    11. 呈现延迟： 从读帧开始到帧真正进入窗口显示为止的耗时
-    12.丢弃帧：非耗时项，邮箱丢帧的数量
-    13.保存耗时： 从保存开始到写入到文件完成为止的耗时
-    14.狭义端到端：从读帧开始到推理流程完成的耗时
-    15.广义端到端： 从读帧开始到完成渲染+保存结果完成为止
-    "
-    ].join("\n")
+    readonly property string stageInfoHtml: `
+        <table border="1" cellspacing="0" cellpadding="6" width="100%">
+            <tr><th>阶段名</th><th>耗时说明</th></tr>
+            <tr><td>预热</td><td>从检测器初始化预热配置到预热完成返回的耗时</td></tr>
+            <tr><td>读帧耗时</td><td>从调用获取帧句柄到接收到帧句柄的耗时</td></tr>
+            <tr><td>上传耗时</td><td>从创建图片 CPU 句柄到上传到显存句柄可用的耗时</td></tr>
+            <tr><td>预处理耗时</td><td>从预处理器开始到预处理完成的耗时</td></tr>
+            <tr><td>预处理 kernel 耗时</td><td>GPU 模式下 CUDA kernel 侧的计时</td></tr>
+            <tr><td>推理耗时</td><td>从检测器开始检测到成功返回检测框结果的耗时</td></tr>
+            <tr><td>后处理耗时</td><td>从后处理器开始到后处理完成的耗时</td></tr>
+            <tr><td>下载耗时</td><td>从句柄下载/拷贝到 CPU 内存中的耗时</td></tr>
+            <tr><td>渲染耗时</td><td>从开始渲染到完成为止的耗时</td></tr>
+            <tr><td>转换 QImage 耗时</td><td>将图像数据转换为 QImage 的耗时</td></tr>
+            <tr><td>kernel 转换耗时</td><td>实时预览模式下，互操作的 kernel 耗时</td></tr>
+            <tr><td>显示准备</td><td>从开始投递图像快照到完成打包并投送图像快照到邮箱为止的耗时</td></tr>
+            <tr><td>显示等待</td><td>从快照投递到邮箱到渲染线程取走快照准备渲染为止的耗时</td></tr>
+            <tr><td>呈现延迟</td><td>从读帧开始到帧真正进入窗口显示为止的耗时</td></tr>
+            <tr><td>丢弃帧</td><td>非耗时项，邮箱丢帧的数量</td></tr>
+            <tr><td>保存耗时</td><td>从保存开始到写入到文件完成为止的耗时</td></tr>
+            <tr><td>狭义端到端</td><td>从读帧开始到推理流程完成的耗时</td></tr>
+            <tr><td>广义端到端</td><td>从读帧开始到完成渲染和保存结果完成为止的耗时</td></tr>
+        </table>`
 
     // ------------------------------------------------------------------
     //  分区壳：圆角 Rectangle + 左上角分区名(本文件内复用，不导出)
@@ -165,8 +168,6 @@ Window {
                     Layout.fillHeight: true
                     Layout.preferredWidth: 270
 
-                    // 分区内容包一层 Flickable 兜底：窗口偏矮时滚动查看，
-                    // 保证级别说明和运行状态始终完整可见
                     Flickable {
                         id: cfgFlick
                         anchors.fill: parent
@@ -180,8 +181,6 @@ Window {
                         ColumnLayout {
                             id: cfgColumn
                             width: cfgFlick.width
-                            // 放得下时撑满视口(fillHeight 的运行状态吸收多余空间)，
-                            // 放不下时按内容高度交给外层滚动
                             height: Math.max(cfgFlick.height, implicitHeight)
                             spacing: 8
 
@@ -211,7 +210,7 @@ Window {
                                 spacing: 6
 
                                 Label {
-                                    text: "上报间隔"
+                                    text: "性能上报间隔"
                                     font.pixelSize: 12
                                 }
                                 SpinBox {
@@ -251,7 +250,7 @@ Window {
                             Button {
                                 id: infoBtn
                                 Layout.fillWidth: true
-                                text: perfInfoPopup.opened ? "关闭详细信息浮窗" : "查看性能详细信息……"
+                                text: perfInfoPopup.opened ? "关闭计时说明" : "查看计时说明"
                                 onClicked: {
                                     if (perfInfoPopup.opened)
                                         perfInfoPopup.close();
@@ -263,7 +262,6 @@ Window {
                                 id: logBtn
                                 Layout.fillWidth: true
                                 text: performanceView.logVisible ? "关闭日志" : "打开日志"
-                                highlighted: true
                                 onClicked: performanceView.logVisible = !performanceView.logVisible
                             }
                         }
@@ -284,50 +282,69 @@ Window {
                         color: performanceView.theme.muted
                         font.pixelSize: 13
                     }
-
-                    GridLayout {
-                        visible: !emptyLabel.visible
+                    Flickable {
+                        id: overallFlick
                         anchors.fill: parent
-                        columns: 2
-                        columnSpacing: 8
-                        rowSpacing: 8
+                        clip: true
+                        contentWidth: width
+                        contentHeight: overallGrid.implicitHeight
+                        boundsBehavior: Flickable.StopAtBounds
+                        interactive: contentHeight > height
 
-                        PerformanceRect {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            theme: performanceView.theme
-                            label: "整体帧率"
-                            value: performanceView.perf ? performanceView.perf.overallFPS : 0
-                            unit: "fps"
-                            decimals: 1
-                        }
-                        PerformanceRect {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            theme: performanceView.theme
-                            label: "狭义端到端"
-                            value: performanceView.perf ? performanceView.perf.narrowEndToEndMs : 0
-                            unit: "ms"
-                            caption: "读帧 → 推理完成"
-                        }
-                        PerformanceRect {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            theme: performanceView.theme
-                            label: "广义端到端"
-                            value: performanceView.perf ? performanceView.perf.broadEndToEndMs : 0
-                            unit: "ms"
-                            caption: "读帧 → 渲染/保存完成"
-                        }
-                        PerformanceRect {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            theme: performanceView.theme
-                            label: "统计窗口"
-                            value: performanceView.perf ? performanceView.perf.windowDurationMs : 0
-                            unit: "ms"
-                            decimals: 0
-                            caption: "第 " + (performanceView.perf ? performanceView.perf.snapshotIndex : 0) + " 号快照"
+                        GridLayout {
+                            id: overallGrid
+                            visible: !emptyLabel.visible
+                            width: overallFlick.width
+                            height: Math.max(overallFlick.height, implicitHeight)
+                            columns: 2
+                            columnSpacing: 8
+                            rowSpacing: 8
+                            PerformanceRect {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                theme: performanceView.theme
+                                label: "整体帧率"
+                                value: performanceView.perf ? performanceView.perf.overallFPS : 0
+                                unit: "fps"
+                                decimals: 1
+                            }
+                            PerformanceRect {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                theme: performanceView.theme
+                                label: "狭义端到端"
+                                value: performanceView.perf ? performanceView.perf.narrowEndToEndMs : 0
+                                unit: "ms"
+                                caption: "读帧 → 推理完成"
+                            }
+                            PerformanceRect {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                theme: performanceView.theme
+                                label: "广义端到端"
+                                value: performanceView.perf ? performanceView.perf.broadEndToEndMs : 0
+                                unit: "ms"
+                                caption: "读帧 → 渲染/保存完成"
+                            }
+                            PerformanceRect {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                theme: performanceView.theme
+                                label: "统计窗口"
+                                value: performanceView.perf ? performanceView.perf.windowDurationMs : 0
+                                unit: "ms"
+                                decimals: 0
+                                caption: "第 " + (performanceView.perf ? performanceView.perf.snapshotIndex : 0) + " 号快照"
+                            }
+                            PerformanceRect {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                theme: performanceView.theme
+                                label: "检测器预热总耗时"
+                                value: performanceView.perf ? performanceView.perf.warmupMs : 0
+                                unit: "ms"
+                                caption: "共 " + (performanceView.perf ? performanceView.perf.warmupIterations : 0) + " 轮"
+                            }
                         }
                     }
                 }
@@ -457,7 +474,7 @@ Window {
         id: perfInfoPopup
         modal: false
         focus: false
-        closePolicy: Popup.NoAutoClose
+        closePolicy: Popup.CloseOnPressOutside
         anchors.centerIn: parent
         width: parent.width * 0.5
         height: parent.height * 0.7
@@ -486,11 +503,11 @@ Window {
 
                 TextArea {
                     id: infoText
-                    width: infoFlick.width
-                    text: performanceView.stageInfoMarkdown
+                    anchors.fill: parent
+                    text: performanceView.stageInfoHtml
                     readOnly: true
                     selectByMouse: true
-                    textFormat: TextEdit.MarkdownText
+                    textFormat: TextEdit.RichText
                     wrapMode: TextEdit.Wrap
                     color: performanceView.theme.windowText
                     font.pixelSize: 13
@@ -500,18 +517,6 @@ Window {
                     bottomPadding: 0
                     background: null
                 }
-            }
-
-            Button {
-                anchors.top: parent.top
-                anchors.right: parent.right
-                width: 24
-                height: 24
-                text: "×"
-                flat: true
-                font.pixelSize: 16
-                z: 1
-                onClicked: perfInfoPopup.close()
             }
         }
     }
