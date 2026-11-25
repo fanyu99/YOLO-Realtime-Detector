@@ -1,0 +1,105 @@
+# 最小 CI：在 GitHub 托管的 Windows runner 上编译全部 target（含测试程序），不运行测试。
+#
+# 依赖策略：
+#   CUDA / 海康 MVS 在 CI 上不可得（前者版本不可控，后者无公开下载），显式关闭；
+#   其余依赖下载官方预编译包并缓存到 C:\deps。
+#   版本与开发机保持一致（Qt 6.11.1 / OpenCV 5.0.0 / ONNX Runtime 1.30.0），
+#   这样 CI 失败基本可以归因到仓库代码，而不是依赖差异。
+
+name: build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  QT_VERSION: "6.11.1"
+  OPENCV_VERSION: "5.0.0"
+  ONNXRUNTIME_VERSION: "1.30.0"
+  DEPS_ROOT: C:\deps
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      # presets 用 Ninja + 外部工具链，需要先把 cl.exe / vcvars64 放进环境。
+      - name: Set up MSVC x64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # 缓存整个依赖目录；key 里的版本变了就整体重下。
+      - name: Cache third-party dependencies
+        id: deps
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.DEPS_ROOT }}
+          key: deps-qt${{ env.QT_VERSION }}-cv${{ env.OPENCV_VERSION }}-ort${{ env.ONNXRUNTIME_VERSION }}-ffmpeg8.1-v1
+
+      - name: Install Qt
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install --disable-pip-version-check aqtinstall==3.3.0
+          python -m aqt install-qt windows desktop $env:QT_VERSION win64_msvc2022_64 `
+            -O "$env:DEPS_ROOT\qt" --modules qtmultimedia
+
+      # 官方 Windows 包是 7z 自解压格式，解出来是 opencv/build。
+      - name: Install OpenCV
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          $url = "https://github.com/opencv/opencv/releases/download/$env:OPENCV_VERSION/opencv-$env:OPENCV_VERSION-windows.exe"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\opencv.exe"
+          7z x "$env:RUNNER_TEMP\opencv.exe" "-o$env:DEPS_ROOT\opencv" -y | Out-Null
+
+      # 取 8.1 发布分支的 shared 构建；master 分支的 ABI 会漂移。
+      - name: Install FFmpeg
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
+          7z x "$env:RUNNER_TEMP\ffmpeg.zip" "-o$env:DEPS_ROOT\ffmpeg" -y | Out-Null
+
+      - name: Install ONNX Runtime
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$env:ONNXRUNTIME_VERSION/onnxruntime-win-x64-$env:ONNXRUNTIME_VERSION.zip"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\onnxruntime.zip"
+          7z x "$env:RUNNER_TEMP\onnxruntime.zip" "-o$env:DEPS_ROOT\onnxruntime" -y | Out-Null
+
+      # 缓存命中时安装步骤全部跳过，所以路径解析单独一步、每次都跑。
+      # 全局搜配置文件名而不是写死目录层级：解压出来的中间目录名由压缩包决定。
+      - name: Resolve dependency paths
+        run: |
+          $qt = (Get-ChildItem "$env:DEPS_ROOT\qt" -Recurse -Filter qmake.exe | Select-Object -First 1).DirectoryName
+          if (-not $qt) { throw "Qt not found under $env:DEPS_ROOT\qt" }
+          $cv = (Get-ChildItem "$env:DEPS_ROOT\opencv" -Recurse -Filter OpenCVConfig.cmake | Select-Object -First 1).DirectoryName
+          if (-not $cv) { throw "OpenCVConfig.cmake not found under $env:DEPS_ROOT\opencv" }
+          $ff = (Get-ChildItem "$env:DEPS_ROOT\ffmpeg" -Directory | Select-Object -First 1).FullName
+          $ort = (Get-ChildItem "$env:DEPS_ROOT\onnxruntime" -Directory | Select-Object -First 1).FullName
+
+          "QTDIR=$(Split-Path $qt -Parent)" >> $env:GITHUB_ENV
+          "YOLO_OPENCV_RELEASE_DIR=$cv" >> $env:GITHUB_ENV
+          "FFMPEG_DIR=$ff" >> $env:GITHUB_ENV
+          "ONNXRUNTIME_ROOT=$ort" >> $env:GITHUB_ENV
+
+      # 两者的 SDK 在 runner 上拿不到：sm_120 需要 CUDA 12.8+，MVS 是专有包。
+      - name: Configure
+        run: cmake --preset release -DYOLO_ENABLE_CUDA=OFF -DYOLO_ENABLE_HIK=OFF
+
+      - name: Build
+        run: cmake --build out/build/release --parallel
+
+      # test_display_matrix 需要 QRhi 渲染上下文，无 GPU 的 runner 上不稳定，
+      # 暂时只保证它能编译通过。确认可行后再加：
+      #   ctest --test-dir out/build/release --output-on-failure

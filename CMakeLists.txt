@@ -194,6 +194,13 @@ if(DEFINED ENV{QTDIR})
 endif()
 
 find_package(OpenCV REQUIRED)
+# 代码只用到 4.x 起就有的 core/imgproc/imgcodecs/videoio/dnn API，最低支持 4.0。
+# 不能写成 find_package(OpenCV 4.0)：OpenCV 自带的 version 文件只按同一 major
+# 判断兼容，那样会把 5.x 的包判成不兼容而直接失败。
+if(OpenCV_VERSION VERSION_LESS 4.0)
+    message(FATAL_ERROR
+        "OpenCV ${OpenCV_VERSION} 过旧：本项目最低需要 4.0（当前包目录 ${OpenCV_DIR}）。")
+endif()
 find_package(Qt6 REQUIRED COMPONENTS Core Test)
 # 海康 MVS SDK 的 find_library 在 src/core/CMakeLists.txt 中执行（yolo_hik）
 
