@@ -224,7 +224,9 @@ find_package(onnxruntime CONFIG QUIET)
 if(NOT onnxruntime_FOUND AND ONNXRUNTIME_ROOT
    AND EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime_cxx_api.h"
    AND EXISTS "${ONNXRUNTIME_ROOT}/lib/onnxruntime.lib")
-    add_library(onnxruntime UNKNOWN IMPORTED)
+    # 必须是 SHARED：CMake 对 UNKNOWN 类型会用 IMPORTED_LOCATION（DLL）去链接，
+    # 只有 SHARED 才会在 Windows 上用 IMPORTED_IMPLIB（.lib）。
+    add_library(onnxruntime SHARED IMPORTED)
     set_target_properties(onnxruntime PROPERTIES
         IMPORTED_IMPLIB "${ONNXRUNTIME_ROOT}/lib/onnxruntime.lib"
         IMPORTED_LOCATION "${ONNXRUNTIME_ROOT}/lib/onnxruntime.dll"
