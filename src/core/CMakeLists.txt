@@ -162,7 +162,6 @@ target_link_libraries(yolo_core PUBLIC
     FFmpeg::swresample
     FFmpeg::avfilter
     FFmpeg::avdevice
-    FFmpeg::postproc
 )
 
 if(YOLO_HAVE_CUDA)

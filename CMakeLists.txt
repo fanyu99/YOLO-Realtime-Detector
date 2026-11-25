@@ -121,6 +121,7 @@ if(NOT EXISTS "${FFMPEG_INCLUDE_DIR}/libavcodec/avcodec.h")
 endif()
 
 # 使用 DLL 的 import lib（avcodec.lib 等），不要用 lib*.lib 静态库。
+# 不含 postproc：FFmpeg 8 已从上游删除 libpostproc，本项目也从未使用它。
 set(FFMPEG_COMPONENTS
     avcodec
     avformat
@@ -129,7 +130,6 @@ set(FFMPEG_COMPONENTS
     swresample
     avfilter
     avdevice
-    postproc
 )
 
 foreach(component IN LISTS FFMPEG_COMPONENTS)
