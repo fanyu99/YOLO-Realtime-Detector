@@ -14,7 +14,8 @@
 #         codecpar 等均为 3.1+ 的稳定 API；4.0 是仍可获得 Windows 构建的起点。
 #         CI 用 8.1 发布分支（已核对 8.1 头文件中用到的符号与结构体字段都在）。
 #   ONNXRT 下限 1.12：C++ API 用了 GetInputNameAllocated / GetOutputNameAllocated
-#         （1.12 引入，替代已废弃的 GetInputName）。CI 用 1.30.0，与开发机一致。
+#         （1.12 引入，替代已废弃的 GetInputName）。CI 用 1.30.0，与开发机一致；
+#         包从官方 NuGet 取，GitHub release 的 Windows zip 资源名已不可靠。
 #   CUDA / 海康 MVS 不参与 CI：前者 sm_120 需要 CUDA 12.8+ 且版本不可控，
 #         后者是专有 SDK，没有公开下载。
 #
@@ -66,7 +67,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.DEPS_ROOT }}
-          key: deps-v2-qt${{ env.QT_VERSION }}-cv${{ env.OPENCV_VERSION }}-ort${{ env.ONNXRUNTIME_VERSION }}-ffmpeg8.1
+          key: deps-v3-qt${{ env.QT_VERSION }}-cv${{ env.OPENCV_VERSION }}-ort${{ env.ONNXRUNTIME_VERSION }}-ffmpeg8.1
 
       - name: Install Qt
         if: steps.deps.outputs.cache-hit != 'true'
@@ -95,9 +96,8 @@ jobs:
       - name: Install ONNX Runtime
         if: steps.deps.outputs.cache-hit != 'true'
         run: |
-          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$env:ONNXRUNTIME_VERSION/onnxruntime-win-x64-$env:ONNXRUNTIME_VERSION.zip"
-          curl.exe -fL --retry 3 --retry-delay 5 -o "$env:RUNNER_TEMP\onnxruntime.zip" $url
-          7z x "$env:RUNNER_TEMP\onnxruntime.zip" "-o$env:DEPS_ROOT\onnxruntime" -y | Out-Null
+          $url = "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/$env:ONNXRUNTIME_VERSION/microsoft.ml.onnxruntime.$env:ONNXRUNTIME_VERSION.nupkg"
+          curl.exe -fL --retry 3 --retry-delay 5 -o "$env:RUNNER_TEMP\onnxruntime.nupkg" $url
 
           $tmp = "$env:RUNNER_TEMP\onnxruntime-nupkg"
           Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
@@ -118,7 +118,8 @@ jobs:
           $cv = (Get-ChildItem "$env:DEPS_ROOT\opencv" -Recurse -Filter OpenCVConfig.cmake | Select-Object -First 1).DirectoryName
           if (-not $cv) { throw "OpenCVConfig.cmake not found under $env:DEPS_ROOT\opencv" }
           $ff = (Get-ChildItem "$env:DEPS_ROOT\ffmpeg" -Directory | Select-Object -First 1).FullName
-          $ort = (Get-ChildItem "$env:DEPS_ROOT\onnxruntime" -Directory | Select-Object -First 1).FullName
+          $ort = "$env:DEPS_ROOT\onnxruntime"
+          if (-not (Test-Path "$ort\lib\onnxruntime.lib")) { throw "onnxruntime.lib not found under $ort\lib" }
 
           "QTDIR=$(Split-Path $qt -Parent)" >> $env:GITHUB_ENV
           "YOLO_OPENCV_RELEASE_DIR=$cv" >> $env:GITHUB_ENV
