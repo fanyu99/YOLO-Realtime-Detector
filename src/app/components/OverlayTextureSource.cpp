@@ -20,7 +20,6 @@
 #include "CudaDevice.h"
 #include "CudaPreprocessKernels.h"
 #include "CudaStageTimer.h"
-#include "DetectionApp.h"
 #include "GpuFrameHandle.h"
 #endif
 
@@ -44,7 +43,8 @@ public:
 	bool available () const { return m_ok; }
 
 	// 懒加载
-	bool init ( QQuickWindow* window ) {
+	bool init ( QQuickWindow* window, IPerformanceMonitor* monitor ) {
+		m_monitor = monitor;
 		auto* rif = window->rendererInterface ();
 		if (rif->graphicsApi () != QSGRendererInterface::Direct3D11) {
 			fail ( QStringLiteral ( "RHI 后端不是 D3D11，原生互操作不可用" ) );
@@ -61,9 +61,8 @@ public:
 		}
 		m_cudaDeviceId = CudaDevice::instance ().deviceId ();
 		m_stream = CudaDevice::instance ().stream ();
-		if (auto* app = DetectionApp::instance ())
-			if (auto* monitor = app->monitor ())
-				m_convertTimer.emplace ( m_stream, monitor, PerformanceStage::ConvertKernel );
+		if (m_monitor)
+			m_convertTimer.emplace ( m_stream, m_monitor, PerformanceStage::ConvertKernel );
 		// 适配器核对
 		if (!luidMatches ( d3d, m_cudaDeviceId )) {
 			fail ( QStringLiteral ( "D3D11 适配器与 CUDA 设备 LUID 不匹配" ) );
@@ -292,6 +291,7 @@ private:
 	QSGTexture* m_qsgTex[2]{};					// 缓存的包装纹理，每帧直接复用（节点 ownsTexture=false）
 	cudaStream_t m_stream{};					// 借用CudaDevice的统一的stream
 	std::optional<CudaStageTimer> m_convertTimer;	// 显示转换 kernel 的设备耗时
+	IPerformanceMonitor* m_monitor = nullptr;		// 借用监测器，用于转换 kernel 计时
 	int m_cudaDeviceId = -1;
 	int m_slot = 0;	   // 当前的槽位，后续进行交换（异或）
 	bool m_ok = false;
@@ -308,6 +308,7 @@ struct OverlayTextureSource::Impl {
 	NativeSource native;
 	bool nativeInited = false;	// 首个 GPU 帧时才尝试 init（渲染线程 API）
 #endif
+	IPerformanceMonitor* monitor = nullptr;	// 借用监测器，用于显示转换 kernel 计时
 	// Upload，节点不拥有内存，纹理生命周期由本类管理，每帧新建包装，上一帧交给deleteLater
 	QSGTexture* lastUpload = nullptr;
 
@@ -329,11 +330,16 @@ struct OverlayTextureSource::Impl {
 	}
 };
 
-OverlayTextureSource::OverlayTextureSource ()
+OverlayTextureSource::OverlayTextureSource ( IPerformanceMonitor* monitor )
 	: m_impl ( std::make_unique<Impl> () ) {
+	m_impl->monitor = monitor;
 }
 
 OverlayTextureSource::~OverlayTextureSource () = default;
+
+void OverlayTextureSource::setMonitor ( IPerformanceMonitor* monitor ) {
+	m_impl->monitor = monitor;
+}
 
 QSGTexture* OverlayTextureSource::textureFor ( const FrameHandlePtr& frame, QQuickWindow* window ) {
 	if (!frame)
@@ -342,7 +348,7 @@ QSGTexture* OverlayTextureSource::textureFor ( const FrameHandlePtr& frame, QQui
 	if (frame->memoryType () == MemoryType::GPU) {
 		if (!m_impl->nativeInited) {
 			m_impl->nativeInited = true;
-			m_impl->native.init ( window ); // 如果初始化失败，每帧返回nullptr
+			m_impl->native.init ( window, m_impl->monitor ); // 如果初始化失败，每帧返回nullptr
 		}
 		if (m_impl->native.available ())
 			return m_impl->native.textureFor ( frame, window );

@@ -35,8 +35,6 @@
 		"report_interval_ms": 500
 	}
 }
-
-display 节只落盘 view_mode(用户偏好)：active_mode 与 backend 都是运行态，不落盘。
 */
 
 

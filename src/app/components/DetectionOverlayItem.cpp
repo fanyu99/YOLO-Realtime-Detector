@@ -32,8 +32,10 @@ DetectionOverlayItem::~DetectionOverlayItem () {
 // QML 组件构造完成（GUI 线程）
 void DetectionOverlayItem::componentComplete () {
 	QQuickItem::componentComplete ();
-	if (auto* app = DetectionApp::instance ())
+	if (auto* app = DetectionApp::instance ()) {
 		app->installOverlay ( this );
+		m_textureSource->setMonitor ( app->monitor () );	// 显示转换 kernel 计时
+	}
 	// invalidate 清理Native路径的互操作资源
 	connect ( window (), &QQuickWindow::sceneGraphInvalidated, this, [ this ] () {
 		m_textureSource->invalidate ();
@@ -113,11 +115,14 @@ QSGNode* DetectionOverlayItem::updatePaintNode ( QSGNode* oldNode, UpdatePaintNo
 	if (!temp)
 		return oldNode;
 
-	// 显示等待耗时
-	// 从快照入Mail到取走去渲染
+	// 监测器借用：显示等待与呈现延迟都在本帧的渲染线程处理里采集
+	IPerformanceMonitor* monitor = nullptr;
 	if (auto* app = DetectionApp::instance ())
-		if (auto* mon = app->monitor ())
-			mon->recordStage ( PerformanceStage::DisplayWait, frameClockNs () - temp->postTime );
+		monitor = app->monitor ();
+
+	// 显示等待耗时：从快照入 Mail 到被渲染线程取走
+	if (monitor)
+		monitor->recordStage ( PerformanceStage::DisplayWait, frameClockNs () - temp->postTime );
 
 	Nodes nodes;
 	if (!oldNode) {
@@ -135,14 +140,20 @@ QSGNode* DetectionOverlayItem::updatePaintNode ( QSGNode* oldNode, UpdatePaintNo
 	const QRectF target = fittedRect ( frameSize );
 	if (target.isEmpty ())
 		return oldNode;
+	bool textureReady = false;
 	if (QSGTexture* texture = textureFor ( frame )) {
 		nodes.pixels->setTexture ( texture );
 		nodes.pixels->setRect ( target );
+		textureReady = true;
 	}
 
 	// 几何
 	const qreal scale = target.width () / frameSize.width ();
 	syncBoxes ( nodes, target, scale, temp->boxes );
+
+	// 呈现延迟：读帧开始 -> 本帧像素与检测框提交到窗口显示
+	if (textureReady && monitor)
+		monitor->recordStage ( PerformanceStage::PresentLatency, frameClockNs () - temp->frameStartNs );
 
 	return oldNode;
 }

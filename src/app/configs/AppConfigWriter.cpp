@@ -9,8 +9,6 @@
 #include <QSaveFile>
 #include "Logger.h"
 
-// 写入侧的辅助函数：与 AppConfigLoader 的 readString/readInt/readDouble/readArray
-// 按 key 一一对应，区别只在于方向(取值 vs 放值)。
 namespace {
 
 const QString kDetectorSection = QStringLiteral ( "detector" );

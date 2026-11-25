@@ -10,7 +10,7 @@
 
 这是一个使用 Qt Quick/QML 编写界面、使用 C++ 完成取帧和推理的 YOLO 目标检测桌面项目。当前支持图片、视频文件、通过 FFmpeg 接入的普通摄像头，以及通过 MVS SDK 接入的海康工业相机。
 
-这个项目可以用来测试自己训练并导出的 YOLO 模型，查看视频或摄像头的检测结果，回看已经处理过的画面，并保存带检测框的图片和视频。也可以通过这个项目了解 QML 与 C++ 如何交接、CPU/GPU 推理流程如何拆分，以及如何对各个阶段进行计时。当前只负责导出模型的推理，模型训练和数据集标注需要在其他工具中完成。
+这个项目可以用来测试自己训练并导出格式为 ONNXRuntime 的 YOLO 模型，查看视频或摄像头的检测结果，回看已经处理过的画面，并保存带检测框的图片和视频。也可以通过这个项目了解 QML 与 C++ 如何交接、CPU/GPU 推理流程如何拆分，以及如何对各个阶段进行计时。当前只负责导出模型的推理，模型训练和数据集标注需要在其他工具中完成。
 
 当前的构建和依赖部署主要面向 Windows x64。CMake 中含有 Windows 库文件和 DLL 的处理逻辑，其他平台需要继续调整构建与设备接入代码。
 
@@ -29,7 +29,9 @@
 - [许可证](#许可证)
 
 ## 当前完成
-
+- 新增统一配置文件和 `ConfigHelper`。启动时读取检测和监控配置，再通过 QML 对话框修改，替换当前写在代码里的默认值。
+- 完善 GPU 显示，在 GPU 图像上叠加 CPU NMS 检测框和 Qt Overlay，减少完整图像传回 CPU 以及 CPU 绘制。
+- 添加了Gpu设备侧的相关计时，包括预处理kernel以及Overlay互操作转换的计时
 - 完成单图片、视频、普通摄像头、海康工业相机和图片/视频混合批量检测。Manager 使用 Job 管理整体进度，Worker 执行其中的 Task。
 - 接通 CPU/GPU 两条推理流程。CPU 使用 BGR 帧；GPU 支持 FFmpeg 解码得到的 CUDA/NV12 帧，也支持将 CPU 图片上传到显存后进行推理。
 - 接入 FFmpeg 软解和 CUDA 硬解路径。海康相机的枚举、触发模式和采集逻辑封装在独立帧源中。
@@ -43,7 +45,7 @@
 
 | 部分 | 当前使用 |
 |---|---|
-| 语言 | 顶层 CMake 设置为 C++23；CUDA 源文件使用 C++17 |
+| 语言 | 顶层 CMake 设置为 `C++23`；CUDA 源文件使用`C++17` |
 | 界面 | Qt 6、Qt Quick/QML、Quick Controls、Qt Multimedia |
 | 推理 | ONNX Runtime，现有依赖配置使用 1.30，包含 CPU/CUDA 执行路径 |
 | 图像处理 | OpenCV，现有配置使用 5.0，负责读图、CPU 预处理、绘制和图像转换 |
@@ -106,16 +108,16 @@ GPU 图片：CPU BGR 帧 -> Session 上传显存 -> BGR CUDA kernel -> GpuDetect
 
 `PerformanceMonitor` 使用锁保护统计数据，统一生成快照，再交给 `PerformanceApp` 转换为 QML 属性。内部计时使用纳秒，到显示边界才转换为毫秒。页面可以查看阶段平均值、最大值、样本数、FPS、成功/失败帧数以及端到端统计。仅在检测运行时发送快照。
 
-目前统计的是埋点所包围的主机侧作用域耗时，不能直接当作 CUDA Event 测得的 kernel 耗时，也不能当作单独的 UI 渲染线程延迟。
 
 | 级别 | 当前采集范围 |
 |---|---|
 | Off | 使用 `NullPerformanceMonitor`，不采集阶段数据 |
-| Basic | 端到端耗时、整体帧数和 FPS，启动默认值 |
+| Basic | 端到端耗时、整体帧数和 FPS，启动默认值、预热耗时 |
 | Detailed | Basic 加读帧、预处理、推理、后处理、绘制、保存 |
-| Full | Detailed 加上传阶段 |
+| Full | Detailed 加上传阶段 +GPU设备侧耗时（CUDAkernel以及Overlay的互操作转换） |
 
-默认上报间隔为 300 ms。已启用状态下切换级别或调整上报间隔可以在运行时生效，并重置统计窗口。Off 与启用状态之间的切换会提示需要重启并拒绝本次修改；当前启动配置仍来自 `src/main.cpp` 的 `PerformanceConfig`，还没有持久化的开关。配置模型中已有内存/GPU 采样标记，但完整的内存采样器和 CUDA Event 计时尚未实现。
+默认上报间隔为 300 ms。已启用状态下切换级别或调整上报间隔可以在运行时生效，并重置统计窗口。Off 与启用状态之间的切换会提示需要重启并拒绝本次修改；
+当前配置已经有持久化的保存逻辑以及配置加载机制。
 
 ## 目录结构
 
@@ -152,7 +154,7 @@ Windows x64，MSVC + Ninja。先进入 x64 的 MSVC 开发者终端（vcvars64�
 
 ### 指定依赖位置
 
-每个依赖目录都从环境变量读取，再转成缓存变量的默认值，因此每一项也都能用 `-D` 覆盖；仓库里没有任何写死的路径。
+每个依赖目录都从环境变量读取，再转成缓存变量的默认值，每一项也都能用 `-D` 覆盖
 
 | 环境变量 | 指向 |
 |---|---|
@@ -163,7 +165,7 @@ Windows x64，MSVC + Ninja。先进入 x64 的 MSVC 开发者终端（vcvars64�
 | `FFMPEG_DIR` | FFmpeg 安装目录，含 `include/`、`lib/`、`bin/` |
 | `MVCAM_COMMON_RUNENV` | MVS SDK 根目录；MVS 安装器会自己设置 |
 
-一组典型的取值示例：
+示例：
 
 ```powershell
 $env:QTDIR = "D:/Qt/6.11.1/msvc2022_64"
@@ -239,12 +241,7 @@ ctest --test-dir out/build/release --output-on-failure
 
 ## 后续计划
 
-- 新增统一配置文件和 `ConfigHelper`。启动时读取检测和监控配置，再通过 QML 对话框修改，替换当前写在代码里的默认值。
 - 调整 Worker 执行模型，将 Task 队列改为 Job 队列。围绕兼容的 Job 创建或复用 Session，并保持 Manager 状态与 Worker 实际持有的会话一致。
-- 完善 GPU 显示，在 GPU 图像上叠加 CPU NMS 检测框和 Qt Overlay，减少完整图像传回 CPU 以及 CPU 绘制。
-- 继续验证 GPU 单图、图片/视频混合批量、异常输入、stride/颜色处理，以及 CPU/GPU 预处理结果一致性，再拓展图片解码路径。
-- 根据 [issue #1](https://github.com/fanyu99/YOLO-Realtime-Detector/issues/1) 中的性能优化方向，在实测瓶颈后拆分采集、推理与 UI 交付，并使用有界队列。Job 丢弃/重建投递和独立后处理线程仍属于后续设计。
-- 继续完善性能监控。[Issue #14](https://github.com/fanyu99/YOLO-Realtime-Detector/issues/14) 记录了该方向；当前代码已经接入接口、依赖注入、阶段计时、快照和非模态页面，后面继续补充采样与验证。
 
 详细开发记录见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)。文档开头同时保留了历史过程和后续设想，上面的当前架构按代码描述。
 

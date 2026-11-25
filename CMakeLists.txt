@@ -265,6 +265,9 @@ set(YOLO_SOURCE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app/configs"
 )
 
+# 运行时 DLL 部署函数：主程序与 tests/ 下的测试程序共用。
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy_runtime.cmake)
+
 # -----------------------------------------------------------------------------
 # 可执行程序入口 
 # -----------------------------------------------------------------------------
@@ -392,41 +395,10 @@ endif()
 # -----------------------------------------------------------------------------
 # 运行时 DLL 部署（Windows）
 #
-# MSVC 只在导入表里记录 DLL 文件名，而这些 DLL 所在的 bin 目录不在 PATH 上，
-# 程序启动时会直接加载失败。这里把依赖目录下的 DLL 全部复制到 exe 旁边。
-# 用 glob 而不是逐个列文件：以后新增依赖（ffmpeg、CUDA provider 等）无需改这里。
+# 具体实现见 cmake/deploy_runtime.cmake。主程序需要 OpenCV / ONNX Runtime /
+# CUDA / MVS 全部依赖；测试程序只部署它实际用到的部分（在 tests/ 中调用）。
 # -----------------------------------------------------------------------------
-if(WIN32)
-    set(RUNTIME_DLL_DIRS "")
-    foreach(_dep_target opencv_world onnxruntime)
-        if(TARGET ${_dep_target})
-            foreach(_cfg "" _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)
-                get_target_property(_loc ${_dep_target} "IMPORTED_LOCATION${_cfg}")
-                if(_loc AND EXISTS "${_loc}")
-                    get_filename_component(_dir "${_loc}" DIRECTORY)
-                    list(APPEND RUNTIME_DLL_DIRS "${_dir}")
-                endif()
-            endforeach()
-        endif()
-    endforeach()
-    list(REMOVE_DUPLICATES RUNTIME_DLL_DIRS)
-
-    set(RUNTIME_DLLS "")
-    foreach(_dir IN LISTS RUNTIME_DLL_DIRS)
-        file(GLOB _dlls "${_dir}/*.dll")
-        list(APPEND RUNTIME_DLLS ${_dlls})
-    endforeach()
-
-    if(RUNTIME_DLLS)
-        list(LENGTH RUNTIME_DLLS _dll_count)
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${RUNTIME_DLLS}
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>
-            COMMENT "Deploying ${_dll_count} runtime DLLs next to ${PROJECT_NAME}.exe"
-        )
-    endif()
-endif()
+yolo_deploy_runtime_dlls(${PROJECT_NAME})
 
 # 示例资源部署：examples/（示例图片 + 示例模型）随构建同步到 exe 目录，
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples")
@@ -452,123 +424,10 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/settings")
     message(STATUS "成功找到配置目录： ${CMAKE_CURRENT_SOURCE_DIR}/settings")
 endif()
 
-# CUDA / cuDNN 运行时 DLL 部署。
-# onnxruntime_providers_cuda.dll 静态依赖 cublasLt64_13.dll / cublas64_13.dll，
-# 运行时还要 LoadLibrary cudart64_13.dll / cudnn64_9.dll / nvrtc64_13x_0.dll。
-# 这些 DLL 只由 CUDA Toolkit 和 cuDNN 提供，显卡驱动不带。
-# 这里把它们一起复制到 exe 目录，免去每台机器手工配 PATH。
-# 若已通过 PATH 提供，可用 -DDEPLOY_CUDA_RUNTIME=OFF 关闭。
-option(DEPLOY_CUDA_RUNTIME "Copy CUDA/cuDNN runtime DLLs next to the executable" ON)
-if(WIN32 AND DEPLOY_CUDA_RUNTIME)
-    # 注意目录布局：CUDA 12 及更早把运行时 DLL 放在 bin\，
-    # CUDA 13 起改到 bin\x64\；cuDNN 9.x 的压缩包是 bin\x64\。两个都搜，兼容新旧版本。
-    set(_cuda_bin_dirs "")
-    if(DEFINED ENV{CUDA_PATH})
-        list(APPEND _cuda_bin_dirs "$ENV{CUDA_PATH}/bin" "$ENV{CUDA_PATH}/bin/x64")
-    endif()
-    if(CUDNN_PATH)
-        list(APPEND _cuda_bin_dirs "${CUDNN_PATH}/bin" "${CUDNN_PATH}/bin/x64")
-    elseif(DEFINED ENV{CUDNN_PATH})
-        list(APPEND _cuda_bin_dirs "$ENV{CUDNN_PATH}/bin" "$ENV{CUDNN_PATH}/bin/x64")
-    endif()
-    file(GLOB _cuda_toolkit_bins
-        "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v*/bin"
-        "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v*/bin/x64")
-    list(APPEND _cuda_bin_dirs ${_cuda_toolkit_bins})
-    list(REMOVE_DUPLICATES _cuda_bin_dirs)
+# CUDA / cuDNN 运行时 DLL 部署，实现见 cmake/deploy_runtime.cmake。
+yolo_deploy_cuda_runtime(${PROJECT_NAME})
 
-    set(_cuda_dlls "")
-    foreach(_dir IN LISTS _cuda_bin_dirs)
-        foreach(_pat
-            "cublas64_13.dll"
-            "cublasLt64_13.dll"
-            "cudart64_13.dll"
-            "nvrtc64_13*_0.dll"
-            "nvrtc-builtins64_13*.dll"
-            "nvJitLink*.dll"
-            "cudnn*.dll")
-            file(GLOB _found "${_dir}/${_pat}")
-            list(APPEND _cuda_dlls ${_found})
-        endforeach()
-    endforeach()
-    if(_cuda_dlls)
-        list(REMOVE_DUPLICATES _cuda_dlls)
-    endif()
-
-    if(_cuda_dlls)
-        list(LENGTH _cuda_dlls _cuda_dll_count)
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${_cuda_dlls}
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>
-            COMMENT "Deploying ${_cuda_dll_count} CUDA/cuDNN runtime DLLs next to ${PROJECT_NAME}.exe"
-        )
-    else()
-        message(STATUS
-            "DEPLOY_CUDA_RUNTIME=ON, but no CUDA/cuDNN bin directory was found. "
-            "Set CUDA_PATH (and CUDNN_PATH) or add them to PATH, otherwise the CUDA EP will fall back to CPU.")
-    endif()
-endif()
-
-# -----------------------------------------------------------------------------
-# 海康 MVS 运行时 DLL 部署
-#
-# exe 的导入表里记录了 MvCameraControl.dll，它自己又依赖 GenICam 栈
-# (GCBase/GenApi/XmlParser/...)和传输层(MvGigEVisionSDK / MvUsb3vTL)——
-# 少任何一个都是「双击没反应」级别的启动失败，而不是海康功能不可用。
-#
-# MVS 安装器会把这些放进 Common Files 并加进 PATH，看起来不需要部署，但：
-#   1) 那台机器必须装过 MVS SDK —— 只装运行时或走绿色包就未必；
-#   2) MVS 会同时把 Win32_i86 和 Win64_x64 都加进 PATH，而 32 位那个常排在
-#      前面。按 PATH 顺序查找是先命中名字、再校验架构的，命中一份错架构的
-#      就是加载失败，不会继续往后找。
-# 所以这里把正确架构的运行时直接复制到 exe 旁边 —— exe 目录在搜索顺序里
-# 优先级最高，从此与 PATH 无关。
-#
-# 整个目录一起复制(约 110MB，大头是 IPP/SuperRender 这些给 MVS 自带查看器
-# 用的库)。不想背这个体积就 -DDEPLOY_MVS_RUNTIME=OFF，自行保证 PATH。
-# -----------------------------------------------------------------------------
-option(DEPLOY_MVS_RUNTIME "Copy Hikvision MVS runtime DLLs next to the executable" ON)
-if(WIN32 AND DEPLOY_MVS_RUNTIME)
-    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-        set(_mvs_runtime_arch "Win64_x64")
-    else()
-        set(_mvs_runtime_arch "Win32_i86")
-    endif()
-
-    # 安装位置随版本/安装选项变，按常见顺序找第一个含 MvCameraControl.dll 的目录。
-    # 注意不能用 $ENV{CommonProgramFiles(x86)} —— CMake 的 $ENV{} 解析不了带括号的
-    # 变量名，会直接报语法错误。MVS 是 32 位安装器，固定装到 Common Files (x86)，
-    # 所以这里直接写死标准路径，另外留一个 cache 变量给非标准安装。
-    set(MVS_RUNTIME_DIR "" CACHE PATH "海康 MVS 运行时目录(留空则自动探测)")
-    if(NOT MVS_RUNTIME_DIR)
-        set(_mvs_runtime_candidates
-            "${MVS_SDK_ROOT}/Runtime/${_mvs_runtime_arch}"
-            "C:/Program Files (x86)/Common Files/MVS/Runtime/${_mvs_runtime_arch}"
-            "C:/Program Files/Common Files/MVS/Runtime/${_mvs_runtime_arch}"
-        )
-        foreach(_dir IN LISTS _mvs_runtime_candidates)
-            if(NOT MVS_RUNTIME_DIR AND EXISTS "${_dir}/MvCameraControl.dll")
-                set(MVS_RUNTIME_DIR "${_dir}")
-            endif()
-        endforeach()
-    endif()
-
-    if(MVS_RUNTIME_DIR)
-        file(GLOB _mvs_files "${MVS_RUNTIME_DIR}/*.dll" "${MVS_RUNTIME_DIR}/*.ini")
-        list(LENGTH _mvs_files _mvs_count)
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${_mvs_files}
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>
-            COMMENT "Deploying ${_mvs_count} MVS runtime files next to ${PROJECT_NAME}.exe"
-        )
-        message(STATUS "MVS 运行时目录: ${MVS_RUNTIME_DIR}")
-    else()
-        message(STATUS
-            "DEPLOY_MVS_RUNTIME=ON, but no MVS runtime directory was found. "
-            "MvCameraControl.dll will have to come from PATH; unused if you don't use Hik cameras.")
-    endif()
-endif()
+# 海康 MVS 运行时 DLL 部署，实现见 cmake/deploy_runtime.cmake。
+yolo_deploy_mvs_runtime(${PROJECT_NAME})
 
 
