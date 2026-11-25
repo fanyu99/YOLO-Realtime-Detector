@@ -207,7 +207,10 @@ find_package(Qt6 REQUIRED COMPONENTS Core Test)
 # --------------------------------------------------------------------------
 # ONNX Runtime
 #
-# 解压包根目录取自环境变量 ONNXRUNTIME_ROOT（包内应有 lib/cmake/onnxruntime/），
+# 解压包根目录取自环境变量 ONNXRUNTIME_ROOT，支持两种布局：
+#   1. 官方 GitHub release 包：lib/cmake/onnxruntime/ + include/ + lib/
+#   2. 官方 NuGet 包（Microsoft.ML.OnnxRuntime）整理出的 include/ + lib/，
+#      它不带 CMake 包配置，这里手工建出 onnxruntime target。
 # 也可以直接指定包目录：-Donnxruntime_DIR=<包根目录>/lib/cmake/onnxruntime。
 # --------------------------------------------------------------------------
 set(ONNXRUNTIME_ROOT "$ENV{ONNXRUNTIME_ROOT}" CACHE PATH
@@ -218,10 +221,21 @@ if(ONNXRUNTIME_ROOT AND NOT onnxruntime_DIR)
 endif()
 
 find_package(onnxruntime CONFIG QUIET)
+if(NOT onnxruntime_FOUND AND ONNXRUNTIME_ROOT
+   AND EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime_cxx_api.h"
+   AND EXISTS "${ONNXRUNTIME_ROOT}/lib/onnxruntime.lib")
+    add_library(onnxruntime UNKNOWN IMPORTED)
+    set_target_properties(onnxruntime PROPERTIES
+        IMPORTED_IMPLIB "${ONNXRUNTIME_ROOT}/lib/onnxruntime.lib"
+        IMPORTED_LOCATION "${ONNXRUNTIME_ROOT}/lib/onnxruntime.dll"
+        INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_ROOT}/include")
+    set(onnxruntime_FOUND TRUE)
+endif()
 if(NOT onnxruntime_FOUND)
     message(FATAL_ERROR
-        "找不到 onnxruntime 的 CMake 包。\n"
-        "请设置环境变量 ONNXRUNTIME_ROOT=<解压包根目录>，"
+        "找不到 onnxruntime 包。\n"
+        "请设置环境变量 ONNXRUNTIME_ROOT=<包根目录>（含 include/ 与 lib/，"
+        "或含 lib/cmake/onnxruntime/），"
         "或配置时传入 -Donnxruntime_DIR=<包根目录>/lib/cmake/onnxruntime。")
 endif()
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)

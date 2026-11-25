@@ -90,12 +90,24 @@ jobs:
           curl.exe -fL --retry 3 --retry-delay 5 -o "$env:RUNNER_TEMP\ffmpeg.zip" $url
           7z x "$env:RUNNER_TEMP\ffmpeg.zip" "-o$env:DEPS_ROOT\ffmpeg" -y | Out-Null
 
+      # GitHub release 的 Windows zip 资源名不再可靠（1.30.0 的 CPU 包会 404），
+      # 改用官方 NuGet 包：内含全部头文件与 win-x64 原生库/导入库。
       - name: Install ONNX Runtime
         if: steps.deps.outputs.cache-hit != 'true'
         run: |
           $url = "https://github.com/microsoft/onnxruntime/releases/download/v$env:ONNXRUNTIME_VERSION/onnxruntime-win-x64-$env:ONNXRUNTIME_VERSION.zip"
           curl.exe -fL --retry 3 --retry-delay 5 -o "$env:RUNNER_TEMP\onnxruntime.zip" $url
           7z x "$env:RUNNER_TEMP\onnxruntime.zip" "-o$env:DEPS_ROOT\onnxruntime" -y | Out-Null
+
+          $tmp = "$env:RUNNER_TEMP\onnxruntime-nupkg"
+          Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+          7z x "$env:RUNNER_TEMP\onnxruntime.nupkg" "-o$tmp" -y | Out-Null
+
+          # 整理成 CMakeLists 支持的 include/ + lib/ 布局
+          $dest = "$env:DEPS_ROOT\onnxruntime"
+          New-Item -ItemType Directory -Force "$dest\include", "$dest\lib" | Out-Null
+          Copy-Item "$tmp\build\native\include\*" "$dest\include" -Recurse -Force
+          Copy-Item "$tmp\runtimes\win-x64\native\*" "$dest\lib" -Force
 
       # 缓存命中时安装步骤全部跳过，所以路径解析单独一步、每次都跑。
       # 全局搜配置文件名而不是写死目录层级：解压出来的中间目录名由压缩包决定。
