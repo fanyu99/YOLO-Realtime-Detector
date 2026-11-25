@@ -6,7 +6,9 @@
 #include "AppConfigWriter.h"
 #include "DetectionImageProvider.h"
 #include "DetectionResultSaver.h"
+#ifdef YOLO_ENABLE_HIK
 #include "HikCameraFrameSource.h"
+#endif
 #include "FfmpegFrameSource.h"	
 #include "Logger.h"
 #include "TimeBases.h"
@@ -181,6 +183,7 @@ void  DetectionApp::hikDevices () {
 	emit loadingChanged ();	// 耗时操作开始
 	QFuture<QVariantList> future = QtConcurrent::run ( [ this ] () {
 		QVariantList list;
+#ifdef YOLO_ENABLE_HIK
 		const QVector<HikCameraFrameSource::DeviceInfo> devices = HikCameraFrameSource::enumerateDevices ();
 		list.reserve ( devices.size () );
 		for (const HikCameraFrameSource::DeviceInfo& device : devices) {
@@ -191,6 +194,7 @@ void  DetectionApp::hikDevices () {
 			item.insert ( QStringLiteral ( "online" ), device.online );
 			list.append ( item );
 		}
+#endif
 		return list;	  } );
 	m_watcher->setFuture ( future );
 }

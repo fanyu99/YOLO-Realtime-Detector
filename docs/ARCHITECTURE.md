@@ -5,6 +5,9 @@
 
 ---
 后续整体推理架构更改：
+- 将HikFrameSource作为qt插件(加入到QT的插件系统中)添加到当前的App中，作为运行库加载，便于拓展
+
+
 - Worker执行最小单元Task,Manager管理一个Job的状态
 一次会话对应一个Job（同一个模式复用）
 后续需要将Worker执行单元更改为Job而不是task,Worker的队列需要更改为Job队列，
@@ -45,12 +48,12 @@ DetectionTask
 ---
 
 ### 正在进行的更改：
-1.	预热耗时接入监控：需新增 PerformanceStage（如 Warmup）并扩展快照与 PerformanceApp，代码中已留 TODO。
-2.	总体统计与日志汇报：平均处理帧率、平均推理帧率、平均推理时长的汇总；后续从 PerformanceApp/monitor 数据生成日志，替代已删除的 worker 端帧率日志。
+- 总体统计与日志汇报：平均处理帧率、平均推理帧率、平均推理时长的汇总；
 - 添加性能面板的总体平均数据总结显示，例如平均处理帧率、平均推理帧率、平均推理时长等
-- 添加CUDAEvent、ffmpegdecoder解码以及ORT端的探测计时，完善性能监控模块
+
 - 添加检测结果的tableview显示以及内存占用的柱状图/扇形图
 - 添加各种测试到tests中并添加tests到CI中进行自动化测试
+- 将当前的Hik作为插件添加进整个App（使用QT插件）
 
 
 - 调整执行模型：
@@ -70,6 +73,9 @@ DetectionTask
 ---
 
 当前完成：
+- 添加了预览模式测试（实时预览/离线预览 + GPU/CPU + 是否保存结果 + 是否能够Overlay互操作）
+- 添加CUDAEvent、ffmpegdecoder解码以及ORT端的探测计时，完善性能监控模块
+- 预热耗时接入监控：需新增 PerformanceStage（如 Warmup）并扩展快照与 PerformanceApp，代码中已留 TODO。
 - 为前端的QML以及App添加了QFuture异步和QConcurrent的枚举设备逻辑，防止在阻塞UI线程，并添加了Busy动画
 - 准备添加GPU像素的Overlay显示，完善整个实时预览模式的显示逻辑：
     - 预览模式分为离线预览模式和实时预览模式，对照表为：

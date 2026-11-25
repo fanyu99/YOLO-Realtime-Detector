@@ -121,6 +121,7 @@ if(NOT EXISTS "${FFMPEG_INCLUDE_DIR}/libavcodec/avcodec.h")
 endif()
 
 # 使用 DLL 的 import lib（avcodec.lib 等），不要用 lib*.lib 静态库。
+# 不含 postproc：FFmpeg 8 已从上游删除 libpostproc，本项目也从未使用它。
 set(FFMPEG_COMPONENTS
     avcodec
     avformat
@@ -129,7 +130,6 @@ set(FFMPEG_COMPONENTS
     swresample
     avfilter
     avdevice
-    postproc
 )
 
 foreach(component IN LISTS FFMPEG_COMPONENTS)
@@ -194,13 +194,23 @@ if(DEFINED ENV{QTDIR})
 endif()
 
 find_package(OpenCV REQUIRED)
+# 代码只用到 4.x 起就有的 core/imgproc/imgcodecs/videoio/dnn API，最低支持 4.0。
+# 不能写成 find_package(OpenCV 4.0)：OpenCV 自带的 version 文件只按同一 major
+# 判断兼容，那样会把 5.x 的包判成不兼容而直接失败。
+if(OpenCV_VERSION VERSION_LESS 4.0)
+    message(FATAL_ERROR
+        "OpenCV ${OpenCV_VERSION} 过旧：本项目最低需要 4.0（当前包目录 ${OpenCV_DIR}）。")
+endif()
 find_package(Qt6 REQUIRED COMPONENTS Core Test)
 # 海康 MVS SDK 的 find_library 在 src/core/CMakeLists.txt 中执行（yolo_hik）
 
 # --------------------------------------------------------------------------
 # ONNX Runtime
 #
-# 解压包根目录取自环境变量 ONNXRUNTIME_ROOT（包内应有 lib/cmake/onnxruntime/），
+# 解压包根目录取自环境变量 ONNXRUNTIME_ROOT，支持两种布局：
+#   1. 官方 GitHub release 包：lib/cmake/onnxruntime/ + include/ + lib/
+#   2. 官方 NuGet 包（Microsoft.ML.OnnxRuntime）整理出的 include/ + lib/，
+#      它不带 CMake 包配置，这里手工建出 onnxruntime target。
 # 也可以直接指定包目录：-Donnxruntime_DIR=<包根目录>/lib/cmake/onnxruntime。
 # --------------------------------------------------------------------------
 set(ONNXRUNTIME_ROOT "$ENV{ONNXRUNTIME_ROOT}" CACHE PATH
@@ -211,10 +221,23 @@ if(ONNXRUNTIME_ROOT AND NOT onnxruntime_DIR)
 endif()
 
 find_package(onnxruntime CONFIG QUIET)
+if(NOT onnxruntime_FOUND AND ONNXRUNTIME_ROOT
+   AND EXISTS "${ONNXRUNTIME_ROOT}/include/onnxruntime_cxx_api.h"
+   AND EXISTS "${ONNXRUNTIME_ROOT}/lib/onnxruntime.lib")
+    # 必须是 SHARED：CMake 对 UNKNOWN 类型会用 IMPORTED_LOCATION（DLL）去链接，
+    # 只有 SHARED 才会在 Windows 上用 IMPORTED_IMPLIB（.lib）。
+    add_library(onnxruntime SHARED IMPORTED)
+    set_target_properties(onnxruntime PROPERTIES
+        IMPORTED_IMPLIB "${ONNXRUNTIME_ROOT}/lib/onnxruntime.lib"
+        IMPORTED_LOCATION "${ONNXRUNTIME_ROOT}/lib/onnxruntime.dll"
+        INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_ROOT}/include")
+    set(onnxruntime_FOUND TRUE)
+endif()
 if(NOT onnxruntime_FOUND)
     message(FATAL_ERROR
-        "找不到 onnxruntime 的 CMake 包。\n"
-        "请设置环境变量 ONNXRUNTIME_ROOT=<解压包根目录>，"
+        "找不到 onnxruntime 包。\n"
+        "请设置环境变量 ONNXRUNTIME_ROOT=<包根目录>（含 include/ 与 lib/，"
+        "或含 lib/cmake/onnxruntime/），"
         "或配置时传入 -Donnxruntime_DIR=<包根目录>/lib/cmake/onnxruntime。")
 endif()
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
@@ -386,6 +409,8 @@ endif()
 
 if(YOLO_ENABLE_HIK)
     target_link_libraries(${PROJECT_NAME} PUBLIC yolo_hik)
+    # DetectionApp.cpp 直接枚举海康设备，未编译 yolo_hik 时用同名宏裁掉这段代码
+    target_compile_definitions(${PROJECT_NAME} PRIVATE YOLO_ENABLE_HIK)
 endif()
 
 if(Qt6_FOUND)
