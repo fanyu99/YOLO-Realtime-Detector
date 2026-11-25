@@ -4,7 +4,6 @@
 #include <opencv2/core.hpp>
 
 #include "CpuFrameHandle.h"
-#include "CudaDevice.h"
 #include "FrameConversion.h"
 #include "Logger.h"
 #if YOLO_HAVE_CUDA

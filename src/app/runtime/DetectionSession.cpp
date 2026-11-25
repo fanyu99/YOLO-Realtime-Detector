@@ -30,12 +30,12 @@ DetectionSession::DetectionSession ( const DetectorConfig& config, IPerformanceM
 		break;
 	}
 	case FlowMode::GPU: {
+#ifdef YOLO_HAVE_CUDA
 		m_flowFactory = std::make_unique<GpuDetectionFlowFactory> ();
 		m_sourceFactory = std::make_unique<GpuFrameSourceFactory> ();
-#ifdef YOLO_HAVE_CUDA
 		if (CudaDevice::instance ().isValid ())
 			m_mode = FlowMode::GPU; // GPU模式
-#else 
+#else
 		m_mode = FlowMode::CPU;
 		m_flowFactory = std::make_unique<CpuDetectionFlowFactory> ();
 		m_sourceFactory = std::make_unique<CpuFrameSourceFactory> ();

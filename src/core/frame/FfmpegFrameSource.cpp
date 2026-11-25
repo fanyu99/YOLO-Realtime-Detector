@@ -149,6 +149,7 @@ FrameHandlePtr FfmpegFrameSource::getFrame() {
 		}
 	}
 	// GPU解码
+#ifdef YOLO_HAVE_CUDA
 	if (m_config.useGpuDecode) {
 		// 读取下一帧
 		ReadStatus status = m_decoder.readNextFrame();
@@ -170,8 +171,10 @@ FrameHandlePtr FfmpegFrameSource::getFrame() {
 		}
 		return std::make_shared<GpuFrameHandle>( frame, m_decoder.decodeIndex() - 1 );
 	}
-	// 软解
-	else {
+	else
+#endif
+	{
+		// 软解
 
 		// 读取下一帧
 		ReadStatus status = m_decoder.readNextFrame();

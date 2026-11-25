@@ -20,8 +20,10 @@ namespace {
 		if (!handle)
 			return {};
 		if (handle->memoryType () == MemoryType::GPU) {
+#ifdef YOLO_HAVE_CUDA
 			if (const auto gpu = std::dynamic_pointer_cast<GpuFrameHandle>(handle))
 				return gpu->constMat ();
+#endif
 			return {};
 		}
 		return toCvMat ( handle );

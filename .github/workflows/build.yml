@@ -1,10 +1,27 @@
 # 最小 CI：在 GitHub 托管的 Windows runner 上编译全部 target（含测试程序），不运行测试。
 #
-# 依赖策略：
-#   CUDA / 海康 MVS 在 CI 上不可得（前者版本不可控，后者无公开下载），显式关闭；
-#   其余依赖下载官方预编译包并缓存到 C:\deps。
-#   版本与开发机保持一致（Qt 6.11.1 / OpenCV 5.0.0 / ONNX Runtime 1.30.0），
-#   这样 CI 失败基本可以归因到仓库代码，而不是依赖差异。
+# ── 依赖版本审计（2026-11-25）──────────────────────────────────────────────
+# 各依赖的真实最低要求，以及 CI 采用版本的理由：
+#
+#   Qt    下限 6.2（非 CUDA 构建）：qt_add_qml_module / QtQuick.Dialogs 需要 6.2；
+#         若开启 CUDA 则下限 6.6（<rhi/qrhi.h> 自 6.6 起才在 GuiPrivate 里半公开）。
+#         CI 用 6.10.3：aqt 3.3.0 只支持旧仓库布局（qt6_XXXX/qt6_XXXX/Updates.xml），
+#         6.11 起 Qt 改成按架构拆分（qt6_6111/qt6_6111_msvc2022_64/Updates.xml），
+#         aqt 会报 "Failed to locate XML data"。6.10.3 是 aqt 能装的最后一个版本。
+#   OpenCV 下限 4.0：代码只用 core/imgproc/imgcodecs/videoio/dnn 的基础 API（详见
+#         CMakeLists.txt 的版本断言）。CI 用 5.0.0，与开发机一致。
+#   FFmpeg 下限 4.0：用到的 avcodec_send_packet / avcodec_parameters_to_context /
+#         codecpar 等均为 3.1+ 的稳定 API；4.0 是仍可获得 Windows 构建的起点。
+#         CI 用 8.1 发布分支（已核对 8.1 头文件中用到的符号与结构体字段都在）。
+#   ONNXRT 下限 1.12：C++ API 用了 GetInputNameAllocated / GetOutputNameAllocated
+#         （1.12 引入，替代已废弃的 GetInputName）。CI 用 1.30.0，与开发机一致。
+#   CUDA / 海康 MVS 不参与 CI：前者 sm_120 需要 CUDA 12.8+ 且版本不可控，
+#         后者是专有 SDK，没有公开下载。
+#
+# ── 其他说明 ───────────────────────────────────────────────────────────────
+# 配置阶段不用 CMakePresets：直接传 -S/-B/缓存变量，避免 runner 上 CMake 版本
+# 升级后对 preset 文件解析规则的差异（例如 CMake 4.3 不接受 preset 里的 // 注释）。
+# 所有第三方包都缓存到 C:\deps，key 里带版本号；下载用 curl 自带重试。
 
 name: build
 
@@ -14,67 +31,70 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  QT_VERSION: "6.11.1"
+  QT_VERSION: "6.10.3"
   OPENCV_VERSION: "5.0.0"
   ONNXRUNTIME_VERSION: "1.30.0"
+  FFMPEG_ASSET: "ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip"
   DEPS_ROOT: C:\deps
 
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 60
     defaults:
       run:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
 
-      # presets 用 Ninja + 外部工具链，需要先把 cl.exe / vcvars64 放进环境。
+      # 配置/构建用 Ninja + 外部工具链，需要先把 cl.exe / vcvars64 放进环境。
       - name: Set up MSVC x64
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
-      # 缓存整个依赖目录；key 里的版本变了就整体重下。
       - name: Cache third-party dependencies
         id: deps
         uses: actions/cache@v4
         with:
           path: ${{ env.DEPS_ROOT }}
-          key: deps-qt${{ env.QT_VERSION }}-cv${{ env.OPENCV_VERSION }}-ort${{ env.ONNXRUNTIME_VERSION }}-ffmpeg8.1-v1
+          key: deps-v2-qt${{ env.QT_VERSION }}-cv${{ env.OPENCV_VERSION }}-ort${{ env.ONNXRUNTIME_VERSION }}-ffmpeg8.1
 
       - name: Install Qt
         if: steps.deps.outputs.cache-hit != 'true'
         run: |
           python -m pip install --disable-pip-version-check aqtinstall==3.3.0
           python -m aqt install-qt windows desktop $env:QT_VERSION win64_msvc2022_64 `
-            -O "$env:DEPS_ROOT\qt" --modules qtmultimedia
+            -O "$env:DEPS_ROOT\qt" --modules qtmultimedia --timeout 60
 
       # 官方 Windows 包是 7z 自解压格式，解出来是 opencv/build。
       - name: Install OpenCV
         if: steps.deps.outputs.cache-hit != 'true'
         run: |
           $url = "https://github.com/opencv/opencv/releases/download/$env:OPENCV_VERSION/opencv-$env:OPENCV_VERSION-windows.exe"
-          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\opencv.exe"
+          curl.exe -fL --retry 3 --retry-delay 5 -o "$env:RUNNER_TEMP\opencv.exe" $url
           7z x "$env:RUNNER_TEMP\opencv.exe" "-o$env:DEPS_ROOT\opencv" -y | Out-Null
 
-      # 取 8.1 发布分支的 shared 构建；master 分支的 ABI 会漂移。
       - name: Install FFmpeg
         if: steps.deps.outputs.cache-hit != 'true'
         run: |
-          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip"
-          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$env:FFMPEG_ASSET"
+          curl.exe -fL --retry 3 --retry-delay 5 -o "$env:RUNNER_TEMP\ffmpeg.zip" $url
           7z x "$env:RUNNER_TEMP\ffmpeg.zip" "-o$env:DEPS_ROOT\ffmpeg" -y | Out-Null
 
       - name: Install ONNX Runtime
         if: steps.deps.outputs.cache-hit != 'true'
         run: |
           $url = "https://github.com/microsoft/onnxruntime/releases/download/v$env:ONNXRUNTIME_VERSION/onnxruntime-win-x64-$env:ONNXRUNTIME_VERSION.zip"
-          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\onnxruntime.zip"
+          curl.exe -fL --retry 3 --retry-delay 5 -o "$env:RUNNER_TEMP\onnxruntime.zip" $url
           7z x "$env:RUNNER_TEMP\onnxruntime.zip" "-o$env:DEPS_ROOT\onnxruntime" -y | Out-Null
 
       # 缓存命中时安装步骤全部跳过，所以路径解析单独一步、每次都跑。
@@ -93,9 +113,15 @@ jobs:
           "FFMPEG_DIR=$ff" >> $env:GITHUB_ENV
           "ONNXRUNTIME_ROOT=$ort" >> $env:GITHUB_ENV
 
-      # 两者的 SDK 在 runner 上拿不到：sm_120 需要 CUDA 12.8+，MVS 是专有包。
+      # 与 CMakePresets.json 的 release preset 等价：Release + Release 版 OpenCV。
+      # CUDA/海康的 SDK 在 runner 上拿不到，显式关闭。
       - name: Configure
-        run: cmake --preset release -DYOLO_ENABLE_CUDA=OFF -DYOLO_ENABLE_HIK=OFF
+        run: |
+          cmake -S . -B out/build/release -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DYOLO_BUILD_DEBUG=OFF `
+            -DYOLO_ENABLE_CUDA=OFF `
+            -DYOLO_ENABLE_HIK=OFF
 
       - name: Build
         run: cmake --build out/build/release --parallel

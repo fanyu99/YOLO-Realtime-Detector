@@ -393,6 +393,8 @@ endif()
 
 if(YOLO_ENABLE_HIK)
     target_link_libraries(${PROJECT_NAME} PUBLIC yolo_hik)
+    # DetectionApp.cpp 直接枚举海康设备，未编译 yolo_hik 时用同名宏裁掉这段代码
+    target_compile_definitions(${PROJECT_NAME} PRIVATE YOLO_ENABLE_HIK)
 endif()
 
 if(Qt6_FOUND)
