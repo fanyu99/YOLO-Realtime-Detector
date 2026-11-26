@@ -5,7 +5,7 @@
 
 // 性能监控接口
 // isEnabled / recordStage / recordFrameResult / isStageEnabled	随便调用
-// 配置更新、snapshotReady信号 仅在监测器所属线程调用
+// 配置更新、flushSnapshot、snapshotReady信号 仅在监测器所属线程调用
 class IPerformanceMonitor {
 public:
 	virtual ~IPerformanceMonitor() = default;
@@ -19,4 +19,6 @@ public:
 	virtual void recordFrameResult( bool success, quint64 frameTotalNs ) noexcept = 0;
 	virtual void setConfig(const PerformanceConfig& config) noexcept = 0;
 	virtual  void setIsRunning ( bool running ) = 0;
+	// 立即生成并发送一次快照（作业停止前补发最后一个未满统计窗口）
+	virtual void flushSnapshot () = 0;
 };

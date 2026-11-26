@@ -1,7 +1,6 @@
 #pragma once
 #include <memory>
 #include <QObject>
-#include <QVariantList>
 #include <QtQmlIntegration/QtQmlIntegration>
 #include <QString>
 #include "IPerformanceMonitor.h"
@@ -20,17 +19,8 @@ class PerformanceApp : public QObject {
 		Q_PROPERTY ( PerformanceConfig config READ config WRITE setConfig NOTIFY configChanged )
 
 		// QML绑定属性
-		Q_PROPERTY ( float overallFPS READ overallFPS NOTIFY statsChanged )					// 整体帧率
-		Q_PROPERTY ( double narrowEndToEndMs READ narrowEndToEndMs NOTIFY statsChanged )		// 狭义端到端平均耗时(读帧->推理流程返回)
-		Q_PROPERTY ( double broadEndToEndMs READ broadEndToEndMs NOTIFY statsChanged )		// 广义端到端平均耗时(读帧->渲染/保存完成)
-		Q_PROPERTY ( double warmupMs READ warmupMs NOTIFY statsChanged )					// 预热总耗时(会话级)
-		Q_PROPERTY ( int warmupIterations READ warmupIterations NOTIFY statsChanged )		// 预热轮数(会话级)
-		Q_PROPERTY ( int recordedFrames READ recordedFrames NOTIFY statsChanged )				// 窗口内记录帧数(成功+失败)
-		Q_PROPERTY ( int successfulFrames READ successfulFrames NOTIFY statsChanged )			// 成功帧数
-		Q_PROPERTY ( int failedFrames READ failedFrames NOTIFY statsChanged )					// 失败帧数
-		Q_PROPERTY ( double windowDurationMs READ windowDurationMs NOTIFY statsChanged )		// 统计窗口实测时长
-		Q_PROPERTY ( int snapshotIndex READ snapshotIndex NOTIFY statsChanged )				// 快照序号(切级归零)
-		Q_PROPERTY ( QVariantList stageStats READ stageStats NOTIFY statsChanged )				// 阶段统计行(已按级别过滤)
+		Q_PROPERTY ( PerformanceSnapshot snapshot READ snapshot NOTIFY statsChanged )				// 最近一个统计窗口的快照
+		Q_PROPERTY ( PerformanceSnapshot overallSnapshot READ overallSnapshot NOTIFY overallSnapshotChanged )	// 本次运行累计的汇总快照
 
 		// 运行上下文
 		Q_PROPERTY ( bool isRunning READ isRunning NOTIFY contextChanged )
@@ -51,6 +41,7 @@ public:
 	// 横幅级别
 	enum BannerLevel {
 		BannerNone = 0,
+		BannerSuccess , 
 		BannerWarning,
 		BannerError
 	};
@@ -75,17 +66,8 @@ public:
 	IPerformanceMonitor* monitor ();
 
 	// 快照属性 getter
-	float overallFPS () const { return m_overallFPS; }
-	double narrowEndToEndMs () const { return m_narrowEndToEndMs; }
-	double broadEndToEndMs () const { return m_broadEndToEndMs; }
-	double warmupMs () const { return m_warmupMs; }
-	int warmupIterations () const { return m_warmupIterations; }
-	int recordedFrames () const { return m_recordedFrames; }
-	int successfulFrames () const { return m_successfulFrames; }
-	int failedFrames () const { return m_failedFrames; }
-	double windowDurationMs () const { return m_windowDurationMs; }
-	int snapshotIndex () const { return m_snapshotIndex; }
-	QVariantList stageStats () const { return m_stageStats; }
+	PerformanceSnapshot snapshot () const { return m_snapshot; }
+	PerformanceSnapshot overallSnapshot () const { return m_overallSnapshot; }
 
 	// 运行上下文 getter
 	bool isRunning () const { return m_isRunning; }
@@ -121,6 +103,7 @@ public:
 signals:
 	void configChanged ();
 	void statsChanged ();	// 属性刷新
+	void overallSnapshotChanged ();	// 汇总快照刷新,停止/开始触发
 	void contextChanged ();	// 运行上下文刷新(jobId / 模式)
 	void bannerChanged ();	// 横幅刷新
 	void errorOccurred ( const AppError& error );	// 性能监控错误进行提醒
@@ -130,6 +113,8 @@ public slots:
 	void onSnapshotReady ( const PerformanceSnapshot& snapshot );
 	// 发生错误，横幅提醒和日志记录
 	void onErrorOccurred ( const AppError& error );
+	// 运行完成，计算汇总快照数据
+	void onRunningChanged ();
 
 private:
 	static PerfAppPtr m_instance;
@@ -140,18 +125,9 @@ private:
 	PerformanceConfig m_config;	// 性能监控配置
 
 	// 快照数据
-	float m_overallFPS = 0.0f;
-	double m_narrowEndToEndMs = 0.0;
-	double m_broadEndToEndMs = 0.0;
-	double m_warmupMs = 0.0;
-	int m_warmupIterations = 0;
-	int m_recordedFrames = 0;
-	int m_successfulFrames = 0;
-	int m_failedFrames = 0;
-	double m_windowDurationMs = 0.0;
-	int m_snapshotIndex = 0;
-	// 阶段统计行 格式为name, averageMs, maximumMs, sampleCount
-	QVariantList m_stageStats;	
+	PerformanceSnapshot m_snapshot;			// 最近一个统计窗口的快照
+	PerformanceSnapshot m_overallSnapshot;	// 本次运行累计的汇总快照
+	int m_snapshotCount = 0;					// 已汇总的快照数
 
 	// 运行上下文
 	bool m_isRunning = false; // 是否有作业运行，有才进行快照统计和发送信号

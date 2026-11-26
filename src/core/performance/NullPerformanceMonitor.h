@@ -9,5 +9,6 @@ public:
 	 void recordFrameResult( bool success, quint64 frameTotalNs ) noexcept override {}
 	 void setConfig( const PerformanceConfig& config ) noexcept override {}
 	 void setIsRunning ( bool)override{}
+	 void flushSnapshot () override {}
 
 };

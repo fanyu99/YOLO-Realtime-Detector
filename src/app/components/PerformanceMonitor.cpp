@@ -109,6 +109,25 @@ void PerformanceMonitor::resetWindow() noexcept {
 	m_windowStartNs = static_cast<quint64>( m_clock.nsecsElapsed() );
 }
 
+// 开始时重置统计窗口
+// 关闭时发送
+void PerformanceMonitor::setIsRunning( bool running ) {
+	if (m_isRunning == running)
+		return;
+
+	std::lock_guard<std::mutex> lock( m_mutex );
+	if (running) {
+		resetWindow();
+		m_snapshotIndex = 0;
+	}
+	m_isRunning = running;
+}
+
+// flush当前的快照
+void PerformanceMonitor::flushSnapshot() {
+	emitSnapshot();
+}
+
 // 生成快照并发送信号
 void PerformanceMonitor::emitSnapshot() {
 	if (!m_isRunning)
@@ -152,6 +171,12 @@ void PerformanceMonitor::emitSnapshot() {
 	snapshot.m_overall.failedFrames = static_cast<int>( failedFrames );
 	snapshot.m_overall.warmupNs = warmupNs;
 	snapshot.m_overall.warmupIterations = warmupIterations;
+	snapshot.m_overall.narrowSamples = narrowSamples;
+	snapshot.m_overall.broadSamples = broadSamples;
+	// 记录有效窗口的时长以及帧率
+	snapshot.m_overall.validWindowDurationMs = recorded > 0
+		? snapshot.m_context.windowDurationMs
+		: 0.0;
 	snapshot.m_overall.overallFPS = snapshot.m_context.windowDurationMs > 0.0
 		? static_cast<float>( recorded * TimeBases::Ms2S / snapshot.m_context.windowDurationMs )
 		: 0.0f;

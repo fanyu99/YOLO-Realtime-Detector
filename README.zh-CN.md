@@ -29,6 +29,7 @@
 - [许可证](#许可证)
 
 ## 当前完成
+- 使用异步操作（QtConcurrent+QFuture）获取设备枚举结果，避免枚举设备功能的UI阻塞。
 - 新增统一配置文件和 `ConfigHelper`。启动时读取检测和监控配置，再通过 QML 对话框修改，替换当前写在代码里的默认值。
 - 完善 GPU 显示，在 GPU 图像上叠加 CPU NMS 检测框和 Qt Overlay，减少完整图像传回 CPU 以及 CPU 绘制。
 - 添加了Gpu设备侧的相关计时，包括预处理kernel以及Overlay互操作转换的计时
@@ -238,12 +239,6 @@ ctest --test-dir out/build/release --output-on-failure
 示例按钮读取程序旁的 `examples/images/1 (369).jpg` 和 `examples/models/african-wildlife_best.onnx`。目前使用文件系统中的示例资源，旧的 `resources/images.qrc` 路径不再是这里的使用方式。请检查本地或部署目录是否包含这些文件。
 
 带检测框的结果保存在 `<所选目录>/detection_results/` 下，图片为 `.jpg`，视频为 `.mp4`。这些文件用于结果回看，不包含训练标签和评估指标。写入失败会记录错误并停止当前任务的保存，检测继续进行。
-
-## 后续计划
-
-- 调整 Worker 执行模型，将 Task 队列改为 Job 队列。围绕兼容的 Job 创建或复用 Session，并保持 Manager 状态与 Worker 实际持有的会话一致。
-
-详细开发记录见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)。文档开头同时保留了历史过程和后续设想，上面的当前架构按代码描述。
 
 ## 常见问题
 

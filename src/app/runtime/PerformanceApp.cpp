@@ -2,7 +2,6 @@
 #include "AppConfigWriter.h"
 #include "PerformanceMonitor.h"
 #include "NullPerformanceMonitor.h"
-#include "TimeBases.h"
 
 PerformanceApp::PerfAppPtr PerformanceApp::m_instance;
 
@@ -94,41 +93,27 @@ void PerformanceApp::setReportInterval ( int interval ) {
 }
 
 void PerformanceApp::setIsRunning ( bool running ) {
-	if (m_isRunning != running) {
-		m_monitor->setIsRunning ( running );
-		m_isRunning = running;
-		emit contextChanged ();
+	if (m_isRunning == running)
+		return;
+
+	// 如果停止，flush当前快照计入统计
+	if (!running)
+	{
+		m_monitor->flushSnapshot ();
+		showBanner (QStringLiteral("汇总完成：") + QString::number(m_snapshotCount) + QStringLiteral("个快照，汇总展示中"),BannerSuccess);
 	}
+
+	m_monitor->setIsRunning ( running );
+	m_isRunning = running;
+	onRunningChanged ();
+	emit contextChanged ();
 }
 
 
 void PerformanceApp::onSnapshotReady ( const PerformanceSnapshot& snapshot ) {
-	// 整体计数（ns -> ms：展示边界才转换单位）
-	m_overallFPS = snapshot.m_overall.overallFPS;
-	m_narrowEndToEndMs = static_cast<double>(snapshot.m_overall.narrowEndToEndNs) * TimeBases::Ns2Ms;
-	m_broadEndToEndMs = static_cast<double>(snapshot.m_overall.broadEndToEndNs) * TimeBases::Ns2Ms;
-	m_warmupMs = static_cast<double>(snapshot.m_overall.warmupNs) * TimeBases::Ns2Ms;
-	m_warmupIterations = snapshot.m_overall.warmupIterations;
-	m_recordedFrames = snapshot.m_overall.recordedFrames;
-	m_successfulFrames = snapshot.m_overall.successfulFrames;
-	m_failedFrames = snapshot.m_overall.failedFrames;
-
-	// 上下文
-	m_windowDurationMs = snapshot.m_context.windowDurationMs;
-	m_snapshotIndex = snapshot.m_context.snapshotIndex;
-
-	// 阶段统计组装
-	m_stageStats.clear ();
-	m_stageStats.reserve ( snapshot.m_stages.size () );
-	for (const StageStatistics& stat : snapshot.m_stages) {
-		QVariantMap row;
-		row[QStringLiteral ( "name" )] = stageToString ( stat.stage );
-		row[QStringLiteral ( "averageMs" )] = static_cast<double>(stat.averageNs) * TimeBases::Ns2Ms;
-		row[QStringLiteral ( "maximumMs" )] = static_cast<double>(stat.maximumNs) * TimeBases::Ns2Ms;
-		row[QStringLiteral ( "sampleCount" )] = static_cast<qint64>(stat.sampleCount);
-		m_stageStats.append ( row );
-	}
-
+	m_snapshot = snapshot;
+	m_overallSnapshot += snapshot;
+	++m_snapshotCount;
 	emit statsChanged ();
 }
 
@@ -142,4 +127,16 @@ void PerformanceApp::showBanner ( QStringView text, BannerLevel level ) {
 	m_bannerText = text.toString ();
 	m_bannerLevel = level;
 	emit bannerChanged ();
+}
+
+// 运行状态变化，清空汇总，结束收尾并通知
+void PerformanceApp::onRunningChanged () {
+	// 如果开始运行，清空之前的快照和汇总快照
+	if (m_isRunning) {
+		m_snapshot = {};
+		m_overallSnapshot = {};
+		m_snapshotCount = 0;
+		emit statsChanged ();
+	}
+	emit overallSnapshotChanged ();
 }

@@ -662,7 +662,9 @@ Window {
 
                                 Label {
                                     elide: Text.ElideNone
-                                    text: "整体帧率：%1".arg(perfWindow.perf ? perfWindow.perf.overallFPS.toFixed(1) : 0.0)
+                                    text: (perfWindow.isSummary && perfWindow.hasData ? "汇总 · " : "")
+                                        + "整体帧率：%1".arg(perfWindow.displaySnapshot
+                                            ? Number(perfWindow.displaySnapshot.overall.overallFPS).toFixed(1) : "0.0")
                                     font.bold: true
                                     visible: perfWindow.perf ? perfWindow.perf.levelIndex > 0 : false
                                     color: "#d8249e13"
@@ -671,7 +673,8 @@ Window {
                                 Label {
                                     elide: Text.ElideNone
                                     visible: perfWindow.perf ? perfWindow.perf.levelIndex > 0 : false
-                                    text: "端到端耗时：%1".arg(perfWindow.perf ? perfWindow.perf.broadEndToEndMs.toFixed(1) + "ms" : "无效")
+                                    text: "端到端耗时：%1".arg(perfWindow.displaySnapshot
+                                        ? Number(perfWindow.displaySnapshot.overall.broadEndToEndMs).toFixed(1) + "ms" : "无效")
                                     color: "#d8249e13"
                                     font.bold: true
                                     wrapMode: Text.WordWrap

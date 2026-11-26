@@ -25,6 +25,18 @@ Window {
     property var theme: null		// 由外部注入的主题对象(Theme.qml)
     property var perf: null			// PerformanceApp(全局上下文)
     property bool logVisible: true
+
+    // ---- 展示快照：运行中看当前窗口，停止后看本次运行的汇总 ----
+    readonly property bool perfEnabled: !!performanceView.perf && performanceView.perf.levelIndex > 0
+    readonly property bool isSummary: performanceView.perf ? !performanceView.perf.isRunning : false
+    readonly property var displaySnapshot: performanceView.perf
+        ? (performanceView.isSummary ? performanceView.perf.overallSnapshot : performanceView.perf.snapshot)
+        : null
+    readonly property var snapOverall: performanceView.displaySnapshot ? performanceView.displaySnapshot.overall : null
+    readonly property var snapContext: performanceView.displaySnapshot ? performanceView.displaySnapshot.context : null
+    readonly property var snapStages: performanceView.displaySnapshot ? performanceView.displaySnapshot.stages : []
+    readonly property bool hasData: performanceView.snapContext ? performanceView.snapContext.windowDurationMs > 0 : false
+
     // 性能级别选项(与 PerformanceConfig::PerformanceLevel 枚举值一一对应)
     readonly property var levelOptions: ["关闭(Off)", "最小(Minimum)", "基础(Basic)", "详细(Detailed)", "完整(Full)"]
 
@@ -96,8 +108,9 @@ Window {
     //  横幅(复用主界面 banner 的视觉设计)：一条槽位，按级别换配色
     // ------------------------------------------------------------------
     readonly property bool bannerVisible: performanceView.perf && performanceView.perf.bannerText.length > 0
-    // bannerLevel 数值与 PerformanceApp::BannerLevel 对应：0=None 1=Warning 2=Error
-    readonly property bool bannerIsError: performanceView.perf && performanceView.perf.bannerLevel === 2
+    // 与 PerformanceApp::BannerLevel 对应：None=0 Success=1 Warning=2 Error=3
+    readonly property bool bannerIsSuccess: performanceView.perf && performanceView.perf.bannerLevel === PerformanceApp.BannerSuccess
+    readonly property bool bannerIsError: performanceView.perf && performanceView.perf.bannerLevel === PerformanceApp.BannerError
 
     RowLayout {
         anchors.fill: parent
@@ -118,8 +131,16 @@ Window {
                 Layout.fillWidth: true
                 Layout.preferredHeight: performanceView.bannerVisible ? 34 : 0
                 visible: performanceView.bannerVisible
-                color: performanceView.bannerIsError ? (performanceView.theme.dark ? "#3d0f0f" : "#fde3e3") : (performanceView.theme.dark ? "#3d3208" : "#fff4d6")
-                border.color: performanceView.bannerIsError ? performanceView.theme.logError : performanceView.theme.logWarning
+                color: performanceView.bannerIsError
+                    ? (performanceView.theme.dark ? "#3d0f0f" : "#fde3e3")
+                    : performanceView.bannerIsSuccess
+                        ? (performanceView.theme.dark ? "#0d3321" : "#e3f7ec")
+                        : (performanceView.theme.dark ? "#3d3208" : "#fff4d6")
+                border.color: performanceView.bannerIsError
+                    ? performanceView.theme.logError
+                    : performanceView.bannerIsSuccess
+                        ? performanceView.theme.logSuccess
+                        : performanceView.theme.logWarning
                 border.width: 1
                 radius: 4
 
@@ -133,14 +154,22 @@ Window {
                         Layout.preferredWidth: 4
                         Layout.preferredHeight: 16
                         radius: 2
-                        color: performanceView.bannerIsError ? performanceView.theme.logError : performanceView.theme.logWarning
+                        color: performanceView.bannerIsError
+                            ? performanceView.theme.logError
+                            : performanceView.bannerIsSuccess
+                                ? performanceView.theme.logSuccess
+                                : performanceView.theme.logWarning
                     }
 
                     Label {
                         Layout.fillWidth: true
                         text: performanceView.bannerVisible ? performanceView.perf.bannerText : ""
                         elide: Text.ElideMiddle
-                        color: performanceView.bannerIsError ? (performanceView.theme.dark ? "#ffb0b0" : "#8a1a1a") : (performanceView.theme.dark ? "#ffd9a0" : "#7a4a00")
+                        color: performanceView.bannerIsError
+                            ? (performanceView.theme.dark ? "#ffb0b0" : "#8a1a1a")
+                            : performanceView.bannerIsSuccess
+                                ? (performanceView.theme.dark ? "#9fe1cb" : "#0f5132")
+                                : (performanceView.theme.dark ? "#ffd9a0" : "#7a4a00")
                         font.pixelSize: 12
                     }
 
@@ -150,6 +179,14 @@ Window {
                         onClicked: if (performanceView.perf)
                             performanceView.perf.dismissBanner()
                     }
+                }
+
+                Timer {
+                    interval: 5000
+                    running: performanceView.visible && performanceView.bannerVisible && performanceView.bannerIsSuccess
+                    repeat: false
+                    onTriggered: if (performanceView.perf)
+                        performanceView.perf.dismissBanner()
                 }
             }
 
@@ -243,7 +280,11 @@ Window {
                                 Layout.minimumHeight: 50
                                 theme: performanceView.theme
                                 label: "运行状态"
-                                textOverride: performanceView.perf ? performanceView.perf.isRunning ? "正在运行检测" : "空闲" : "未初始化监控器"
+                                textOverride: performanceView.perf
+                                    ? (performanceView.perf.isRunning
+                                        ? "正在运行检测"
+                                        : (performanceView.hasData ? "空闲（显示汇总）" : "空闲"))
+                                    : "未初始化监控器"
                             }
 
                             // 查看性能计时详细信息
@@ -269,19 +310,28 @@ Window {
                 }
                 // 右上： 总体计数
                 SectionBox {
-                    sectionTitle: "总体计数"
+                    sectionTitle: performanceView.isSummary ? "总体计数 · 会话汇总" : "总体计数 · 实时窗口"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.preferredWidth: 270
-                    // 空显示
+
+                    // 监控关闭
                     Label {
-                        id: emptyLabel
                         anchors.centerIn: parent
-                        visible: !performanceView.perf || performanceView.perf.levelIndex === 0
+                        visible: !performanceView.perfEnabled
                         text: "性能监控已关闭"
                         color: performanceView.theme.muted
                         font.pixelSize: 13
                     }
+                    Label {
+                        anchors.centerIn: parent
+                        visible: performanceView.perfEnabled && !performanceView.hasData
+                        text: "暂无性能数据\n(启动检测后出现)"
+                        horizontalAlignment: Text.AlignHCenter
+                        color: performanceView.theme.muted
+                        font.pixelSize: 13
+                    }
+
                     Flickable {
                         id: overallFlick
                         anchors.fill: parent
@@ -293,18 +343,19 @@ Window {
 
                         GridLayout {
                             id: overallGrid
-                            visible: !emptyLabel.visible
+                            visible: performanceView.perfEnabled && performanceView.hasData
                             width: overallFlick.width
                             height: Math.max(overallFlick.height, implicitHeight)
                             columns: 2
                             columnSpacing: 8
                             rowSpacing: 8
+
                             PerformanceRect {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: performanceView.theme
                                 label: "整体帧率"
-                                value: performanceView.perf ? performanceView.perf.overallFPS : 0
+                                value: performanceView.snapOverall ? performanceView.snapOverall.overallFPS : 0
                                 unit: "fps"
                                 decimals: 1
                             }
@@ -313,7 +364,7 @@ Window {
                                 Layout.fillHeight: true
                                 theme: performanceView.theme
                                 label: "狭义端到端"
-                                value: performanceView.perf ? performanceView.perf.narrowEndToEndMs : 0
+                                value: performanceView.snapOverall ? performanceView.snapOverall.narrowEndToEndMs : 0
                                 unit: "ms"
                                 caption: "读帧 → 推理完成"
                             }
@@ -322,7 +373,7 @@ Window {
                                 Layout.fillHeight: true
                                 theme: performanceView.theme
                                 label: "广义端到端"
-                                value: performanceView.perf ? performanceView.perf.broadEndToEndMs : 0
+                                value: performanceView.snapOverall ? performanceView.snapOverall.broadEndToEndMs : 0
                                 unit: "ms"
                                 caption: "读帧 → 渲染/保存完成"
                             }
@@ -330,20 +381,38 @@ Window {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: performanceView.theme
-                                label: "统计窗口"
-                                value: performanceView.perf ? performanceView.perf.windowDurationMs : 0
+                                label: performanceView.isSummary ? "有效统计时长" : "统计窗口"
+                                value: performanceView.isSummary
+                                    ? (performanceView.snapOverall ? performanceView.snapOverall.validWindowDurationMs : 0)
+                                    : (performanceView.snapContext ? performanceView.snapContext.windowDurationMs : 0)
                                 unit: "ms"
                                 decimals: 0
-                                caption: "第 " + (performanceView.perf ? performanceView.perf.snapshotIndex : 0) + " 号快照"
+                                caption: performanceView.isSummary
+                                    ? (performanceView.snapContext
+                                        ? "总时长 " + Number(performanceView.snapContext.windowDurationMs).toFixed(0) + " ms"
+                                        : "")
+                                    : (performanceView.snapContext ? "第 " + performanceView.snapContext.snapshotIndex + " 号快照" : "")
                             }
                             PerformanceRect {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: performanceView.theme
                                 label: "检测器预热总耗时"
-                                value: performanceView.perf ? performanceView.perf.warmupMs : 0
+                                value: performanceView.snapOverall ? performanceView.snapOverall.warmupMs : 0
                                 unit: "ms"
-                                caption: "共 " + (performanceView.perf ? performanceView.perf.warmupIterations : 0) + " 轮"
+                                caption: "共 " + (performanceView.snapOverall ? performanceView.snapOverall.warmupIterations : 0) + " 轮"
+                            }
+                            PerformanceRect {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                theme: performanceView.theme
+                                label: "记录帧数"
+                                value: performanceView.snapOverall ? performanceView.snapOverall.recordedFrames : 0
+                                decimals: 0
+                                caption: performanceView.snapOverall
+                                    ? ("成功 " + performanceView.snapOverall.successfulFrames
+                                        + " / 失败 " + performanceView.snapOverall.failedFrames)
+                                    : ""
                             }
                         }
                     }
@@ -395,27 +464,30 @@ Window {
                 }
                 // 阶段计时
                 SectionBox {
-                    sectionTitle: "阶段指标"
+                    sectionTitle: performanceView.isSummary ? "阶段指标 · 会话汇总" : "阶段指标 · 实时窗口"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.preferredWidth: 270
-                    // 空显示
+
+                    // 监控关闭
                     Label {
                         anchors.centerIn: parent
-                        visible: !performanceView.perf || performanceView.perf.levelIndex === 0
+                        visible: !performanceView.perfEnabled
                         text: "性能监控已关闭"
                         color: performanceView.theme.muted
                         font.pixelSize: 13
                     }
 
+                    // 已启用但当前快照没有阶段数据
                     Label {
                         anchors.centerIn: parent
-                        visible: performanceView.perf && performanceView.perf.levelIndex > 0 && performanceView.perf.stageStats.length === 0
+                        visible: performanceView.perfEnabled && performanceView.snapStages.length === 0
                         text: "暂无阶段数据\n(启动检测后出现)"
                         horizontalAlignment: Text.AlignHCenter
                         color: performanceView.theme.muted
                         font.pixelSize: 13
                     }
+
                     Flickable {
                         anchors.fill: parent
                         clip: true
@@ -423,7 +495,7 @@ Window {
                         contentWidth: width
                         contentHeight: stageGrid.implicitHeight
 
-                        visible: performanceView.perf && performanceView.perf.levelIndex > 0 && performanceView.perf.stageStats.length > 0
+                        visible: performanceView.perfEnabled && performanceView.snapStages.length > 0
 
                         GridLayout {
                             id: stageGrid
@@ -434,18 +506,20 @@ Window {
                             visible: parent.visible
 
                             Repeater {
-                                model: performanceView.perf ? performanceView.perf.stageStats.length : 0
+                                model: performanceView.snapStages.length
 
                                 PerformanceRect {
                                     required property int index
-                                    readonly property var row: performanceView.perf ? performanceView.perf.stageStats[index] : null
+                                    readonly property var row: performanceView.snapStages[index]
                                     width: parent.width / 2 - 4
                                     height: 100
                                     theme: performanceView.theme
-                                    label: row ? row.name : ""
+                                    label: row ? row.stageName : ""
                                     value: row ? row.averageMs : 0
                                     unit: "ms"
-                                    caption: row ? ("最大 " + Number(row.maximumMs).toFixed(1) + " ms " + "\n平均 " + Number(row.averageMs).toFixed(1) + " ms\n共 " + row.sampleCount + " 次") : ""
+                                    caption: row ? ("最大 " + Number(row.maximumMs).toFixed(1) + " ms "
+                                        + "\n平均 " + Number(row.averageMs).toFixed(1) + " ms"
+                                        + "\n共 " + row.sampleCount + " 次") : ""
                                 }
                             }
                         }

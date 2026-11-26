@@ -26,7 +26,8 @@ public:
 	// 作业上下文
 	void setJobId( quint64 jobId ) { m_jobId = jobId; }
 	void setWarmupIterations( int iterations ) noexcept override;
-	void setIsRunning( bool running )override { m_isRunning = running; }
+	void setIsRunning( bool running ) override;	// 开始时重置统计窗口，避免首个窗口计入空闲时间
+	void flushSnapshot() override;	// flush当前的窗口快照，在停止的时候调用，内部调用emitSnapshot
 
 	// 当前生效的级别
 	PerformanceLevel level() const noexcept { return m_level.load( std::memory_order_relaxed ); }
@@ -36,7 +37,7 @@ signals:
 	void snapshotReady( const PerformanceSnapshot& snapshot );
 
 private:
-	void resetWindow() noexcept;	// 清空窗口和snapshotIndex 归零，需要有锁
+	void resetWindow() noexcept;	// 清空窗口计数并刷新窗口起点，需要有锁
 	void emitSnapshot(); // 生成快照并发信号
 
 	// 采集设置（setConfig 单线程写）
