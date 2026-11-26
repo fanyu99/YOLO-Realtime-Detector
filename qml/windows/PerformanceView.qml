@@ -4,13 +4,9 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
-
-// ============================================================================
-//  性能监控页(非模态窗口)
-//  左侧：性能面板 —— 配置 | 总体计数 / 上下文信息 | 阶段指标(2×2 分区)
-//  右侧：日志(LogView 复用)
-//  分区壳(圆角 Rectangle + 左上角分区名)只在本文件使用，直接内联为组件。
-// ============================================================================
+// 性能窗口
+//  左侧：性能面板
+//  右侧：日志
 Window {
     id: performanceView
     visible: false
@@ -22,11 +18,11 @@ Window {
     minimumHeight: 400
     color: performanceView.theme.window
 
-    property var theme: null		// 由外部注入的主题对象(Theme.qml)
-    property var perf: null			// PerformanceApp(全局上下文)
+    property var theme: null		// 由外部注入的主题对象(AppTheme.qml)
+    property var perf: null			// PerformanceApp
     property bool logVisible: true
 
-    // ---- 展示快照：运行中看当前窗口，停止后看本次运行的汇总 ----
+    //  展示快照：停止时显示运行的汇总 
     readonly property bool perfEnabled: !!performanceView.perf && performanceView.perf.levelIndex > 0
     readonly property bool isSummary: performanceView.perf ? !performanceView.perf.isRunning : false
     readonly property var displaySnapshot: performanceView.perf
@@ -37,10 +33,10 @@ Window {
     readonly property var snapStages: performanceView.displaySnapshot ? performanceView.displaySnapshot.stages : []
     readonly property bool hasData: performanceView.snapContext ? performanceView.snapContext.windowDurationMs > 0 : false
 
-    // 性能级别选项(与 PerformanceConfig::PerformanceLevel 枚举值一一对应)
+    // 性能级别选项
     readonly property var levelOptions: ["关闭(Off)", "最小(Minimum)", "基础(Basic)", "详细(Detailed)", "完整(Full)"]
 
-    // 性能阶段计时说明(详细信息浮窗正文)。
+    // 性能阶段计时说明
     readonly property string stageInfoHtml: `
         <table border="1" cellspacing="0" cellpadding="6" width="100%">
             <tr><th>阶段名</th><th>耗时说明</th></tr>
@@ -63,10 +59,7 @@ Window {
             <tr><td>狭义端到端</td><td>从读帧开始到推理流程完成的耗时</td></tr>
             <tr><td>广义端到端</td><td>从读帧开始到完成渲染和保存结果完成为止的耗时</td></tr>
         </table>`
-
-    // ------------------------------------------------------------------
-    //  分区壳：圆角 Rectangle + 左上角分区名(本文件内复用，不导出)
-    // ------------------------------------------------------------------
+    // 组件：分区框
     component SectionBox: Rectangle {
         id: section
 
@@ -104,93 +97,42 @@ Window {
         }
     }
 
-    // ------------------------------------------------------------------
-    //  横幅(复用主界面 banner 的视觉设计)：一条槽位，按级别换配色
-    // ------------------------------------------------------------------
+    //  横幅：级别映射成语义字符串后交给共享组件
     readonly property bool bannerVisible: performanceView.perf && performanceView.perf.bannerText.length > 0
-    // 与 PerformanceApp::BannerLevel 对应：None=0 Success=1 Warning=2 Error=3
-    readonly property bool bannerIsSuccess: performanceView.perf && performanceView.perf.bannerLevel === PerformanceApp.BannerSuccess
-    readonly property bool bannerIsError: performanceView.perf && performanceView.perf.bannerLevel === PerformanceApp.BannerError
+    readonly property string bannerLevelText: !performanceView.perf
+        ? "none"
+        : performanceView.perf.bannerLevel === PerformanceApp.BannerSuccess
+            ? "success"
+            : performanceView.perf.bannerLevel === PerformanceApp.BannerError
+                ? "error"
+                : performanceView.perf.bannerLevel === PerformanceApp.BannerWarning ? "warning" : "none"
 
     RowLayout {
         anchors.fill: parent
         anchors.margins: 10
         spacing: 10
 
-        // ================= 左侧性能面板 =================
+        //  左侧性能面板 
         ColumnLayout {
             Layout.preferredWidth: 560
             Layout.fillWidth: true
             Layout.fillHeight: true
-            // 日志区隐藏时左侧是唯一 fillWidth 项，解除 60% 上限(-1 还原隐式最大宽度)让它撑满整个窗口
             Layout.maximumWidth: performanceView.logVisible ? parent.width * 0.6 : -1
             spacing: 10
 
-            // ---- 横幅 ----
-            Rectangle {
+            //  横幅 
+            StatusBanner {
                 Layout.fillWidth: true
-                Layout.preferredHeight: performanceView.bannerVisible ? 34 : 0
                 visible: performanceView.bannerVisible
-                color: performanceView.bannerIsError
-                    ? (performanceView.theme.dark ? "#3d0f0f" : "#fde3e3")
-                    : performanceView.bannerIsSuccess
-                        ? (performanceView.theme.dark ? "#0d3321" : "#e3f7ec")
-                        : (performanceView.theme.dark ? "#3d3208" : "#fff4d6")
-                border.color: performanceView.bannerIsError
-                    ? performanceView.theme.logError
-                    : performanceView.bannerIsSuccess
-                        ? performanceView.theme.logSuccess
-                        : performanceView.theme.logWarning
-                border.width: 1
-                radius: 4
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 10
-                    anchors.rightMargin: 6
-                    spacing: 8
-
-                    Rectangle {
-                        Layout.preferredWidth: 4
-                        Layout.preferredHeight: 16
-                        radius: 2
-                        color: performanceView.bannerIsError
-                            ? performanceView.theme.logError
-                            : performanceView.bannerIsSuccess
-                                ? performanceView.theme.logSuccess
-                                : performanceView.theme.logWarning
-                    }
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: performanceView.bannerVisible ? performanceView.perf.bannerText : ""
-                        elide: Text.ElideMiddle
-                        color: performanceView.bannerIsError
-                            ? (performanceView.theme.dark ? "#ffb0b0" : "#8a1a1a")
-                            : performanceView.bannerIsSuccess
-                                ? (performanceView.theme.dark ? "#9fe1cb" : "#0f5132")
-                                : (performanceView.theme.dark ? "#ffd9a0" : "#7a4a00")
-                        font.pixelSize: 12
-                    }
-
-                    Button {
-                        text: "知道了"
-                        flat: true
-                        onClicked: if (performanceView.perf)
-                            performanceView.perf.dismissBanner()
-                    }
-                }
-
-                Timer {
-                    interval: 5000
-                    running: performanceView.visible && performanceView.bannerVisible && performanceView.bannerIsSuccess
-                    repeat: false
-                    onTriggered: if (performanceView.perf)
-                        performanceView.perf.dismissBanner()
-                }
+                theme: performanceView.theme
+                text: performanceView.perf ? performanceView.perf.bannerText : ""
+                level: performanceView.bannerLevelText
+                autoDismissMs: performanceView.visible ? 5000 : 0
+                onDismissed: if (performanceView.perf)
+                    performanceView.perf.dismissBanner()
             }
 
-            // ---- 2×2 分区 ----
+            //  2×2 
             GridLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -198,7 +140,7 @@ Window {
                 columnSpacing: 10
                 rowSpacing: 10
 
-                // ============ 左上：配置 ============
+                //  左上：配置 
                 SectionBox {
                     sectionTitle: "配置"
                     Layout.fillWidth: true
@@ -308,7 +250,7 @@ Window {
                         }
                     }
                 }
-                // 右上： 总体计数
+                // 右上 总体计数
                 SectionBox {
                     sectionTitle: performanceView.isSummary ? "总体计数 · 会话汇总" : "总体计数 · 实时窗口"
                     Layout.fillWidth: true
@@ -417,7 +359,7 @@ Window {
                         }
                     }
                 }
-                // 左下： 上下文信息
+                // 左下 上下文信息
                 SectionBox {
                     sectionTitle: "上下文信息"
                     Layout.fillWidth: true

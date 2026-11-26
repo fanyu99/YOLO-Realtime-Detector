@@ -333,15 +333,20 @@ qt_add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
 # 这里给每个 QML 文件显式指定资源别名 = 文件名，把资源路径压平回
 # /qt/qml/yolo/<文件名>.qml —— 与文件物理位置解耦，engine.load() 的 URL 保持不变。
 set(YOLO_QML_FILES
-    qml/main.qml
-    qml/Theme.qml
-    qml/LogView.qml
-    qml/ConfigDialog.qml
-    qml/HikCameraDialog.qml
-    qml/FfmpegDeviceDialog.qml
-    qml/AcceptShortcut.qml
-    qml/PerformanceRect.qml
-    qml/PerformanceView.qml
+    qml/windows/main.qml
+    qml/components/DisplaySidebar.qml
+    qml/components/DisplayMain.qml
+    qml/windows/ConfigDialog.qml
+    qml/windows/HikCameraDialog.qml
+    qml/windows/FfmpegDeviceDialog.qml
+    qml/components/PerformanceRect.qml
+    qml/windows/PerformanceView.qml
+    qml/components/AppTheme.qml
+    qml/components/LogView.qml
+    qml/components/Shortcuts.qml
+    qml/components/StatusBanner.qml
+    qml/components/MediaFileDialog.qml
+    qml/components/ThemedProgressBar.qml
 )
 foreach(_qml IN LISTS YOLO_QML_FILES)
     get_filename_component(_qml_name "${_qml}" NAME)

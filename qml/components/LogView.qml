@@ -2,30 +2,27 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// ============================================================================
 //  日志面板
 //  订阅 Logger 单例的 messageLogged 信号，按级别着色显示。
 //  级别配色：Debug 紫 / Info 蓝 / Success 绿 / Warning 橙 / Error 红 / Fatal 深红
-// ============================================================================
 Item {
     id: root
 
-    property var theme: null		// 由外部注入的主题对象(Theme.qml)
+    property var theme: null		
 
     property ListModel logModel: null
 
-    // 请求关闭面板：只上报意图，由外部决定如何处理。
-    // 不能就地写 root.visible——那会覆盖外部赋给 visible 的绑定，之后外部状态变化不再生效。
+    // 请求关闭的信号，上层调用隐藏
     signal closeRequested()
 
     // 日志上限
     readonly property int maxLines: 1000
-    property bool closeEnable: true
+    property bool closeEnable: true // 是否显示关闭按钮
 
     // 使用的model
     readonly property ListModel activeModel: logModel ? logModel : internalLogModel
 
-    // 每条记录含 level / time / message
+    // 每条记录含 级别、时间、信息
     ListModel {
         id: internalLogModel
     }
@@ -55,7 +52,7 @@ Item {
                 Item {
                     Layout.fillWidth: true
                 }
-
+                // 信息间隔设置
                 Label {
                     text: "信息间隔"
                     font.pixelSize: 12
@@ -78,7 +75,7 @@ Item {
                         Logger.setInfoInterval(value);
                         Logger.info("日志间隔已经更新为：%1".arg(inferenceIntervalSpinBox.value));
                     }
-
+                    // tooltip
                     HoverHandler {
                         id: intervalHover
                     }
@@ -94,7 +91,7 @@ Item {
                     font.pixelSize: 12
                     flat: true
                 }
-
+                // 关闭按钮（closeEnabled显示）
                 Button {
                     id: closeBtn
                     Layout.fillHeight: true
@@ -111,7 +108,7 @@ Item {
             }
         }
 
-        // 日志列表
+        // 日志
 
         Rectangle {
 
@@ -123,7 +120,7 @@ Item {
             border.width: 1
             radius: 4
             clip: true
-
+            // 空显示
             Label {
                 opacity: 0.75
                 anchors.margins: 6
@@ -134,7 +131,7 @@ Item {
                 anchors.fill: parent
                 visible: root.activeModel.count === 0
             }
-
+            // 日志列表
             ListView {
                 id: logList
                 anchors.fill: parent
@@ -146,7 +143,7 @@ Item {
                 // 有新日志时自动滚到底部
                 onCountChanged: if (logList.count > 0)
                     logList.positionViewAtEnd()
-
+                // 模型： 级别 / 时间 / 信息
                 delegate: Text {
                     required property int level
                     required property string time
@@ -162,7 +159,7 @@ Item {
             }
         }
     }
-
+    // messageLogged 信号
     Connections {
         target: Logger
         enabled: root.logModel === null
@@ -172,6 +169,7 @@ Item {
                 "time": time,
                 "message": message
             });
+            // 超过上限删除旧日志
             if (internalLogModel.count > root.maxLines)
                 internalLogModel.remove(0, internalLogModel.count - root.maxLines);
         }

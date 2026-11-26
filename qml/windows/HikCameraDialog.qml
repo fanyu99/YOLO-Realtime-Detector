@@ -1,26 +1,19 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 
-// ============================================================================
-//  ffmpeg摄像头选择对话框(模态)
-//  列出 ffmpeg(dshow/avfoundation/v4l2) 枚举到的 video 输入设备，确定后调用
-//  DetectionApp.onDetectFfmpegDeviceClicked(name) —— 和海康相机走的是
-//  同一条提交路径(DetectionManager::submitSource)。
-//
-//  枚举是一次阻塞调用(dshow 可能数百毫秒)，所以只在对话框打开和点「刷新」时做一次
-// ============================================================================
-
+// 海康相机选择对话框(模态)
 Dialog {
     id: dialog
-    title: "[ffmpeg] 选择摄像头"
+    title: "选择海康相机"
     modal: true
     width: 420
 
-    property var theme: null	// 主题对象(Theme.qml)
-    property var app: null		// DetectionApp 实例
+    property var theme: null	// 主题
+    property var app: null		
 
-    // 枚举结果，元素为 { name, id, isDefault }
+    // 枚举结果，元素为 { serial, model, userDefinedName, online }
     property var devices: []
     readonly property bool hasSelection: deviceList.currentIndex >= 0
 
@@ -31,20 +24,15 @@ Dialog {
         target: app
         function onLoadingResult(result) {
             dialog.devices = result;
-            // 优先选中默认设备，其次选中第一台
-            let defaultIndex = -1;
-            for (let i = 0; i < devices.length; ++i)
-                if (devices[i].isDefault) {
-                    defaultIndex = i;
-                    break;
-                }
-            deviceList.currentIndex = dialog.devices.length > 0 ? (defaultIndex >= 0 ? defaultIndex : 0) : -1;
+            // 只有一台设备时直接选中
+            deviceList.currentIndex = dialog.devices.length > 0 ? 0 : -1;
         }
     }
 
     function refresh() {
+        dialog.devices=[]
         if (app)
-            app.ffmpegVideoDevices();
+            app.hikDevices();
     }
 
     // 每次打开都重新枚举
@@ -70,7 +58,7 @@ Dialog {
 
             Label {
                 Layout.fillWidth: true
-                text: dialog.devices.length > 0 ? "已发现 " + dialog.devices.length + " 台设备，请选择：" : "未发现设备"
+                text: dialog.devices.length > 0 ? "已发现 " + dialog.devices.length + " 台设备，请选择：" : "未发现在线设备"
                 color: dialog.theme ? dialog.theme.windowText : "black"
             }
 
@@ -112,15 +100,14 @@ Dialog {
                     Label {
                         width: parent.width
                         elide: Text.ElideRight
-                        text: (modelData.name || "(未知设备)") + (modelData.isDefault ? "　[默认]" : "")
+                        text: modelData.userDefinedName && modelData.userDefinedName.length > 0 ? modelData.userDefinedName : (modelData.model || "(未知型号)")
                         color: dialog.theme ? dialog.theme.windowText : "black"
                     }
 
                     Label {
                         width: parent.width
                         elide: Text.ElideRight
-                        // 原始标识（dshow 是 PNP 路径）很长，只在悬停时提示，列表里截断显示
-                        text: "标识：" + (modelData.id || "—")
+                        text: "序列号：" + (modelData.serial || "—") + (modelData.model ? "  ·  " + modelData.model : "")
                         font.pixelSize: 11
                         opacity: 0.75
                         color: dialog.theme ? dialog.theme.muted : "gray"
@@ -136,9 +123,16 @@ Dialog {
                     }
                 }
             }
+         BusyIndicator{
+                id: loadingIndicator
+                running: dialog.app ? dialog.app.loading : false
+                anchors.centerIn: parent
+                width : 50
+                height :50
+             }
         }
 
-        // 空态：把常见原因直接写出来
+        // 空显示
         Label {
             Layout.fillWidth: true
             Layout.preferredHeight: 180
@@ -147,8 +141,18 @@ Dialog {
             verticalAlignment: Text.AlignVCenter
             wrapMode: Text.WordWrap
             color: dialog.theme ? dialog.theme.muted : "gray"
-            text: "没有枚举到摄像头。\n请确认设备已连接、未被其他程序占用，然后点「刷新」。"
+            text: "没有枚举到海康相机。\n请确认相机已上电、网线或 USB 已连接、" + "且已安装 MVS 运行时，然后点「刷新」。"
         }
+    }
+    Label {
+        text: "选择触发模式："
+        color: dialog.theme ? dialog.theme.windowText : "black"
+    }
+    ComboBox {
+        id: modeComboBox
+        Layout.fillWidth: true
+        model: ["off", "software", "line0", "line1", "line2"]
+        currentIndex: 0
     }
 
     footer: DialogButtonBox {
@@ -158,76 +162,27 @@ Dialog {
             onClicked: dialog.refresh()
         }
         Button {
+            id: cancelButton
             text: "取消"
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
         }
         Button {
             id: acceptButton
             text: "确定"
-            enabled: dialog.hasSelection
+            enabled: dialog.hasSelection && ! loadingIndicator.running
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
         }
     }
-    AcceptShortcut {
-        popup: dialog
-        button: acceptButton
+    Shortcuts {
+        targetItem: dialog
+        acceptButton: acceptButton
+        cancelButton: cancelButton
     }
 
-    // 加载遮罩
-    Rectangle {
-        id: loadingMask
-        // 构造完成后放在dialog的Overlay层
-        Component.onCompleted: parent = Overlay.overlay 
-
-        x: dialog.x
-        y: dialog.y
-        width: dialog.width
-        height: dialog.height
-        z: 100				
-        visible: dialog.visible && (dialog.app ? dialog.app.loading : false)
-        color: "#80000000"
-        opacity: 0
-        Behavior on opacity {
-            NumberAnimation {
-                duration: 180
-            }
-        }
-        onVisibleChanged: opacity = visible ? 1 : 0
-        // 阻挡所有鼠标事件
-        MouseArea {
-            id: mouse
-            anchors.fill: parent
-            acceptedButtons: Qt.LeftButton | Qt.RightButton
-            onPressed: mouse.accepted = true
-            onReleased: mouse.accepted = true
-            onWheel: wheel.accepted = true
-        }
-
-        // 转圈 + 文案
-        Column {
-            anchors.centerIn: parent
-            spacing: 8
-
-            BusyIndicator {
-                running: loadingMask.visible
-                padding: 0			
-                width: 40
-                height: 40
-                anchors.horizontalCenter: parent.horizontalCenter
-                palette.dark: "white"
-            }
-            Label {
-                text: "正在处理，请稍候…"
-                color: "white"
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-        }
-    }
-
-    // 点击「确定」：把设备名交给后端
+    // 点击「确定」：把序列号交给后端
     onAccepted: {
         const device = currentDevice();
         if (device && dialog.app)
-            dialog.app.onDetectFfmpegDeviceClicked(device.name);
+            dialog.app.onDetectHikCameraClicked(device.serial, modeComboBox.currentValue);
     }
 }
