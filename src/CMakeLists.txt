@@ -1,8 +1,4 @@
-# -----------------------------------------------------------------------------
-# src/ 子目录构建入口
-#
-# 每个 add_subdirectory 一个模块边界；分组目录（runtime/、components/、
-# -----------------------------------------------------------------------------
+# 子目录分为Core 、 Plugins 、App三部分
 add_subdirectory(core)
 add_subdirectory(plugins)
 add_subdirectory(app)

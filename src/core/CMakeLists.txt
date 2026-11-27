@@ -83,6 +83,7 @@ set(YOLO_CORE_SOURCES
     performance/IPerformanceMonitor.h
     performance/NullPerformanceMonitor.h
     performance/ScopedStageTimer.h
+    performance/MemoryMonitorPluginInterface.h
 )
 
 if(YOLO_HAVE_CUDA)
