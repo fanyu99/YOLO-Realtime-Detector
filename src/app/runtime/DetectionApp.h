@@ -96,6 +96,8 @@ public:
 	bool isNativeOk ()const { return m_frameMail->isNativeOk (); }
 
 	// 供 QML 调用
+	
+	Q_INVOKABLE bool PluginExists ( const QString& pluginId ); // 判断某个插件是否存在
 	Q_INVOKABLE void setFlowMode( const QString& flow_mode );	// 设置 CPU/GPU 模式
 	Q_INVOKABLE void setViewMode( const QString& viewMode );	// 设置预览模式(离线/实时)
 	Q_INVOKABLE QString effectiveFlowMode()const; // 获取当前实际生效的模式

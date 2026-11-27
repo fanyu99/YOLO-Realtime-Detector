@@ -44,7 +44,7 @@ endif()
 # 运行时依赖部署（实现见 cmake/deploy_runtime.cmake）。
 # 测试与主程序输出到同一目录，单独构建测试时也必须把依赖 DLL 放过去，
 # 否则启动即报「找不到 opencv_world500d.dll」。
-# MVS 不部署：测试没有链接 yolo_hik，不需要海康运行时。
+# MVS 不部署：测试没有链接海康插件，不需要海康运行时。
 yolo_deploy_runtime_dlls(test_display_matrix)
 yolo_deploy_cuda_runtime(test_display_matrix)
 

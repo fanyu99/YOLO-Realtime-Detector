@@ -17,7 +17,7 @@ namespace {
 }
 
 QString HikFrameSourcePlugin::pluginId () const {
-	return QStringLiteral ( "hik" );
+	return QStringLiteral ( "Hik" );
 }
 
 QVector<FrameSourceDeviceInfo> HikFrameSourcePlugin::enumerateDevices () const {

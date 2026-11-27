@@ -62,7 +62,7 @@ ColumnLayout {
             // 海康工业相机检测
             Button {
                 text: "海康相机检测"
-                enabled: !root.app.busy
+                enabled: !root.app.busy && root.app.PluginExists("Hik")
                 onClicked: root.hikCameraRequested()
             }
 

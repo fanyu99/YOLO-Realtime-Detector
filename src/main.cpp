@@ -137,11 +137,20 @@ int main ( int argc, char* argv[] )
 	DetectionApp::initialize ( initialConfig, initialDisplayPolicy, perfApp );   // 初始化App
 	try {
 		QQmlApplicationEngine engine;
+		// 独立的HikQML页面
+		engine.addImportPath ( QCoreApplication::applicationDirPath ()
+			+ QStringLiteral ( "/plugins/framesource" ) );
+#if YOLO_HAVE_HIK
+		Logger::instance ()->info ( QStringLiteral ( "[App]: 海康帧源插件已启用" ) );
+#else
+		Logger::instance ()->info ( QStringLiteral ( "[App]: 海康帧源插件未启用，海康界面仅展示空设备列表" ) );
+#endif
 		engine.rootContext ()->setContextProperty ( QStringLiteral ( "perfApp" ), perfApp );	 // 将当前的性能App设置为全局的qml上下文
 		engine.rootContext ()->setContextProperty ( QStringLiteral ( "appConfig" ), appConfig );
 		engine.rootContext ()->setContextProperty (QStringLiteral("appHelper"), appHelper.get());
 		engine.load ( QUrl ( QStringLiteral ( "qrc:/qt/qml/yolo/main.qml" ) ) );
 		Logger::instance ()->success ( QStringLiteral ( "[App]: 应用配置已加载 -> " ) + configPath );
+		Logger::instance ()->success ( QStringLiteral ( "[PluginManager]: 插件已加载 -> " ) + PluginManager::instance ()->enumeratePluginIds ().join ( QStringLiteral ( ", " ) ) );
 		if (engine.rootObjects ().isEmpty ())
 			return -1;
 		return app.exec ();

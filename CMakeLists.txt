@@ -202,7 +202,7 @@ if(OpenCV_VERSION VERSION_LESS 4.0)
         "OpenCV ${OpenCV_VERSION} 过旧：本项目最低需要 4.0（当前包目录 ${OpenCV_DIR}）。")
 endif()
 find_package(Qt6 REQUIRED COMPONENTS Core Test)
-# 海康 MVS SDK 的探测与 yolo_hik 目标在 src/plugins/HikFrameSource/CMakeLists.txt
+# 海康 MVS SDK 的探测与插件目标在 src/plugins/HikFrameSource/CMakeLists.txt
 
 # --------------------------------------------------------------------------
 # ONNX Runtime
@@ -300,7 +300,7 @@ set(PROJECT_SOURCES
 # -----------------------------------------------------------------------------
 # 模块库：定义在 src/core/CMakeLists.txt 与 src/app/CMakeLists.txt 中
 #   yolo_core        核心层（base + inference + frame，不含海康）
-#   yolo_hik         海康相机帧源（src/plugins/HikFrameSource，私有依赖 MVS SDK）
+#   hik_framesource_plugin  海康相机帧源插件（src/plugins/HikFrameSource，私有依赖 MVS SDK）
 #   DetectionRuntime 应用层运行库（runtime + components）
 # -----------------------------------------------------------------------------
 add_subdirectory(src)
@@ -336,7 +336,6 @@ set(YOLO_QML_FILES
     qml/components/DisplaySidebar.qml
     qml/components/DisplayMain.qml
     qml/windows/ConfigDialog.qml
-    qml/windows/HikCameraDialog.qml
     qml/windows/FfmpegDeviceDialog.qml
     qml/components/PerformanceRect.qml
     qml/windows/PerformanceView.qml
@@ -411,7 +410,12 @@ if(YOLO_HAVE_CUDA)
     target_link_libraries(${PROJECT_NAME} PUBLIC d3d11 dxgi Qt6::GuiPrivate)
 endif()
 
-# 海康帧源由插件在运行时加载，exe 不链接 yolo_hik。
+# 海康帧源由插件在运行时加载，exe 不链接插件目标；仅下发可用性常量（0/1）。
+if(YOLO_HAVE_HIK)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE YOLO_HAVE_HIK=1)
+else()
+    target_compile_definitions(${PROJECT_NAME} PRIVATE YOLO_HAVE_HIK=0)
+endif()
 
 if(Qt6_FOUND)
     qt_import_qml_plugins(${PROJECT_NAME})

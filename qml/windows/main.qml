@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Hik
 
 // 主界面
 //  顶部：标题+预览模式调节 + 主题显示

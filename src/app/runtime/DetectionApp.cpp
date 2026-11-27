@@ -16,7 +16,7 @@
 // 匿名工具函数: 帧信号通知限流
 namespace {
 	// QML 侧海康入口暂时固定取该插件，界面改为插件选择后由设备信息携带
-	const QString kHikPluginId = QStringLiteral ( "hik" );
+	const QString kHikPluginId = QStringLiteral ( "Hik" );
 
 	// 判断是否重复，放置重复配置
 	bool sameDetectorConfig ( const DetectorConfig& a, const DetectorConfig& b ) {
@@ -38,6 +38,16 @@ void DetectionApp::setNativeOk(bool ok)
 {
 	if (m_frameMail)
 		m_frameMail->setNativeOk ( ok );
+}
+
+bool DetectionApp::PluginExists ( const QString& pluginId )
+{
+	PluginManager* manager = PluginManager::instance ();
+	if (!manager)
+		return false;
+	if (pluginId == kHikPluginId)
+		return YOLO_HAVE_HIK && manager->pluginExists ( pluginId );
+	return manager->pluginExists ( pluginId );
 }
 
 DetectionApp::DetectionApp ( QObject* parent ) : QObject ( parent ), m_filePath ( "" ), m_config{}

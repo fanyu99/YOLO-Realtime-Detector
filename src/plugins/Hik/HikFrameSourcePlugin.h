@@ -1,9 +1,11 @@
 #pragma once
 #include <QObject>
 #include "FrameSourcePluginInterface.h"
+#include <QQmlEngine>
+#include <QQmlExtensionPlugin>
 
 // 海康帧源插件
-class HikFrameSourcePlugin final : public QObject, public FrameSourcePluginInterface {
+class HikFrameSourcePlugin final : public QObject , public FrameSourcePluginInterface {
 	Q_OBJECT
 	Q_PLUGIN_METADATA ( IID "com.yoloqt.FrameSourcePluginInterface" )
 	Q_INTERFACES ( FrameSourcePluginInterface )

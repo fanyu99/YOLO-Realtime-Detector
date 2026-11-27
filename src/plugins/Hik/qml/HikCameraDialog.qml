@@ -173,10 +173,17 @@ Dialog {
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
         }
     }
-    Shortcuts {
-        targetItem: dialog
-        acceptButton: acceptButton
-        cancelButton: cancelButton
+    // 快捷键：Return/Enter 确定，Esc 取消
+    // 独立 QML 模块不再依赖 yolo 模块的 Shortcuts，避免模块循环导入
+    Shortcut {
+        sequences: ["Return", "Enter"]
+        enabled: dialog.visible && acceptButton.enabled
+        onActivated: acceptButton.click()
+    }
+    Shortcut {
+        sequence: "Esc"
+        enabled: dialog.visible && cancelButton.enabled
+        onActivated: cancelButton.click()
     }
 
     // 点击「确定」：把序列号交给后端
