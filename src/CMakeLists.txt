@@ -4,4 +4,5 @@
 # 每个 add_subdirectory 一个模块边界；分组目录（runtime/、components/、
 # -----------------------------------------------------------------------------
 add_subdirectory(core)
+add_subdirectory(plugins)
 add_subdirectory(app)

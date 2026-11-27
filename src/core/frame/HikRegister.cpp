@@ -1,7 +1,6 @@
 // 注册Hik到抽象工厂中
+#include "HikRegister.h"
 #include "HikCameraFrameSource.h"
-#include "FrameHandle.h"
-#include "FrameSourceFactory.h"
 
 FrameSourcePtr createHikCameraFrameSource( QStringView serial, CameraTriggerMode mode, MemoryType memoryType ) {
 	using HikSource = HikCameraFrameSource;

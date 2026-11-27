@@ -184,9 +184,9 @@ void  DetectionApp::hikDevices () {
 	QFuture<QVariantList> future = QtConcurrent::run ( [ this ] () {
 		QVariantList list;
 #ifdef YOLO_ENABLE_HIK
-		const QVector<HikCameraFrameSource::DeviceInfo> devices = HikCameraFrameSource::enumerateDevices ();
+		const QVector<FrameSourceDeviceInfo> devices = HikCameraFrameSource::enumerateDevices ();
 		list.reserve ( devices.size () );
-		for (const HikCameraFrameSource::DeviceInfo& device : devices) {
+		for (const FrameSourceDeviceInfo& device : devices) {
 			QVariantMap item;
 			item.insert ( QStringLiteral ( "serial" ), device.serial );
 			item.insert ( QStringLiteral ( "model" ), device.model );

@@ -11,8 +11,8 @@
 # 模块间 include 一律裸文件名（#include "CpuDetector.h"），因此这里把
 # src 及所有分组目录加入 PUBLIC 搜索路径——源文件挪目录无需改 include。
 #
-# 海康相机源文件单独拆成 yolo_hik：它私有依赖 MVS SDK，与 OpenCV/ONNX
-# 的依赖互不污染；未装 SDK 的构建可整体排除（YOLO_ENABLE_HIK）。
+# 海康相机帧源已移到 src/plugins/HikFrameSource：它私有依赖 MVS SDK，
+# 构建与运行时都以插件为边界（SDK 探测与 yolo_hik 目标见该目录）。
 # -----------------------------------------------------------------------------
 
 #基础数据类型
@@ -27,8 +27,6 @@ set(YOLO_CORE_FRAME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/frame")
 set(YOLO_CORE_FACTORIES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/factories")
 # 性能监控
 set(YOLO_CORE_PERFORMANCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/performance")
-# 是否编译MVS
-option(YOLO_ENABLE_HIK "编译海康相机帧源（需要本机 MVS SDK）" ON)
 
 # ---- yolo_core：除海康外的全部核心代码 --------------------------------------
 # 源文件先攒进变量，CUDA 部分按顶层探测结果 YOLO_HAVE_CUDA 条件追加
@@ -68,6 +66,7 @@ set(YOLO_CORE_SOURCES
     frame/FfmpegFrameSource.cpp
     frame/FrameMail.h
     frame/FrameSnapshot.h
+    frame/FrameSourcePluginInterface.h
 
     # factories/
     # 1.帧源工厂
@@ -170,46 +169,4 @@ if(YOLO_HAVE_CUDA)
     # .cu 经由 DetectionTypes.h 等包含 Qt 头文件，Qt 在 MSVC 下要求 /Zc:__cplusplus
     target_compile_options(yolo_core PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:__cplusplus>)
-endif()
-
-# ---- yolo_hik：海康相机帧源，私有依赖 MVS SDK -------------------------------
-# SDK 缺失时不中断构建，只降级跳过这一层（与顶层 CUDA 探测同一策略）。
-if(YOLO_ENABLE_HIK AND NOT EXISTS "${MVS_LIBRARY_DIRS}/MvCameraControl.lib")
-    message(WARNING
-        "YOLO_ENABLE_HIK=ON，但 ${MVS_LIBRARY_DIRS} 下没有 MvCameraControl.lib。\n"
-        "将跳过海康相机帧源的编译。请设置环境变量 MVCAM_COMMON_RUNENV，"
-        "或用 -DMVS_SDK_ROOT=<SDK 根目录> 指定；"
-        "之后装了 SDK 要恢复支持，请用 -DYOLO_ENABLE_HIK=ON 重新配置。")
-    # 必须写进缓存：普通变量只在本目录作用域生效，顶层 CMakeLists 里的
-    # if(YOLO_ENABLE_HIK) 仍会去链接并不存在的 yolo_hik。
-    set(YOLO_ENABLE_HIK OFF CACHE BOOL "编译海康相机帧源（需要本机 MVS SDK）" FORCE)
-endif()
-
-if(YOLO_ENABLE_HIK)
-    message(STATUS "海康 MVS SDK: ${MVS_LIBRARY_DIRS}/MvCameraControl.lib")
-
-    find_library(MVS_CAMERA_CONTROL_LIB
-        NAMES MvCameraControl
-        PATHS "${MVS_LIBRARY_DIRS}"
-        NO_DEFAULT_PATH
-        REQUIRED
-    )
-
-    qt_add_library(yolo_hik STATIC
-        frame/HikCameraFrameSource.h
-        frame/HikCameraFrameSource.cpp
-        frame/HikRegister.cpp # 注册Hik到抽象工厂中
-    )
-
-    target_include_directories(yolo_hik PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}/.."
-        "${YOLO_CORE_FRAME_DIR}"
-    )
-
-    target_link_libraries(yolo_hik
-        PUBLIC yolo_core
-        PRIVATE ${MVS_CAMERA_CONTROL_LIB}
-    )
-    target_include_directories(yolo_hik PRIVATE ${MVS_INCLUDE_DIRS})
-    target_link_directories(yolo_hik PRIVATE ${MVS_LIBRARY_DIRS})
 endif()

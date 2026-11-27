@@ -202,7 +202,7 @@ if(OpenCV_VERSION VERSION_LESS 4.0)
         "OpenCV ${OpenCV_VERSION} 过旧：本项目最低需要 4.0（当前包目录 ${OpenCV_DIR}）。")
 endif()
 find_package(Qt6 REQUIRED COMPONENTS Core Test)
-# 海康 MVS SDK 的 find_library 在 src/core/CMakeLists.txt 中执行（yolo_hik）
+# 海康 MVS SDK 的探测与 yolo_hik 目标在 src/plugins/HikFrameSource/CMakeLists.txt
 
 # --------------------------------------------------------------------------
 # ONNX Runtime
@@ -251,7 +251,6 @@ qt_standard_project_setup()
 
 message("成功找到OpenCV库: ${OpenCV_LIBS}")
 message("成功找到ONNXRUNTIME库: ${onnxruntime_LIBS}")
-message("成功找到MVS库: ${MVS_LIBRARY_DIRS}")
 
 # 当前这套 OpenCV 包里是否有 debug 库（*d.lib）。有则 Debug 配置可以正常链接。
 get_target_property(_yolo_cv_debug_implib opencv_world IMPORTED_IMPLIB_DEBUG)
@@ -301,7 +300,7 @@ set(PROJECT_SOURCES
 # -----------------------------------------------------------------------------
 # 模块库：定义在 src/core/CMakeLists.txt 与 src/app/CMakeLists.txt 中
 #   yolo_core        核心层（base + inference + frame，不含海康）
-#   yolo_hik         海康相机帧源（私有依赖 MVS SDK，YOLO_ENABLE_HIK 控制）
+#   yolo_hik         海康相机帧源（src/plugins/HikFrameSource，私有依赖 MVS SDK）
 #   DetectionRuntime 应用层运行库（runtime + components）
 # -----------------------------------------------------------------------------
 add_subdirectory(src)
@@ -412,10 +411,11 @@ if(YOLO_HAVE_CUDA)
     target_link_libraries(${PROJECT_NAME} PUBLIC d3d11 dxgi Qt6::GuiPrivate)
 endif()
 
-if(YOLO_ENABLE_HIK)
+if(YOLO_HAVE_HIK)
     target_link_libraries(${PROJECT_NAME} PUBLIC yolo_hik)
-    # DetectionApp.cpp 直接枚举海康设备，未编译 yolo_hik 时用同名宏裁掉这段代码
-    target_compile_definitions(${PROJECT_NAME} PRIVATE YOLO_ENABLE_HIK)
+    # DetectionApp.cpp 目前用 YOLO_ENABLE_HIK 裁掉海康枚举；等 App 层改走
+    # 插件宿主后只保留 YOLO_HAVE_HIK（实际可用性由 MVS SDK 探测决定）。
+    target_compile_definitions(${PROJECT_NAME} PRIVATE YOLO_HAVE_HIK YOLO_ENABLE_HIK)
 endif()
 
 if(Qt6_FOUND)
@@ -458,6 +458,9 @@ endif()
 yolo_deploy_cuda_runtime(${PROJECT_NAME})
 
 # 海康 MVS 运行时 DLL 部署，实现见 cmake/deploy_runtime.cmake。
-yolo_deploy_mvs_runtime(${PROJECT_NAME})
+# 只有帧源插件真正编入时才需要，SDK 缺失/用户关闭时不部署。
+if(YOLO_HAVE_HIK)
+    yolo_deploy_mvs_runtime(${PROJECT_NAME})
+endif()
 
 

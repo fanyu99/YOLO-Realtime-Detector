@@ -5,7 +5,7 @@
 
 ---
 后续整体推理架构更改：
-- 将HikFrameSource作为qt插件(加入到QT的插件系统中)添加到当前的App中，作为运行库加载，便于拓展
+- ***将HikFrameSource作为qt插件(加入到QT的插件系统中)添加到当前的App中，作为运行库加载，便于拓展***
 
 
 - Worker执行最小单元Task,Manager管理一个Job的状态

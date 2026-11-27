@@ -3,14 +3,19 @@
 #include "CpuFrameHandle.h"
 #include <opencv2/opencv.hpp>
 #include <QStringList>
-#include "Logger.h"
+#include <QDebug>
+#include <QLoggingCategory>
 #include "TimeBases.h"
 namespace {
+	// 注册到Qt日志，然后程序中的Logger获取信息
+	Q_LOGGING_CATEGORY ( logHik, "hik" )
+	void logInfo ( const QString& message ) { qCInfo ( logHik ).noquote () << message; }
+	void logError ( const QString& message ) { qCCritical ( logHik ).noquote () << message; }
 	// 获取受支持的枚举值
 	bool getSupportedEnumValues(void* handle, const char* featureName, MVCC_ENUMVALUE& values) {
 		const int ret = MV_CC_GetEnumValue(handle, featureName, &values);
 		if (ret != MV_OK) {
-			Logger::instance()->error(QStringLiteral("获取%1支持值失败: %2")
+			logError(QStringLiteral("获取%1支持值失败: %2")
 				.arg(QString::fromLatin1(featureName)).arg(ret));
 			return false;
 		}
@@ -27,7 +32,7 @@ namespace {
 				supportedValues.append(QString::number(values.nSupportValue[i]));
 			}
 		}
-		Logger::instance()->info(QStringLiteral("设备支持的%1: %2")
+		logInfo(QStringLiteral("设备支持的%1: %2")
 			.arg(QString::fromLatin1(featureName), supportedValues.join(QStringLiteral(", "))));
 		return true;
 	}
@@ -49,7 +54,7 @@ namespace {
 		if (supportsEnumValue(triggerModes, MV_TRIGGER_MODE_ON))
 			return getSupportedEnumValues(handle, "TriggerSource", triggerSources);
 
-		Logger::instance()->info(QStringLiteral("设备不支持开启触发模式"));
+		logInfo(QStringLiteral("设备不支持开启触发模式"));
 		return true;
 	}
 
@@ -57,7 +62,7 @@ namespace {
 	bool ensureSdkInitialized() {
 		static const bool ok = (MV_CC_Initialize() == MV_OK);
 		if (!ok)
-			Logger::instance()->error(QStringLiteral("初始化MVS SDK失败"));
+			logError(QStringLiteral("初始化MVS SDK失败"));
 		return ok;
 	}
 
@@ -110,7 +115,7 @@ namespace {
 			return bgr;
 		}
 		default:
-			Logger::instance()->error(QStringLiteral("不支持的像素格式: %1").arg(info.enPixelType));
+			logError(QStringLiteral("不支持的像素格式: %1").arg(info.enPixelType));
 			return cv::Mat();
 		}
 	}
@@ -164,7 +169,7 @@ bool HikCameraFrameSource::open() {
 	m_frameIndex = 0;
 	// 打开相机
 	if (!m_camera || !m_camera->handle) {
-		Logger::instance()->error(QStringLiteral("相机未初始化"));
+		logError(QStringLiteral("相机未初始化"));
 		m_lastError = QStringLiteral("相机未初始化");
 		return false;
 	}
@@ -182,14 +187,14 @@ bool HikCameraFrameSource::open() {
 	// 打开设备
 	int ret = MV_CC_OpenDevice(m_camera->handle.get());
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("打开相机失败: %1").arg(ret));
+		logError(QStringLiteral("打开相机失败: %1").arg(ret));
 		m_lastError = QStringLiteral("打开相机失败: %1").arg(ret);
 		return false;
 	}
 	// 设置像素格式为BGR
 	ret = MV_CC_SetEnumValue(m_camera->handle.get(), "PixelFormat", PixelType_Gvsp_BGR8_Packed);
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("设置BGR像素格式失败: %1").arg(ret));
+		logError(QStringLiteral("设置BGR像素格式失败: %1").arg(ret));
 		m_lastError = QStringLiteral("设置BGR像素格式失败: %1").arg(ret);
 		return false;
 	}
@@ -198,45 +203,45 @@ bool HikCameraFrameSource::open() {
 	{
 	case TriggerMode::Off:
 		if (!setTriggerOff()) {
-			Logger::instance()->error(QStringLiteral("设置触发模式失败: %1").arg(m_lastError));
+			logError(QStringLiteral("设置触发模式失败: %1").arg(m_lastError));
 			return false;
 		}
 		break;
 	case TriggerMode::Software:
 		if (!setTriggerSoftware()) {
-			Logger::instance()->error(QStringLiteral("设置触发模式失败: %1").arg(m_lastError));
+			logError(QStringLiteral("设置触发模式失败: %1").arg(m_lastError));
 			return false;
 		}
 		break;
 	case TriggerMode::Line0:
 		if (!setTriggerHardware(0)) {
-			Logger::instance()->error(QStringLiteral("设置触发模式失败: %1").arg(m_lastError));
+			logError(QStringLiteral("设置触发模式失败: %1").arg(m_lastError));
 			return false;
 		}
 		break;
 	case TriggerMode::Line1:
 		if (!setTriggerHardware(1)) {
-			Logger::instance()->error(QStringLiteral("设置触发模式失败: %1").arg(m_lastError));
+			logError(QStringLiteral("设置触发模式失败: %1").arg(m_lastError));
 			return false;
 		}
 		break;
 	case TriggerMode::Line2:
 		if (!setTriggerHardware(2)) {
-			Logger::instance()->error(QStringLiteral("设置触发模式失败: %1").arg(m_lastError));
+			logError(QStringLiteral("设置触发模式失败: %1").arg(m_lastError));
 			return false;
 		}
 		break;
 	default:
 	// 自适应设置模式,默认使用连续采集模式
 		if (!setTriggerAuto()) {
-			Logger::instance()->error(QStringLiteral("设置触发模式失败: %1").arg(m_lastError));
+			logError(QStringLiteral("设置触发模式失败: %1").arg(m_lastError));
 			return false;
 		}
 	}
 	// 开始采集
 	ret = MV_CC_StartGrabbing(m_camera->handle.get());
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("开始采集失败: %1").arg(ret));
+		logError(QStringLiteral("开始采集失败: %1").arg(ret));
 		m_lastError = QStringLiteral("开始采集失败: %1").arg(ret);
 		return false;
 	}
@@ -246,7 +251,7 @@ bool HikCameraFrameSource::open() {
 // 获取帧
 FrameHandlePtr HikCameraFrameSource::getFrame() {
 	if (!m_camera || !m_camera->handle) {
-		Logger::instance()->error(QStringLiteral("相机未初始化"));
+		logError(QStringLiteral("相机未初始化"));
 		m_lastError = QStringLiteral("相机未初始化");
 		return nullptr;
 	}
@@ -264,7 +269,7 @@ FrameHandlePtr HikCameraFrameSource::getFrame() {
 			}
 		}
 		if (!retryOK) {
-			Logger::instance()->error(QStringLiteral("获取帧失败: %1").arg(ret));
+			logError(QStringLiteral("获取帧失败: %1").arg(ret));
 			m_lastError = QStringLiteral("获取帧失败: %1").arg(ret);
 			return nullptr;
 		}
@@ -274,7 +279,7 @@ FrameHandlePtr HikCameraFrameSource::getFrame() {
 	ret = MV_CC_FreeImageBuffer(m_camera->handle.get(), &frame); // 归还SDK缓存!
 
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("归还SDK缓存失败: %1").arg(ret));
+		logError(QStringLiteral("归还SDK缓存失败: %1").arg(ret));
 		m_lastError = QStringLiteral("归还SDK缓存失败: %1").arg(ret);
 	}
 	if (image.empty())
@@ -283,20 +288,20 @@ FrameHandlePtr HikCameraFrameSource::getFrame() {
 }
 
 // 枚举设备
-QVector<HikCameraFrameSource::DeviceInfo> HikCameraFrameSource::enumerateDevices() {
+QVector<FrameSourceDeviceInfo> HikCameraFrameSource::enumerateDevices() {
 	if (!ensureSdkInitialized())
 		return {};
-	QVector<DeviceInfo> devices;
+	QVector<FrameSourceDeviceInfo> devices;
 	// 枚举设备
 	MV_CC_DEVICE_INFO_LIST deviceList;
 	memset(&deviceList, 0, sizeof(MV_CC_DEVICE_INFO_LIST));
 	int ret = MV_CC_EnumDevices(MV_GIGE_DEVICE | MV_USB_DEVICE, &deviceList);
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("枚举设备失败: %1").arg(ret));
+		logError(QStringLiteral("枚举设备失败: %1").arg(ret));
 		return devices;
 	}
 	for (unsigned int i = 0; i < deviceList.nDeviceNum; ++i) {
-		DeviceInfo info;
+		FrameSourceDeviceInfo info;
 		MV_CC_DEVICE_INFO* deviceInfo = deviceList.pDeviceInfo[i];
 		if (deviceInfo->nTLayerType == MV_GIGE_DEVICE) {
 			info.serial = QString::fromLatin1(reinterpret_cast<const char*>(deviceInfo->SpecialInfo.stGigEInfo.chSerialNumber));
@@ -404,7 +409,7 @@ FrameSourcePtr HikCameraFrameSource::forDevices(QStringView serial, TriggerMode 
 // 设置软触发模式
 bool  HikCameraFrameSource::setTriggerSoftware() {
 	if (!m_camera || !m_camera->handle) {
-		Logger::instance()->error(QStringLiteral("相机未初始化"));
+		logError(QStringLiteral("相机未初始化"));
 		m_lastError = QStringLiteral("相机未初始化");
 		return false;
 	}
@@ -412,13 +417,13 @@ bool  HikCameraFrameSource::setTriggerSoftware() {
 	// 设置触发模式为软件触发
 	int ret = MV_CC_SetEnumValue(m_camera->handle.get(), "TriggerMode", 1); // 1: 开启触发模式
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("设置触发模式失败: %1").arg(ret));
+		logError(QStringLiteral("设置触发模式失败: %1").arg(ret));
 		m_lastError = QStringLiteral("设置触发模式失败: %1").arg(ret);
 		return false;
 	}
 	ret = MV_CC_SetEnumValue(m_camera->handle.get(), "TriggerSource", MV_TRIGGER_SOURCE_SOFTWARE); // 7: 软件触发
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("设置触发源失败: %1").arg(ret));
+		logError(QStringLiteral("设置触发源失败: %1").arg(ret));
 		m_lastError = QStringLiteral("设置触发源失败: %1").arg(ret);
 		return false;
 	}
@@ -428,12 +433,12 @@ bool  HikCameraFrameSource::setTriggerSoftware() {
 // 设置硬触发模式
 bool HikCameraFrameSource::setTriggerHardware(int lineId) {
 	if (!m_camera || !m_camera->handle) {
-		Logger::instance()->error(QStringLiteral("相机未初始化"));
+		logError(QStringLiteral("相机未初始化"));
 		m_lastError = QStringLiteral("相机未初始化");
 		return false;
 	}
 	if (lineId < 0 || lineId > 3) {
-		Logger::instance()->error(QStringLiteral("设置硬触发模式失败,触发线号无效: %1").arg(lineId));
+		logError(QStringLiteral("设置硬触发模式失败,触发线号无效: %1").arg(lineId));
 		m_lastError = QStringLiteral("设置硬触发模式失败,触发线号无效: %1").arg(lineId);
 		return false;
 	}
@@ -441,13 +446,13 @@ bool HikCameraFrameSource::setTriggerHardware(int lineId) {
 	// 设置触发模式为硬触发
 	int ret = MV_CC_SetEnumValue(m_camera->handle.get(), "TriggerMode", 1); // 1: 开启触发模式
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("设置触发模式失败: %1").arg(ret));
+		logError(QStringLiteral("设置触发模式失败: %1").arg(ret));
 		m_lastError = QStringLiteral("设置触发模式失败: %1").arg(ret);
 		return false;
 	}
 	ret = MV_CC_SetEnumValue(m_camera->handle.get(), "TriggerSource", lineId); // 0: 硬件触发
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("设置触发源失败: %1").arg(ret));
+		logError(QStringLiteral("设置触发源失败: %1").arg(ret));
 		m_lastError = QStringLiteral("设置触发源失败: %1").arg(ret);
 		return false;
 	}
@@ -457,7 +462,7 @@ bool HikCameraFrameSource::setTriggerHardware(int lineId) {
 // 关闭触发模式,设置为连续采集模式
 bool HikCameraFrameSource::setTriggerOff() {
 	if (!m_camera || !m_camera->handle) {
-		Logger::instance()->error(QStringLiteral("相机未初始化"));
+		logError(QStringLiteral("相机未初始化"));
 		m_lastError = QStringLiteral("相机未初始化");
 		return false;
 	}
@@ -465,14 +470,14 @@ bool HikCameraFrameSource::setTriggerOff() {
 	// 设置触发模式为关闭
 	int ret = MV_CC_SetEnumValue(m_camera->handle.get(), "TriggerMode", MV_TRIGGER_MODE_OFF); // 0: 关闭触发模式
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("设置触发模式失败: %1").arg(ret));
+		logError(QStringLiteral("设置触发模式失败: %1").arg(ret));
 		m_lastError = QStringLiteral("设置触发模式失败: %1").arg(ret);
 		return false;
 	}
 	// 设置连续采集模式
 	ret = MV_CC_SetEnumValue(m_camera->handle.get(), "AcquisitionMode", MV_ACQ_MODE_CONTINUOUS); // 0: 连续采集
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("设置采集模式失败: %1").arg(ret));
+		logError(QStringLiteral("设置采集模式失败: %1").arg(ret));
 		m_lastError = QStringLiteral("设置采集模式失败: %1").arg(ret);
 		return false;
 	}
@@ -483,7 +488,7 @@ bool HikCameraFrameSource::setTriggerOff() {
 // 设置自适应默认模式
 bool HikCameraFrameSource::setTriggerAuto() {
 	if (!m_camera || !m_camera->handle) {
-		Logger::instance()->error(QStringLiteral("相机未初始化"));
+		logError(QStringLiteral("相机未初始化"));
 		m_lastError = QStringLiteral("相机未初始化");
 		return false;
 	}
@@ -501,7 +506,7 @@ bool HikCameraFrameSource::setTriggerAuto() {
 	if (supportsEnumValue(acquisitionModes, MV_ACQ_MODE_CONTINUOUS)) {
 		ret = MV_CC_SetEnumValue(m_camera->handle.get(), "AcquisitionMode", MV_ACQ_MODE_CONTINUOUS);
 		if (ret != MV_OK) {
-			Logger::instance()->error(QStringLiteral("设置采集模式失败: %1").arg(ret));
+			logError(QStringLiteral("设置采集模式失败: %1").arg(ret));
 			m_lastError = QStringLiteral("设置采集模式失败: %1").arg(ret);
 			return false;
 		}
@@ -510,21 +515,21 @@ bool HikCameraFrameSource::setTriggerAuto() {
 	if (supportsEnumValue(triggerModes, MV_TRIGGER_MODE_OFF)) {
 		ret = MV_CC_SetEnumValue(m_camera->handle.get(), "TriggerMode", MV_TRIGGER_MODE_OFF);
 		if (ret != MV_OK) {
-			Logger::instance()->error(QStringLiteral("关闭触发模式失败: %1").arg(ret));
+			logError(QStringLiteral("关闭触发模式失败: %1").arg(ret));
 			m_lastError = QStringLiteral("关闭触发模式失败: %1").arg(ret);
 			return false;
 		}
-		Logger::instance()->info(QStringLiteral("自动模式选择: 连续采集并关闭触发"));
+		logInfo(QStringLiteral("自动模式选择: 连续采集并关闭触发"));
 		return true;
 	}
 	// 如果支持触发模式,选择软件触发模式
 	if (!supportsEnumValue(triggerModes, MV_TRIGGER_MODE_ON)) {
-		Logger::instance()->error(QStringLiteral("设备不支持触发开关配置"));
+		logError(QStringLiteral("设备不支持触发开关配置"));
 		m_lastError = QStringLiteral("设备不支持触发开关配置");
 		return false;
 	}
 	if (triggerSources.nSupportedNum == 0) {
-		Logger::instance()->error(QStringLiteral("设备没有可用的触发源"));
+		logError(QStringLiteral("设备没有可用的触发源"));
 		m_lastError = QStringLiteral("设备没有可用的触发源");
 		return false;
 	}
@@ -550,17 +555,17 @@ bool HikCameraFrameSource::setTriggerAuto() {
 
 	ret = MV_CC_SetEnumValue(m_camera->handle.get(), "TriggerMode", MV_TRIGGER_MODE_ON);
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("开启触发模式失败: %1").arg(ret));
+		logError(QStringLiteral("开启触发模式失败: %1").arg(ret));
 		m_lastError = QStringLiteral("开启触发模式失败: %1").arg(ret);
 		return false;
 	}
 	ret = MV_CC_SetEnumValue(m_camera->handle.get(), "TriggerSource", selectedSource);
 	if (ret != MV_OK) {
-		Logger::instance()->error(QStringLiteral("设置触发源失败: %1").arg(ret));
+		logError(QStringLiteral("设置触发源失败: %1").arg(ret));
 		m_lastError = QStringLiteral("设置触发源失败: %1").arg(ret);
 		return false;
 	}
-	Logger::instance()->info(QStringLiteral("自动模式选择: 触发采集, 触发源=%1").arg(selectedSource));
+	logInfo(QStringLiteral("自动模式选择: 触发采集, 触发源=%1").arg(selectedSource));
 	return true;
 }
 

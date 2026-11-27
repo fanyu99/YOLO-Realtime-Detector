@@ -11,7 +11,7 @@
 #include <memory>
 #include <optional>
 #include "FrameHandle.h"
-// 相机触发模式（海康等工业相机）
+// 相机触发模式（工业相机）
 enum class CameraTriggerMode {
 	Off,      // 关闭触发,连续采集
 	Software, // 软件触发
@@ -25,6 +25,13 @@ enum class FrameSourceType {
 	VideoFile,							 // 视频文件
 	Camera,					// 摄像头/相机
 	Hik
+};
+// 帧源设备信息
+struct FrameSourceDeviceInfo {
+	QString serial;
+	QString model;
+	QString userDefinedName;
+	bool online = false;
 };
 // 帧源描述,类型+ 路径/设备名
 // App 只提交描述，帧源由 Worker 在执行时通过 Session 创建（内存类型由 Session 按当前模式决定）

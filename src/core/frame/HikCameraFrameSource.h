@@ -12,14 +12,8 @@ public:
 		Line1,    // 硬触发,使用Line1
 		Line2,    // 硬触发,使用Line2
     };
-    struct DeviceInfo {
-        QString serial;
-        QString model;
-        QString userDefinedName;
-        bool online = false;
-    };
 	bool isOpened() const override;
-    static QVector<DeviceInfo>enumerateDevices(); // 枚举在线设备
+    static QVector<FrameSourceDeviceInfo> enumerateDevices(); // 枚举在线设备
 	static FrameSourcePtr forDevices(QStringView serial, TriggerMode mode = TriggerMode::Off, MemoryType memoryType = MemoryType::CPU); // 根据序列号创建帧源
     bool open() override;  
     FrameHandlePtr getFrame()override;  // 获取帧,获取到空指针代表终止,同现在的摄像头源
