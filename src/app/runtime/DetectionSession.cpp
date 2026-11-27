@@ -9,6 +9,7 @@
 #include "CudaDevice.h"
 #endif
 #include "Logger.h"
+#include "PluginManager.h"
 #include "ScopedStageTimer.h"
 #include "TimeBases.h"
 
@@ -46,6 +47,14 @@ DetectionSession::DetectionSession ( const DetectorConfig& config, IPerformanceM
 
 	// 创建成功后把实际生效的模式写回配置
 	m_config.active_mode = m_mode;
+
+	// 把已加载的帧源插件注册到工厂 插件缺失时对应 pluginId 创建会返回空
+	if (PluginManager* manager = PluginManager::instance ()) {
+		for (const QString& id : manager->enumeratePluginIds ()) {
+			if (auto* plugin = manager->getFrameSourcePlugin ( id ))
+				m_sourceFactory->appendFrameSourcePlugin ( id, plugin->getFrameSourceCallback () );
+		}
+	}
 	m_detectionFlow = m_flowFactory->createDetectionFlow ( m_config, m_monitor );
 	if (m_detectionFlow)
 		m_warnings = m_detectionFlow->warnings ();
@@ -100,9 +109,9 @@ FrameSourcePtr DetectionSession::createCameraFrameSource ( const QString& nameOr
 	return m_sourceFactory->createCameraFrameSource ( nameOrId, formatName, getMemoryType () );
 }
 
-// 创建Hik相机帧源，未注册时返回nullptr
-FrameSourcePtr DetectionSession::createHikCameraFrameSource ( QStringView serial, CameraTriggerMode mode ) {
-	return m_sourceFactory->createHikCameraFrameSource ( serial, mode, getMemoryType () );
+// 通过帧源插件创建帧源，插件未注册时返回nullptr
+FrameSourcePtr DetectionSession::createFrameSourceByPlugin ( const QString& pluginId, const FrameSourceDeviceInfo& deviceInfo ) {
+	return m_sourceFactory->createFrameSourceByPlugin ( pluginId, deviceInfo );
 }
 
 // 执行推理流程（调用Flow的run）

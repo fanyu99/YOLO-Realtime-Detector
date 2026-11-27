@@ -196,7 +196,7 @@ cmake --build out/build/release --parallel
 | Variable (environment, or `-D` cache) | Default / behavior |
 |---|---|
 | `YOLO_BUILD_DEBUG` | `OFF`: Release build with the Release OpenCV package. `ON` selects the Debug build and the Debug OpenCV package |
-| `YOLO_ENABLE_HIK` | `ON`; without a usable MVS SDK the configure warns, skips the Hik layer and stores `OFF` in the cache — restore it with `-DYOLO_ENABLE_HIK=ON` |
+| `YOLO_ENABLE_HIK` | `ON`; without a usable MVS SDK the configure warns and skips the Hik plugin. The switch keeps your intent — re-run configure after installing the SDK |
 | `YOLO_ENABLE_CUDA` | `ON`; without a Toolkit the configure warns and skips the custom CUDA sources |
 | `CMAKE_CUDA_ARCHITECTURES` | `120` (Blackwell / RTX 50 series); set it to match the target GPU |
 | `BUILD_TESTS` | `ON`; adds `tests/` when `tests/CMakeLists.txt` exists |

@@ -201,7 +201,7 @@ cmake --build out/build/release --parallel
 | 变量（环境变量，或 `-D` 缓存变量） | 默认值或作用 |
 |---|---|
 | `YOLO_BUILD_DEBUG` | `OFF`：Release 构建 + Release OpenCV 包；`ON`：Debug 构建 + Debug OpenCV 包 |
-| `YOLO_ENABLE_HIK` | `ON`；找不到可用的 MVS SDK 时配置阶段给出警告、跳过海康层，并把缓存写成 `OFF`，之后用 `-DYOLO_ENABLE_HIK=ON` 恢复 |
+| `YOLO_ENABLE_HIK` | `ON`；找不到可用的 MVS SDK 时配置阶段给出警告并跳过海康插件；开关保留你的意图，装好 SDK 后重新 configure 即可 |
 | `YOLO_ENABLE_CUDA` | `ON`；找不到 Toolkit 时给出警告并跳过自定义 CUDA 源码 |
 | `CMAKE_CUDA_ARCHITECTURES` | `120`（Blackwell / RTX 50 系）；按目标显卡设置 |
 | `BUILD_TESTS` | `ON`；当 `tests/CMakeLists.txt` 存在时接入 `tests/` |

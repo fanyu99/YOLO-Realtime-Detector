@@ -11,4 +11,6 @@ public:
 	QString pluginId () const override;
 	QVector<FrameSourceDeviceInfo> enumerateDevices () const override;
 	FrameSourcePtr createFrameSource ( QStringView id, CameraTriggerMode mode, MemoryType memoryType ) const override;
+	// 获取创建帧源回调函数返回给工厂
+	FrameSourcePluginCallback getFrameSourceCallback () const override;
 };

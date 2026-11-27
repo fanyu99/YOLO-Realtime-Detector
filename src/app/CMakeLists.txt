@@ -23,6 +23,8 @@ qt_add_library(DetectionRuntime STATIC
     runtime/DetectionWorker.cpp
     runtime/DetectionSession.h
     runtime/DetectionSession.cpp
+    runtime/PluginManager.h
+    runtime/PluginManager.cpp
     # components/
     components/ClassPalette.h
     components/ClassColorItem.h

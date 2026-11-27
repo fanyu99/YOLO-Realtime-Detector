@@ -594,6 +594,15 @@ FrameSourcePtr DetectionWorker::createFrameSource ( const FrameSourceDescription
 	if (!m_session) {
 		return nullptr;
 	}
+	// 如果是插件帧源创建插件帧源
+	if (des.pluginId.has_value ()) {
+		if (!des.serial.has_value ())
+			return nullptr;
+		FrameSourceDeviceInfo info;
+		info.serial = des.serial.value ();
+		info.triggerMode = des.triggerMode;
+		return m_session->createFrameSourceByPlugin ( des.pluginId.value (), info );
+	}
 	switch (des.type)
 	{
 	case FrameSourceType::SingleImage:
@@ -603,8 +612,6 @@ FrameSourcePtr DetectionWorker::createFrameSource ( const FrameSourceDescription
 	case FrameSourceType::Camera:
 		return des.nameOrId.has_value () ? m_session->createCameraFrameSource ( des.nameOrId.value (),
 			des.formatName.value_or ( QString () ) ) : nullptr;
-	case FrameSourceType::Hik:
-		return des.serial.has_value () ? m_session->createHikCameraFrameSource ( des.serial.value (), des.triggerMode ) : nullptr;
 	default:
 		return nullptr;
 	}

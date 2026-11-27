@@ -3,7 +3,6 @@
 // 目前支持两种:
 // 1. 使用摄像头/视频文件/图片文件作为帧来源
 // 2. 使用相机类获取帧源
-// 帧句柄内存类型由 MemoryType(FrameHandle.h) 描述,当前仅实现 CPU 分支,GPU 分支预留
 #pragma once
 #include <opencv2/core.hpp>
 #include <QString>
@@ -23,24 +22,25 @@ enum class CameraTriggerMode {
 enum class FrameSourceType {
 	SingleImage,	// 单张照片
 	VideoFile,							 // 视频文件
-	Camera,					// 摄像头/相机
-	Hik
+	Camera					// 摄像头/相机
 };
 // 帧源设备信息
+// serial 为设备唯一标识
 struct FrameSourceDeviceInfo {
 	QString serial;
 	QString model;
 	QString userDefinedName;
 	bool online = false;
+	CameraTriggerMode triggerMode = CameraTriggerMode::Off;
 };
 // 帧源描述,类型+ 路径/设备名
-// App 只提交描述，帧源由 Worker 在执行时通过 Session 创建（内存类型由 Session 按当前模式决定）
 struct FrameSourceDescription {
 	std::optional<QString>filePath;	    // 文件路径（图片/视频）
 	std::optional<QString>nameOrId;	  // 设备名（摄像头）
 	std::optional<QString>formatName;  // 摄像头输入格式（dshow/avfoundation/v4l2）
-	std::optional<QString>serial; // Hik
-	CameraTriggerMode triggerMode = CameraTriggerMode::Off;	// Hik 触发模式
+	std::optional<QString>serial; // 工业相机/插件设备的唯一标识
+	CameraTriggerMode triggerMode = CameraTriggerMode::Off;	// 工业相机触发模式
+	std::optional<QString> pluginId;	// 非空表示由该帧源插件创建
 	FrameSourceType type;
 };
 

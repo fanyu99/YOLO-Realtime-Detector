@@ -47,8 +47,6 @@ find_library(MVS_CAMERA_CONTROL_LIB
 qt_add_library(yolo_hik STATIC
     ../../core/frame/HikCameraFrameSource.h
     ../../core/frame/HikCameraFrameSource.cpp
-    ../../core/frame/HikRegister.h
-    ../../core/frame/HikRegister.cpp
 )
 
 target_include_directories(yolo_hik PUBLIC

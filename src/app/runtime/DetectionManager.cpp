@@ -74,11 +74,14 @@ void DetectionManager::shutdown() {
 quint64 DetectionManager::submitSource(const FrameSourceDescription& des, const DisplaySaveStatus& displaySaveStatus) {
 	// 校验描述有效
 	bool valid = false;
-	switch (des.type) {
-	case FrameSourceType::SingleImage:
-	case FrameSourceType::VideoFile:	valid = des.filePath.has_value(); break;
-	case FrameSourceType::Camera:		valid = des.nameOrId.has_value(); break;
-	case FrameSourceType::Hik:			valid = des.serial.has_value(); break;
+	if (des.pluginId.has_value ())
+		valid = des.serial.has_value ();
+	else {
+		switch (des.type) {
+		case FrameSourceType::SingleImage:
+		case FrameSourceType::VideoFile:	valid = des.filePath.has_value(); break;
+		case FrameSourceType::Camera:		valid = des.nameOrId.has_value(); break;
+		}
 	}
 	if (!valid) {
 		emit jobFailed(0, DetectionError(QStringLiteral("[DetectionManager]: 帧源描述无效!"),

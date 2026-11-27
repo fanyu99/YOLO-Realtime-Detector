@@ -4,6 +4,8 @@
 #include <QPalette>
 #include <QStyleHints>
 #include <QFileInfo>
+#include <QDirIterator>
+#include <QLibrary>
 #include <optional>
 #include <qDebug>
 #include "Logger.h"
@@ -11,6 +13,7 @@
 #include "AppConfigWriter.h"
 #include "PerformanceApp.h"
 #include "DetectionApp.h"
+#include "PluginManager.h"
 #include "PerformanceTypes.h"
 #include "DisplayPolicy.h"
 #include "AppConfigLoader.h"
@@ -93,6 +96,17 @@ int main ( int argc, char* argv[] )
 	QGuiApplication app ( argc, argv );
 
 	Logger::instance ();	  // 创建日志实例
+
+	// 扫描插件路径并加载插件到PluginManager
+	QStringList pluginPaths;
+	QDirIterator pluginIt ( QCoreApplication::applicationDirPath () + QStringLiteral ( "/plugins" ),
+		QDir::Files, QDirIterator::Subdirectories );
+	while (pluginIt.hasNext ()) {
+		const QString path = pluginIt.next ();
+		if (QLibrary::isLibrary ( path ))
+			pluginPaths.append ( path );
+	}
+	PluginManager::initialize ( pluginPaths );
 
 	// 加载应用配置
 	const QString exeConfigPath =

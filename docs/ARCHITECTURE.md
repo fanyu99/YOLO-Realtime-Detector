@@ -5,7 +5,7 @@
 
 ---
 后续整体推理架构更改：
-- ***将HikFrameSource作为qt插件(加入到QT的插件系统中)添加到当前的App中，作为运行库加载，便于拓展***
+
 
 
 - Worker执行最小单元Task,Manager管理一个Job的状态
@@ -48,6 +48,7 @@ DetectionTask
 ---
 
 ### 正在进行的更改：
+- ***将HikFrameSource作为qt插件(加入到QT的插件系统中)添加到当前的App中，作为运行库加载，便于拓展***
 - 总体统计与日志汇报：平均处理帧率、平均推理帧率、平均推理时长的汇总；
 - 添加性能面板的总体平均数据总结显示，例如平均处理帧率、平均推理帧率、平均推理时长等
 
@@ -73,6 +74,7 @@ DetectionTask
 ---
 
 当前完成：
+- 将当前的hik相机帧源添加到QT插件系统，作为运行库加载进App中，但是当前的QML端的HikDialog还未添加到插件系统中，等待接入
 - 添加了预览模式测试（实时预览/离线预览 + GPU/CPU + 是否保存结果 + 是否能够Overlay互操作）
 - 添加CUDAEvent、ffmpegdecoder解码以及ORT端的探测计时，完善性能监控模块
 - 预热耗时接入监控：需新增 PerformanceStage（如 Warmup）并扩展快照与 PerformanceApp，代码中已留 TODO。
@@ -142,7 +144,7 @@ DetectionTask
 - 调整帧源结构：
   - `FileFrameSource` 更名为 `ImageFrameSource`，仅支持单图（固定使用CPU的opencv的imread）
   - `FfmpegFrameSource` 负责摄像头和视频文件的软解、硬解。
-  - `HikCameraFrameSource` 负责海康相机。
+  - `HikCameraFrameSource` 负责海康相机，以 `src/plugins/HikFrameSource` 的 Qt 插件形式在运行时加载。
   - 工厂根据输入类型创建对应帧源。
 - App层的创建帧源函数删除，并将创建帧源的功能放置在Session中，App/Manager层只进行提交帧源描述，由Worker来进行创建对应的帧源回填到task中
 - App 层 onDetectFileClicked 中视频分支调用 makeFileSource 的问题仍在——视频会拿到 ImageFrameSource。
@@ -321,7 +323,7 @@ ONNX 会话的封装，负责预处理、推理与后处理。
 
 `FileFrameSource`用于为单图/视频帧/摄像头帧提供统一的接口
 
-`HikCameraFrameSource`作为海康相机帧源,QML为其添加一个Dialog用于选择当前可用的相机设备以及选择触发模式(默认关闭并使用连续采集模式)
+`HikCameraFrameSource`作为海康相机帧源，由 `PluginManager` 从 `plugins/framesource` 加载；QML为其添加一个Dialog用于选择当前可用的相机设备以及选择触发模式(默认关闭并使用连续采集模式)
 
 `FfmpegFrameSource`用于ffmpeg解码视频文件帧，目前将得到的`AVFrame*`转为`cv::Mat`，后续使用`GpuFrameSourceHandle`针对于GPU硬解进行封装，作为兼容性更强的帧源
 

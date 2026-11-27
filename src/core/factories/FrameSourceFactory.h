@@ -4,9 +4,8 @@
 #include  "DetectionTypes.h"
 #include "FrameHandle.h"
 #include "FrameSource.h"
+#include "FrameSourcePluginInterface.h"
 
-// Hik注册器
-using HikCreator = std::function<FrameSourcePtr(QStringView serial,CameraTriggerMode mode,MemoryType memoryType)>;
 
 // 抽象帧源工厂类
 class FrameSourceFactory {
@@ -19,16 +18,39 @@ public:
 	// 创建摄像头帧源(ffmpeg)
 	virtual FrameSourcePtr createCameraFrameSource(const QString& nameOrId, const QString& formatName = QString(), MemoryType memoryType = MemoryType::CPU) = 0;
 
-	// 2. Hik注册以及创建帧源
-	void setHikCreator( HikCreator creator ) { m_hikCreator = std::move( creator ); }
-	bool supportHik() const { return m_hikCreator != nullptr; }
-	// 创建帧源（未注册Hik时返回nullptr）
-	virtual FrameSourcePtr createHikCameraFrameSource( QStringView serial = {} , CameraTriggerMode mode=CameraTriggerMode::Off, MemoryType memoryType=MemoryType::CPU ) {
-		return m_hikCreator ? m_hikCreator( serial , mode , memoryType ) : nullptr;
+	// 帧源插件
+	// 添加帧源插件
+	virtual void setPluginFrameSourcePlugin ( const QStringList& pluginIds, FrameSourcePluginCallback callback )
+	{
+		for (const auto& id : pluginIds)
+		{
+			if (!m_pluginCallbacks.contains ( id ))
+			{
+				m_pluginCallbacks.insert ( id, callback );
+			}
+		}
+	}
+	virtual void appendFrameSourcePlugin ( const QString& pluginId, FrameSourcePluginCallback callback )
+	{
+		if (!m_pluginCallbacks.contains ( pluginId ))
+		{
+			m_pluginCallbacks.insert ( pluginId, callback );
+		}
+	}
+	// 是否支持插件帧源
+	virtual  bool supportPlugin ( QStringView pluginId )const
+	{
+		return m_pluginCallbacks.contains ( pluginId );
+	}
+	// 通过插件创建帧源
+	virtual FrameSourcePtr createFrameSourceByPlugin ( QStringView pluginId, const FrameSourceDeviceInfo& deviceInfo ) {
+		if (!supportPlugin ( pluginId ))
+			return nullptr;
+		return m_pluginCallbacks.value ( pluginId)( deviceInfo );
 	}
 
 protected:
-	HikCreator m_hikCreator{nullptr};	// Hik注册器
+	QHash<QString, FrameSourcePluginCallback> m_pluginCallbacks;	// 帧源插件回调
 	
 };
 using FrameSourceFactoryPtr = std::unique_ptr<FrameSourceFactory>;

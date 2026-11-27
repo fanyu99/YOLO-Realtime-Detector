@@ -6,17 +6,18 @@
 #include "AppConfigWriter.h"
 #include "DetectionImageProvider.h"
 #include "DetectionResultSaver.h"
-#ifdef YOLO_ENABLE_HIK
-#include "HikCameraFrameSource.h"
-#endif
-#include "FfmpegFrameSource.h"	
+#include "FfmpegFrameSource.h"
 #include "Logger.h"
+#include "PluginManager.h"
 #include "TimeBases.h"
 #include <QFuture>
 #include <QtConcurrent/QtConcurrent>
 
 // 匿名工具函数: 帧信号通知限流
 namespace {
+	// QML 侧海康入口暂时固定取该插件，界面改为插件选择后由设备信息携带
+	const QString kHikPluginId = QStringLiteral ( "hik" );
+
 	// 判断是否重复，放置重复配置
 	bool sameDetectorConfig ( const DetectorConfig& a, const DetectorConfig& b ) {
 		return a.model_path == b.model_path
@@ -171,7 +172,7 @@ CameraTriggerMode DetectionApp::str2TriggerMode ( QStringView str ) const {
 	if (str == u"line1")	return CameraTriggerMode::Line1;
 	if (str == u"line2")	return CameraTriggerMode::Line2;
 	if (str != u"off")
-		Logger::instance ()->warning ( QStringLiteral ( "[DetectionApp]: 海康相机触发模式无效，使用默认的连续采集模式" ) );
+		Logger::instance ()->warning ( QStringLiteral ( "[DetectionApp]: 工业相机触发模式无效，使用默认的连续采集模式" ) );
 	return CameraTriggerMode::Off;
 }
 
@@ -181,20 +182,22 @@ void  DetectionApp::hikDevices () {
 		return;
 	m_loading = true;
 	emit loadingChanged ();	// 耗时操作开始
-	QFuture<QVariantList> future = QtConcurrent::run ( [ this ] () {
+	QFuture<QVariantList> future = QtConcurrent::run ( [ ] () {
 		QVariantList list;
-#ifdef YOLO_ENABLE_HIK
-		const QVector<FrameSourceDeviceInfo> devices = HikCameraFrameSource::enumerateDevices ();
-		list.reserve ( devices.size () );
-		for (const FrameSourceDeviceInfo& device : devices) {
-			QVariantMap item;
-			item.insert ( QStringLiteral ( "serial" ), device.serial );
-			item.insert ( QStringLiteral ( "model" ), device.model );
-			item.insert ( QStringLiteral ( "userDefinedName" ), device.userDefinedName );
-			item.insert ( QStringLiteral ( "online" ), device.online );
-			list.append ( item );
+		if (PluginManager* manager = PluginManager::instance ()) {
+			if (auto* plugin = manager->getFrameSourcePlugin ( kHikPluginId )) {
+				const QVector<FrameSourceDeviceInfo> devices = plugin->enumerateDevices ();
+				list.reserve ( devices.size () );
+				for (const FrameSourceDeviceInfo& device : devices) {
+					QVariantMap item;
+					item.insert ( QStringLiteral ( "serial" ), device.serial );
+					item.insert ( QStringLiteral ( "model" ), device.model );
+					item.insert ( QStringLiteral ( "userDefinedName" ), device.userDefinedName );
+					item.insert ( QStringLiteral ( "online" ), device.online );
+					list.append ( item );
+				}
+			}
 		}
-#endif
 		return list;	  } );
 	m_watcher->setFuture ( future );
 }
@@ -348,9 +351,15 @@ void DetectionApp::onDetectHikCameraClicked ( const QString& serial, const QStri
 		reportError ( AppError ( QStringLiteral ( "[DetectionApp]: 海康相机设备序列号无效!" ), AppErrorCode::InvalidConfig ) );
 		return;
 	}
+	PluginManager* manager = PluginManager::instance ();
+	if (!manager || !manager->pluginExists ( kHikPluginId )) {
+		reportError ( AppError ( QStringLiteral ( "[DetectionApp]: 海康帧源插件未加载!" ), AppErrorCode::DetectionFailed ) );
+		return;
+	}
 	// 构造帧源描述并提交（帧源由 worker 执行时经 Session 创建）
 	FrameSourceDescription des;
-	des.type = FrameSourceType::Hik;
+	des.type = FrameSourceType::Camera;
+	des.pluginId = kHikPluginId;
 	des.serial = serial;
 	des.triggerMode = str2TriggerMode ( triggerMode );
 	m_currentJobId = m_manager->submitSource ( des, makeDisplaySaveStatus () );

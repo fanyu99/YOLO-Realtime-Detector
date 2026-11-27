@@ -411,12 +411,7 @@ if(YOLO_HAVE_CUDA)
     target_link_libraries(${PROJECT_NAME} PUBLIC d3d11 dxgi Qt6::GuiPrivate)
 endif()
 
-if(YOLO_HAVE_HIK)
-    target_link_libraries(${PROJECT_NAME} PUBLIC yolo_hik)
-    # DetectionApp.cpp 目前用 YOLO_ENABLE_HIK 裁掉海康枚举；等 App 层改走
-    # 插件宿主后只保留 YOLO_HAVE_HIK（实际可用性由 MVS SDK 探测决定）。
-    target_compile_definitions(${PROJECT_NAME} PRIVATE YOLO_HAVE_HIK YOLO_ENABLE_HIK)
-endif()
+# 海康帧源由插件在运行时加载，exe 不链接 yolo_hik。
 
 if(Qt6_FOUND)
     qt_import_qml_plugins(${PROJECT_NAME})

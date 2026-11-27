@@ -368,15 +368,14 @@ struct DetectionJob {
 // 帧源由 Worker 执行时才创建，Job 创建时只能从描述取类型
 inline DetectionJobType jobTypeOf( const FrameSourceDescription& des ) {
 	switch (des.type) {
-	case FrameSourceType::Camera:
-	case FrameSourceType::Hik:			return DetectionJobType::Camera;
+	case FrameSourceType::Camera:		return DetectionJobType::Camera;
 	case FrameSourceType::VideoFile:	return DetectionJobType::SingleVideo;
 	case FrameSourceType::SingleImage:	return DetectionJobType::SingleImage;
 	}
 	return DetectionJobType::SingleImage;
 }
 
-// 构造一个「单 Task」作业：单图 / 单视频 / 摄像头 / Hik
+// 构造一个「单 Task」作业：单图 / 单视频 / 摄像头（含插件相机）
 // displaySaveStatus 由 App 推导，Manager 原样透传给 Worker
 inline DetectionJob makeSingleTaskJob( quint64 jobId, quint64 taskId,
 	const FrameSourceDescription& des,
@@ -390,7 +389,7 @@ inline DetectionJob makeSingleTaskJob( quint64 jobId, quint64 taskId,
 	task->jobId = jobId;
 	task->sourceDescription = des;
 	// 摄像头流不累积，靠 taskResult 逐帧推送
-	task->accumulateResults = (des.type != FrameSourceType::Camera && des.type != FrameSourceType::Hik);
+	task->accumulateResults = (des.type != FrameSourceType::Camera);
 
 	job.type = jobTypeOf( des );				// 先定 task.sourceDescription，再派生 job.type
 	job.shared = std::make_shared<TaskShared>( jobId, job.type, displaySaveStatus );

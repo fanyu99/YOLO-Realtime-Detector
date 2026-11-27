@@ -20,8 +20,8 @@ public:
 	FrameSourcePtr createVideoFrameSource(QStringView filePath);
 	// 创建摄像头帧源(ffmpeg)
 	FrameSourcePtr createCameraFrameSource(const QString& nameOrId, const QString& formatName = QString());
-	// 创建Hik相机帧源（未注册Hik时返回nullptr）
-	FrameSourcePtr createHikCameraFrameSource(QStringView serial = {}, CameraTriggerMode mode = CameraTriggerMode::Off);
+	// 通过帧源插件创建（插件未注册/创建失败时返回nullptr）
+	FrameSourcePtr createFrameSourceByPlugin(const QString& pluginId, const FrameSourceDeviceInfo& deviceInfo);
 	// 执行推理流程（调用Flow的run）
 	// CPU帧进入GPU会话时在内部上传显存后走GPU流程
 	// 返回 false 时通过 lastError() 取错误原因
