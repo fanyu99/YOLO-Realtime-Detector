@@ -340,5 +340,106 @@ public:
 		return *this;
 	}
 };
+
+// 千字节换算为 GB，供 QML 直接展示
+constexpr double kKbPerGb = 1024.0 * 1024.0;
+inline double kbToGb ( quint64 kb ) {
+	return static_cast<double>(kb) / kKbPerGb;
+}
+
+// 内存占用快照（单次采样，单位KB）
+struct MemorySnapshot {
+	Q_GADGET
+		Q_PROPERTY ( quint64 totalMemory MEMBER totalMemory )
+		Q_PROPERTY ( quint64 availableMemory MEMBER availableMemory )
+		Q_PROPERTY ( quint64 processMemory MEMBER processMemory )
+		Q_PROPERTY ( quint64 totalGpuMemory MEMBER totalGpuMemory )
+		Q_PROPERTY ( quint64 availableGpuMemory MEMBER availableGpuMemory )
+		Q_PROPERTY ( quint64 processGpuMemory MEMBER processGpuMemory )
+		Q_PROPERTY ( double totalMemoryGb READ totalMemoryGb )
+		Q_PROPERTY ( double availableMemoryGb READ availableMemoryGb )
+		Q_PROPERTY ( double processMemoryGb READ processMemoryGb )
+		Q_PROPERTY ( double totalGpuMemoryGb READ totalGpuMemoryGb )
+		Q_PROPERTY ( double availableGpuMemoryGb READ availableGpuMemoryGb )
+		Q_PROPERTY ( double processGpuMemoryGb READ processGpuMemoryGb )
+public:
+	quint64 totalMemory = 0;	// 总内存
+	quint64 availableMemory = 0;	// 可用内存
+	quint64 processMemory = 0;	// 当前进程占用内存
+	quint64 totalGpuMemory = 0;	// 总GPU显存
+	quint64 availableGpuMemory = 0;	// 可用GPU显存
+	quint64 processGpuMemory = 0;	// 当前进程占用GPU显存
+
+	// 加权合并的权重(ms)，不暴露给QML；采样时填入对应统计窗口的时长
+	double weightMs = 0.0;
+
+	double totalMemoryGb () const { return kbToGb ( totalMemory ); }
+	double availableMemoryGb () const { return kbToGb ( availableMemory ); }
+	double processMemoryGb () const { return kbToGb ( processMemory ); }
+	double totalGpuMemoryGb () const { return kbToGb ( totalGpuMemory ); }
+	double availableGpuMemoryGb () const { return kbToGb ( availableGpuMemory ); }
+	double processGpuMemoryGb () const { return kbToGb ( processGpuMemory ); }
+
+	// 按照两个快照加权生成平均快照
+	MemorySnapshot operator+ ( const MemorySnapshot& other ) const {
+		MemorySnapshot merged;
+		merged.totalMemory = other.totalMemory;
+		merged.availableMemory = other.availableMemory;
+		merged.totalGpuMemory = other.totalGpuMemory;
+		merged.availableGpuMemory = other.availableGpuMemory;
+		merged.weightMs = weightMs + other.weightMs;
+
+		if (merged.weightMs > 0.0) {
+			merged.processMemory = static_cast<quint64>(
+				( static_cast<double>(processMemory) * weightMs
+					+ static_cast<double>(other.processMemory) * other.weightMs ) / merged.weightMs );
+			merged.processGpuMemory = static_cast<quint64>(
+				( static_cast<double>(processGpuMemory) * weightMs
+					+ static_cast<double>(other.processGpuMemory) * other.weightMs ) / merged.weightMs );
+		}
+		else {
+			merged.processMemory = other.processMemory;
+			merged.processGpuMemory = other.processGpuMemory;
+		}
+		return merged;
+	}
+};
+
+// 会话汇总的内存统计
+struct MemoryOverallStatistics {
+	Q_GADGET
+		Q_PROPERTY ( MemorySnapshot snapshot READ snapshot )
+		Q_PROPERTY ( quint64 peakProcessMemory MEMBER peakProcessMemory )
+		Q_PROPERTY ( quint64 peakProcessGpuMemory MEMBER peakProcessGpuMemory )
+		Q_PROPERTY ( int sampleCount MEMBER sampleCount )
+		Q_PROPERTY ( double peakProcessMemoryGb READ peakProcessMemoryGb )
+		Q_PROPERTY ( double peakProcessGpuMemoryGb READ peakProcessGpuMemoryGb )
+public:
+	MemorySnapshot m_snapshot;	// 平均快照
+	quint64 peakProcessMemory = 0;	// 进程内存峰值
+	quint64 peakProcessGpuMemory = 0;	// 进程显存峰值
+	int sampleCount = 0;	// 汇总的内存采样次数
+
+	MemoryOverallStatistics operator+ ( const MemorySnapshot& other ) const {
+		MemoryOverallStatistics merged = *this;
+		merged.m_snapshot = m_snapshot + other;
+		merged.peakProcessMemory = std::max ( peakProcessMemory, other.processMemory );
+		merged.peakProcessGpuMemory = std::max ( peakProcessGpuMemory, other.processGpuMemory );
+		++merged.sampleCount;
+		return merged;
+	}
+
+	MemoryOverallStatistics& operator+= ( const MemorySnapshot& other ) {
+		*this = *this + other;
+		return *this;
+	}
+
+	MemorySnapshot snapshot () const { return m_snapshot; }
+	double peakProcessMemoryGb () const { return kbToGb ( peakProcessMemory ); }
+	double peakProcessGpuMemoryGb () const { return kbToGb ( peakProcessGpuMemory ); }
+};
+
 // 跨线程传递
 Q_DECLARE_METATYPE ( PerformanceSnapshot )
+Q_DECLARE_METATYPE ( MemorySnapshot )
+Q_DECLARE_METATYPE ( MemoryOverallStatistics )

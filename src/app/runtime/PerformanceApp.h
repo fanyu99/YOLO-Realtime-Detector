@@ -7,15 +7,15 @@
 #include "PerformanceTypes.h"
 #include "AppError.h"
 #include "Logger.h"
+#include "PluginManager.h"
+#include "MemoryMonitorPluginInterface.h"
 using MonitorPtr = std::unique_ptr<IPerformanceMonitor>;
-
-
 // 性能app，管理性能监控器的生命周期，快照属性由QML绑定
 // 错误使用banner进行提醒
 class PerformanceApp : public QObject {
 	Q_OBJECT
 		QML_ELEMENT
-		QML_UNCREATABLE("不能够被QML创建实例，属于C++后端单例")
+		QML_UNCREATABLE ( "不能够被QML创建实例，属于C++后端单例" )
 		Q_PROPERTY ( PerformanceConfig config READ config WRITE setConfig NOTIFY configChanged )
 
 		// QML绑定属性
@@ -36,20 +36,25 @@ class PerformanceApp : public QObject {
 		Q_PROPERTY ( QString bannerText READ bannerText NOTIFY bannerChanged )
 		Q_PROPERTY ( BannerLevel bannerLevel READ bannerLevel NOTIFY bannerChanged )
 
+		// 内存快照
+		Q_PROPERTY ( MemorySnapshot memorySnapshot READ memorySnapshot NOTIFY memorySnapshotReady )	// 最近一次内存采样
+		Q_PROPERTY ( MemoryOverallStatistics overallMemorySnapshot READ overallMemorySnapshot NOTIFY overallSnapshotChanged )	// 本次运行累计的内存汇总
+		Q_PROPERTY ( bool memoryMonitorAvailable READ memoryMonitorAvailable CONSTANT )	// 内存监控插件是否加载
+
 public:
 	using PerfAppPtr = std::unique_ptr<PerformanceApp>;
 	// 横幅级别
 	enum BannerLevel {
 		BannerNone = 0,
-		BannerSuccess , 
+		BannerSuccess,
 		BannerWarning,
 		BannerError
 	};
 	Q_ENUM ( BannerLevel )
-	static PerformanceApp* initialize ( const PerformanceConfig& config );// 初始化，需要在instance获取之前，不然会使用默认配置忽略后续的配置
-		static PerformanceApp* instance ();
+		static PerformanceApp* initialize ( const PerformanceConfig& config );// 初始化，需要在instance获取之前，不然会使用默认配置忽略后续的配置
+	static PerformanceApp* instance ();
 	PerformanceApp ( const PerformanceApp& other ) = delete;
-	PerformanceApp& operator = (const PerformanceApp & other) = delete;
+	PerformanceApp& operator = ( const PerformanceApp& other ) = delete;
 	~PerformanceApp () override = default;
 
 	Q_INVOKABLE PerformanceConfig config () const;
@@ -100,6 +105,11 @@ public:
 	QString bannerText () const { return m_bannerText; }
 	BannerLevel bannerLevel () const { return m_bannerLevel; }
 
+	// 内存快照getter
+	MemorySnapshot memorySnapshot () const { return m_memorySnapshot; }
+	MemoryOverallStatistics overallMemorySnapshot () const { return m_overallMemorySnapshot; }
+	bool memoryMonitorAvailable () const { return m_memoryMonitor != nullptr; }
+
 signals:
 	void configChanged ();
 	void statsChanged ();	// 属性刷新
@@ -107,6 +117,7 @@ signals:
 	void contextChanged ();	// 运行上下文刷新(jobId / 模式)
 	void bannerChanged ();	// 横幅刷新
 	void errorOccurred ( const AppError& error );	// 性能监控错误进行提醒
+	void memorySnapshotReady ( const MemorySnapshot& snapshot );	// 内存监控快照
 
 public slots:
 	// 接收监测器快照，通知 QML
@@ -117,12 +128,18 @@ public slots:
 	void onRunningChanged ();
 
 private:
-	static PerfAppPtr m_instance;
+	inline static PerfAppPtr m_instance;
 	explicit PerformanceApp ( const PerformanceConfig& config, QObject* parent = nullptr );
 	void showBanner ( QStringView text, BannerLevel level );	// 统一的横幅出口
 
 	MonitorPtr m_monitor{ nullptr };	// 性能监控器
 	PerformanceConfig m_config;	// 性能监控配置
+
+	// 借用插件指针
+	MemoryMonitorPluginInterface* m_memoryMonitor = nullptr;
+	MemorySnapshot m_memorySnapshot;	// 最近一次内存采样
+	MemoryOverallStatistics m_overallMemorySnapshot;	// 本次运行累计的内存汇总
+	bool m_memoryErrorReported = false;	// 快照生成失败提示一次
 
 	// 快照数据
 	PerformanceSnapshot m_snapshot;			// 最近一个统计窗口的快照

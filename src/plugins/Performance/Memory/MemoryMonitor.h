@@ -1,5 +1,7 @@
 #pragma once
 #include <QtGlobal>
+// 抽象接口
+// 所有内存/显存返回值单位统一为 KB
 class MemoryMonitor {
 public:
 	virtual ~MemoryMonitor () = default;

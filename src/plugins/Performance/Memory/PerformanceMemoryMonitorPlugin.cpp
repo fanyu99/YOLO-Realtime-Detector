@@ -14,25 +14,21 @@ PerformanceMemoryMonitorPlugin::PerformanceMemoryMonitorPlugin ()
 {
 }
 
-QString PerformanceMemoryMonitorPlugin::pluginId () const {
-	return "MemoryMonitor";
-}
-quint64 PerformanceMemoryMonitorPlugin::getTotalMemory ()const {
-	return m_monitor->getTotalMemory ();
-}
-quint64 PerformanceMemoryMonitorPlugin::getTotalGpuMomery ()const {
-	return m_monitor->getTotalGpuMemory ();
+std::optional<MemorySnapshot> PerformanceMemoryMonitorPlugin::getMemorySnapshot ()const {
+	MemorySnapshot snapshot;
+	if (m_monitor)
+	{
+		snapshot.totalMemory = m_monitor->getTotalMemory ();
+		snapshot.availableMemory = m_monitor->getAvailableMemory ();
+		snapshot.processMemory = m_monitor->getProcessMemory ();
+		snapshot.totalGpuMemory = m_monitor->getTotalGpuMemory ();
+		snapshot.availableGpuMemory = m_monitor->getAvailableGpuMemory ();
+		snapshot.processGpuMemory = m_monitor->getProcessGpuMemory ();
+		return std::make_optional<MemorySnapshot> (snapshot);
+	}
+	return std::nullopt;
 }
 
-quint64 PerformanceMemoryMonitorPlugin::getAvailableMemory ()const {
-	return m_monitor->getAvailableMemory ();
-}
-quint64 PerformanceMemoryMonitorPlugin::getAvailableGpuMomery ()const {
-	return m_monitor->getAvailableGpuMemory ();
-}
-quint64 PerformanceMemoryMonitorPlugin::getProcessMemory ()const {
-	return m_monitor->getProcessMemory ();
-}
-quint64 PerformanceMemoryMonitorPlugin::getProcessGpuMemory ()const {
-	return m_monitor->getProcessGpuMemory ();
+QString PerformanceMemoryMonitorPlugin::pluginId () const {
+	return QString::fromLatin1 ( kPerformanceMemoryMonitorPluginId );
 }

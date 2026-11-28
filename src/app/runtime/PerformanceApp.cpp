@@ -2,8 +2,8 @@
 #include "AppConfigWriter.h"
 #include "PerformanceMonitor.h"
 #include "NullPerformanceMonitor.h"
+#include "MemoryMonitorPluginInterface.h"
 
-PerformanceApp::PerfAppPtr PerformanceApp::m_instance;
 
 PerformanceApp* PerformanceApp::initialize ( const PerformanceConfig& config ) {
 	if (!m_instance)
@@ -14,13 +14,13 @@ PerformanceApp* PerformanceApp::initialize ( const PerformanceConfig& config ) {
 	else {
 		m_instance->showBanner ( QStringLiteral ( "[PerformanceApp]: 重复初始化，已忽略配置！" ), BannerLevel::BannerWarning );
 	}
-	return m_instance.get();
+	return m_instance.get ();
 }
 
 PerformanceApp* PerformanceApp::instance () {
 	if (!m_instance)
 		Logger::instance ()->fatal ( QStringLiteral ( "[PerformanceApp]: 未初始化，必须先调用 initialize()!" ) );
-	return m_instance.get();
+	return m_instance.get ();
 }
 
 
@@ -36,6 +36,9 @@ PerformanceApp::PerformanceApp ( const PerformanceConfig& config, QObject* paren
 	// 如果不是OFF，创建真实的检测器
 	auto* concrete = new PerformanceMonitor ( this );
 	m_monitor.reset ( concrete );
+	// 借用内存监控插件（如果未加载，nullptr）
+	m_memoryMonitor = PluginManager::instance ()->getMemoryMonitorPlugin (
+		QString::fromLatin1 ( kPerformanceMemoryMonitorPluginId ) );
 	connect ( concrete, &PerformanceMonitor::snapshotReady,
 		this, &PerformanceApp::onSnapshotReady );
 	connect ( this, &PerformanceApp::errorOccurred,
@@ -100,7 +103,7 @@ void PerformanceApp::setIsRunning ( bool running ) {
 	if (!running)
 	{
 		m_monitor->flushSnapshot ();
-		showBanner (QStringLiteral("汇总完成：") + QString::number(m_snapshotCount) + QStringLiteral("个快照，汇总展示中"),BannerSuccess);
+		showBanner ( QStringLiteral ( "汇总完成：" ) + QString::number ( m_snapshotCount ) + QStringLiteral ( "个快照，汇总展示中" ), BannerSuccess );
 	}
 
 	m_monitor->setIsRunning ( running );
@@ -114,6 +117,23 @@ void PerformanceApp::onSnapshotReady ( const PerformanceSnapshot& snapshot ) {
 	m_snapshot = snapshot;
 	m_overallSnapshot += snapshot;
 	++m_snapshotCount;
+
+	// 同步生成快照
+	const bool memoryEnabled = calcCollectSettings ( m_config.m_level ).enableMemoryRecord;
+	if (memoryEnabled && m_memoryMonitor) {
+		if (const auto memory = m_memoryMonitor->getMemorySnapshot ()) {
+			MemorySnapshot sample = *memory;
+			sample.weightMs = snapshot.m_context.windowDurationMs > 0.0
+				? snapshot.m_context.windowDurationMs : 1.0;
+			m_memorySnapshot = sample;
+			m_overallMemorySnapshot += sample;
+			emit memorySnapshotReady ( m_memorySnapshot );
+		}
+		else if (!m_memoryErrorReported) {
+			m_memoryErrorReported = true;
+			emit errorOccurred ( AppError ( QStringLiteral ( "[PerformanceApp]: 内存监控插件获取内存快照失败" ), AppErrorCode::PluginError ) );
+		}
+	}
 	emit statsChanged ();
 }
 
@@ -135,8 +155,11 @@ void PerformanceApp::onRunningChanged () {
 	if (m_isRunning) {
 		m_snapshot = {};
 		m_overallSnapshot = {};
+		m_memorySnapshot = {};
+		m_overallMemorySnapshot = {};
 		m_snapshotCount = 0;
 		emit statsChanged ();
+		emit memorySnapshotReady (m_memorySnapshot);
 	}
 	emit overallSnapshotChanged ();
 }

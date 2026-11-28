@@ -9,13 +9,8 @@ class PerformanceMemoryMonitorPlugin final : public QObject, public MemoryMonito
 public:
 	PerformanceMemoryMonitorPlugin ();
 	~PerformanceMemoryMonitorPlugin () override = default;
+	std::optional<MemorySnapshot> getMemorySnapshot ()const override;
 	QString pluginId () const override;
-	quint64 getTotalMemory ()const override;
-	quint64 getTotalGpuMomery ()const override;
-	quint64 getAvailableMemory ()const override;
-	quint64 getAvailableGpuMomery ()const override;
-	quint64 getProcessMemory ()const override;
-	quint64 getProcessGpuMemory ()const override;
 private:
 	std::unique_ptr<MemoryMonitor> m_monitor;
 };

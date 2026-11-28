@@ -8,7 +8,7 @@
 
 namespace {
 
-constexpr quint64 kKbToBytes = 1024;
+constexpr quint64 kBytesPerKb = 1024;
 constexpr int kNvmlSuccess = 0;
 constexpr unsigned long long kNvmlValueNotAvailable = ~0ull;
 
@@ -103,23 +103,23 @@ NvmlApi& nvmlApi ()
 
 quint64 LinuxMemoryMonitor::getTotalMemory () const
 {
-    return readMeminfoKb ( "MemTotal" ) * kKbToBytes;
+    return readMeminfoKb ( "MemTotal" );
 }
 
 quint64 LinuxMemoryMonitor::getAvailableMemory () const
 {
     const quint64 available = readMeminfoKb ( "MemAvailable" );
     if (available > 0)
-        return available * kKbToBytes;
+        return available;
 
-    return (readMeminfoKb ( "MemFree" )
+    return readMeminfoKb ( "MemFree" )
         + readMeminfoKb ( "Buffers" )
-        + readMeminfoKb ( "Cached" )) * kKbToBytes;
+        + readMeminfoKb ( "Cached" );
 }
 
 quint64 LinuxMemoryMonitor::getProcessMemory () const
 {
-    return readProcKb ( QStringLiteral ( "/proc/self/status" ), "VmRSS" ) * kKbToBytes;
+    return readProcKb ( QStringLiteral ( "/proc/self/status" ), "VmRSS" );
 }
 
 
@@ -162,7 +162,7 @@ quint64 LinuxMemoryMonitor::getTotalGpuMemory () const
     NvmlMemory memory{};
     if (nvmlApi ().getMemoryInfo ( m_device, &memory ) != kNvmlSuccess)
         return 0;
-    return memory.total;
+    return memory.total / kBytesPerKb;
 }
 
 quint64 LinuxMemoryMonitor::getAvailableGpuMemory () const
@@ -173,7 +173,7 @@ quint64 LinuxMemoryMonitor::getAvailableGpuMemory () const
     NvmlMemory memory{};
     if (nvmlApi ().getMemoryInfo ( m_device, &memory ) != kNvmlSuccess)
         return 0;
-    return memory.free;
+    return memory.free / kBytesPerKb;
 }
 
 quint64 LinuxMemoryMonitor::getProcessGpuMemory () const
@@ -201,5 +201,5 @@ quint64 LinuxMemoryMonitor::getProcessGpuMemory () const
         if (processes[ i ].usedGpuMemory != kNvmlValueNotAvailable)
             used += processes[ i ].usedGpuMemory;
     }
-    return used;
+    return used / kBytesPerKb;
 }

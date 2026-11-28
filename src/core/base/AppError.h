@@ -18,6 +18,7 @@ public:
 		ConfigWriteFailed , // 配置写入失败	
 		DetectionFailed,	// 检测失败
 		PerformanceMonitorError, // 性能监测器错误
+		PluginError , // 插件异常
 		UnknownError
 	};
 	Q_ENUM( Code )

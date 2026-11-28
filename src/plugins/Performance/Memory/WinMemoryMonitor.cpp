@@ -13,6 +13,13 @@
 
 namespace {
 
+    constexpr quint64 kBytesPerKb = 1024;
+
+    quint64 bytesToKb ( quint64 bytes )
+    {
+        return bytes / kBytesPerKb;
+    }
+
     DXGI_QUERY_VIDEO_MEMORY_INFO querySegment ( IDXGIAdapter3* adapter,
         DXGI_MEMORY_SEGMENT_GROUP group )
     {
@@ -32,7 +39,7 @@ quint64 WinMemoryMonitor::getTotalMemory () const
     st.dwLength = sizeof ( st );
     if (!GlobalMemoryStatusEx ( &st ))
         return 0;
-    return st.ullTotalPhys;
+    return bytesToKb ( st.ullTotalPhys );
 }
 
 quint64 WinMemoryMonitor::getAvailableMemory () const
@@ -41,7 +48,7 @@ quint64 WinMemoryMonitor::getAvailableMemory () const
     st.dwLength = sizeof ( st );
     if (!GlobalMemoryStatusEx ( &st ))
         return 0;
-    return st.ullAvailPhys;
+    return bytesToKb ( st.ullAvailPhys );
 }
 
 
@@ -53,7 +60,7 @@ quint64 WinMemoryMonitor::getProcessMemory () const
         reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pmc),
         sizeof ( pmc ) ))
         return 0;
-    return static_cast<quint64>(pmc.WorkingSetSize);
+    return bytesToKb ( static_cast<quint64>(pmc.WorkingSetSize) );
 }
 
 
@@ -68,6 +75,7 @@ bool WinMemoryMonitor::ensureGpu () const
         Microsoft::WRL::ComPtr<IDXGIAdapter1> best;
         SIZE_T bestVram = 0;
 
+        // 取显存最大的非软件适配器；多 GPU 时不一定等同于推理实际使用的设备
         for (UINT i = 0; ; ++i) {
             Microsoft::WRL::ComPtr<IDXGIAdapter1> cur;
             if (factory->EnumAdapters1 ( i, &cur ) == DXGI_ERROR_NOT_FOUND)
@@ -103,8 +111,8 @@ quint64 WinMemoryMonitor::getTotalGpuMemory () const
     if (FAILED ( m_adapter->GetDesc1 ( &desc ) ))
         return 0;
 
-    return desc.DedicatedVideoMemory > 0 ? desc.DedicatedVideoMemory
-        : desc.SharedSystemMemory;
+    return bytesToKb ( desc.DedicatedVideoMemory > 0 ? desc.DedicatedVideoMemory
+        : desc.SharedSystemMemory );
 }
 
 quint64 WinMemoryMonitor::getAvailableGpuMemory () const
@@ -112,8 +120,9 @@ quint64 WinMemoryMonitor::getAvailableGpuMemory () const
     if (!ensureGpu ())
         return 0;
 
+    // Budget - CurrentUsage 是本进程的显存预算余量，不是整卡空闲显存
     const auto info = querySegment ( m_adapter.Get (), DXGI_MEMORY_SEGMENT_GROUP_LOCAL );
-    return info.Budget > info.CurrentUsage ? info.Budget - info.CurrentUsage : 0;
+    return info.Budget > info.CurrentUsage ? bytesToKb ( info.Budget - info.CurrentUsage ) : 0;
 }
 
 quint64 WinMemoryMonitor::getProcessGpuMemory () const
@@ -123,5 +132,5 @@ quint64 WinMemoryMonitor::getProcessGpuMemory () const
 
     const auto local = querySegment ( m_adapter.Get (), DXGI_MEMORY_SEGMENT_GROUP_LOCAL );
     const auto nonLocal = querySegment ( m_adapter.Get (), DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL );
-    return local.CurrentUsage + nonLocal.CurrentUsage;
+    return bytesToKb ( local.CurrentUsage + nonLocal.CurrentUsage );
 }
