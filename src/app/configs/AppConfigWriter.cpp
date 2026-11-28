@@ -14,6 +14,7 @@ namespace {
 const QString kDetectorSection = QStringLiteral ( "detector" );
 const QString kPerformanceSection = QStringLiteral ( "performance" );
 const QString kDisplaySection = QStringLiteral ( "display" );
+const QString kPluginsSection = QStringLiteral ( "plugins" );
 
 // 枚举 -> 文本，与 loader 的字符串解析互逆
 QString flowModeToText ( FlowMode mode ) {
@@ -103,6 +104,23 @@ QJsonObject displayToJson ( const DisplayPolicy& policy ) {
 	return obj;
 }
 
+// 与 loadPluginConfigs 对称：每项 {type, pluginId, enabled, exists}
+QJsonObject pluginToJson ( const PluginConfig& cfg ) {
+	QJsonObject obj;
+	writeString ( obj, QStringLiteral ( "type" ), pluginTypeToString ( cfg.type ) );
+	writeString ( obj, QStringLiteral ( "pluginId" ), cfg.pluginId );
+	obj.insert ( QStringLiteral ( "enabled" ), cfg.enabled );
+	obj.insert ( QStringLiteral ( "exists" ), cfg.exists );
+	return obj;
+}
+
+QJsonArray pluginsToJson ( const QVector<PluginConfig>& plugins ) {
+	QJsonArray array;
+	for (const PluginConfig& cfg : plugins)
+		array.append ( pluginToJson ( cfg ) );
+	return array;
+}
+
 // 只做数值/结构合法性检查：语义校验(模型是否存在、类别是否为空)由 App 侧负责
 bool validateDetectorConfig ( const DetectorConfig& cfg, QString& error ) {
 	if (cfg.model_path.empty ()) {
@@ -153,6 +171,28 @@ bool validateDisplayConfig ( const DisplayPolicy& policy, QString& error ) {
 		error = QStringLiteral ( "display.view_mode: 不是合法的预览模式，当前 %1" )
 			.arg ( static_cast<int>( mode ) );
 		return false;
+	}
+	return true;
+}
+
+bool validatePluginConfigs ( const QVector<PluginConfig>& plugins, QString& error ) {
+	for (int i = 0; i < plugins.size (); ++i) {
+		const PluginConfig& cfg = plugins.at ( i );
+		if (cfg.type != PluginType::FrameSource && cfg.type != PluginType::MemoryMonitor) {
+			error = QStringLiteral ( "plugins[%1].type: 不是合法的插件类型" ).arg ( i );
+			return false;
+		}
+		if (cfg.pluginId.trimmed ().isEmpty ()) {
+			error = QStringLiteral ( "plugins[%1].pluginId: 不能为空" ).arg ( i );
+			return false;
+		}
+		for (int j = 0; j < i; ++j) {
+			if (plugins.at ( j ).type == cfg.type && plugins.at ( j ).pluginId == cfg.pluginId) {
+				error = QStringLiteral ( "plugins[%1].pluginId: 与前面的项重复 -> %2" )
+					.arg ( i ).arg ( cfg.pluginId );
+				return false;
+			}
+		}
 	}
 	return true;
 }
@@ -214,7 +254,7 @@ bool writeJsonFileWithRetry ( const QString& filePath, const QJsonObject& root, 
 // 写入流程的公共尾部：读回旧文档 -> 覆盖指定节 -> 原子落盘。
 // 只替换自己的节，文件里的其它节与未知键原样保留。
 bool commitSections ( const QString& filePath,
-	const QVector<QPair<QString, QJsonObject>>& sections, QString& error ) {
+	const QVector<QPair<QString, QJsonValue>>& sections, QString& error ) {
 	QJsonObject root = readExistingRoot ( filePath );
 	for (const auto& section : sections)
 		root.insert ( section.first, section.second );
@@ -269,14 +309,16 @@ bool AppConfigWriter::writeAppConfig ( const AppConfig& config ) {
 	QString error;
 	if (!validateDetectorConfig ( config.detectorConfig, error )
 		|| !validatePerformanceConfig ( config.performanceConfig, error )
-		|| !validateDisplayConfig ( config.displayPolicy, error ))
+		|| !validateDisplayConfig ( config.displayPolicy, error )
+		|| !validatePluginConfigs ( config.pluginConfigs, error ))
 		return fail ( error );
 
 	const QDir baseDir = QFileInfo ( filePath ).absoluteDir ();
-	const QVector<QPair<QString, QJsonObject>> sections{
+	const QVector<QPair<QString, QJsonValue>> sections{
 		{ kDetectorSection, detectorToJson ( config.detectorConfig, baseDir ) },
 		{ kPerformanceSection, performanceToJson ( config.performanceConfig ) },
-		{ kDisplaySection, displayToJson ( config.displayPolicy ) } };
+		{ kDisplaySection, displayToJson ( config.displayPolicy ) },
+		{ kPluginsSection, pluginsToJson ( config.pluginConfigs ) } };
 
 	if (!commitSections ( filePath, sections, error ))
 		return fail ( error );
@@ -298,7 +340,7 @@ bool AppConfigWriter::writeDetectorConfig ( const DetectorConfig& config ) {
 		return fail ( error );
 
 	const QDir baseDir = QFileInfo ( filePath ).absoluteDir ();
-	const QVector<QPair<QString, QJsonObject>> sections{
+	const QVector<QPair<QString, QJsonValue>> sections{
 		{ kDetectorSection, detectorToJson ( config, baseDir ) } };
 
 	if (!commitSections ( filePath, sections, error ))
@@ -320,7 +362,7 @@ bool AppConfigWriter::writePerformanceConfig ( const PerformanceConfig& config )
 	if (!validatePerformanceConfig ( config, error ))
 		return fail ( error );
 
-	const QVector<QPair<QString, QJsonObject>> sections{
+	const QVector<QPair<QString, QJsonValue>> sections{
 		{ kPerformanceSection, performanceToJson ( config ) } };
 
 	if (!commitSections ( filePath, sections, error ))
@@ -342,12 +384,34 @@ bool AppConfigWriter::writeDisplayConfig ( const DisplayPolicy& policy ) {
 	if (!validateDisplayConfig ( policy, error ))
 		return fail ( error );
 
-	const QVector<QPair<QString, QJsonObject>> sections{
+	const QVector<QPair<QString, QJsonValue>> sections{
 		{ kDisplaySection, displayToJson ( policy ) } };
 
 	if (!commitSections ( filePath, sections, error ))
 		return fail ( error );
 
 	Logger::instance ()->success ( QStringLiteral ( "[AppConfigWriter]: 显示配置已写入 -> " ) + filePath );
+	return true;
+}
+
+bool AppConfigWriter::writePluginConfigs ( const QVector<PluginConfig>& plugins ) {
+	std::lock_guard<std::mutex> lock ( m_mutex );
+	m_errorMessage.clear ();
+
+	const QString filePath = configFilePath.toLocalFile ();
+	if (filePath.isEmpty ())
+		return fail ( QStringLiteral ( "配置文件路径为空(未 initialize 或路径不是本地文件)" ) );
+
+	QString error;
+	if (!validatePluginConfigs ( plugins, error ))
+		return fail ( error );
+
+	const QVector<QPair<QString, QJsonValue>> sections{
+		{ kPluginsSection, pluginsToJson ( plugins ) } };
+
+	if (!commitSections ( filePath, sections, error ))
+		return fail ( error );
+
+	Logger::instance ()->success ( QStringLiteral ( "[AppConfigWriter]: 插件配置已写入 -> " ) + filePath );
 	return true;
 }

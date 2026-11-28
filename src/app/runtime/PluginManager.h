@@ -1,30 +1,20 @@
 #pragma once
 #include <QString>
 #include <QStringList>
+#include <QStringView>
+#include <QVector>
 #include "FrameSource.h"
 #include "FrameSourcePluginInterface.h"
 #include "MemoryMonitorPluginInterface.h"
-#include <QHash>
+#include "PluginConfig.h"
+#include <QVariant>
 #include <QVariantHash>
 #include <QPluginLoader>
 #include <memory>
 #include <vector>
-// 插件类型
-enum class PluginType {
-	FrameSource,	   // 帧源插件
-	MemoryMonitor,   // 内存监控插件
-Count // 数量
-};
-inline QString pluginTypeToString ( PluginType type ) {
-	switch (type) {
-	case PluginType::FrameSource: return QStringLiteral ( "FrameSource" );
-	case PluginType::MemoryMonitor: return QStringLiteral ( "MemoryMonitor" );
-	default: return QStringLiteral ( "Unknown" );
-	}
-}
 using LoaderPtr = std::unique_ptr<QPluginLoader>;
 // 插件管理器
-// 当前仅帧源插件，后续进行拓展其他类型插件
+// 按 app.json 的 plugins 配置选择加载
 class PluginManager {
 public:
 using PluginManagerPtr = std::unique_ptr<PluginManager>;
@@ -32,45 +22,35 @@ using PluginManagerPtr = std::unique_ptr<PluginManager>;
 	PluginManager& operator= ( const PluginManager& ) = delete;
 	~PluginManager ();
 	// 初始化插件并返回单例，必须先调用 initialize() 初始化插件路径后才能调用 instance()
-	static PluginManager* initialize ( const QStringList& pluginPaths );
+	static PluginManager* initialize ( const QStringList& pluginPaths,
+		const QVector<PluginConfig>& pluginConfigs );
 	static PluginManager* instance ();
 
-	// 指定插件是否存在
-	bool pluginExists ( const QString& pluginId ) const {
-		return framesourcePlugins.contains ( pluginId );
-	}
-	// 指定内存监控插件是否存在
-	bool memoryMonitorPluginExists ( const QString& pluginId ) const {
-		return memoryMonitorPlugins.contains ( pluginId );
-	}
-	// 获取插件ID列表
-	QStringList enumeratePluginIds () const {
-		return framesourcePlugins.keys () + memoryMonitorPlugins.keys ();
-	}
+	// 指定类型和pluginId的插件是否已加载
+	bool pluginExists ( PluginType type, QStringView pluginId ) const;
+	bool pluginExists ( QStringView pluginId ) const;
 
-	// 返回帧源插件，不存在返回nullptr
-	FrameSourcePluginInterface* getFrameSourcePlugin (QStringView pluginId ) const {
-		return framesourcePlugins.value ( pluginId, nullptr );
-	}
-	// 返回内存监控插件，不存在返回nullptr
-	MemoryMonitorPluginInterface* getMemoryMonitorPlugin ( QStringView pluginId ) const {
-		return memoryMonitorPlugins.value ( pluginId, nullptr );
-	}
+	// 已加载插件ID列表
+	QStringList enumeratePluginIds () const;
+	QStringList enumeratePluginIds ( PluginType type ) const;
 
+	// 按类型取插件 不存在返回nullptr
+	FrameSourcePluginInterface* getFrameSourcePlugin ( QStringView pluginId ) const;
+	MemoryMonitorPluginInterface* getMemoryMonitorPlugin ( QStringView pluginId ) const;
+
+	// 通过类型和pluginId查找插件（借用指针）
+	// 返回QVariant,内部存放插件的 QObject* ，需要自行转换为插件指针
+	// QVariant.isNull()表示插件不存在
+	QVariant getPlugin ( PluginType type, QStringView pluginId ) const;
+	QVariant getPlugin ( QStringView pluginId ) const;
 private:
-	explicit PluginManager (const QStringList& pluginPaths);
-	// TODO: 等接入app.json配置后再将帧源插件和内存监控插件接入到插件表
+	explicit PluginManager ( const QStringList& pluginPaths,
+		const QVector<PluginConfig>& pluginConfigs );
 	// 插件表,按照PluginType下标访问
-	// PluginType对应的插件表是QHash<pluginId, pluginInterface*>
-	QVector<QVariantHash>pluginsMap;
-
-	// 1. 帧源插件：
-	std::vector<LoaderPtr> pluginLoaders; // 帧源插件加载器(unique_ptr，使用std::vector，不使用QVector)
-	QHash<QString, FrameSourcePluginInterface*> framesourcePlugins; // pluginId : 插件
-	// 2. 内存监控插件
-	QHash<QString, MemoryMonitorPluginInterface*> memoryMonitorPlugins; // pluginId : 插件
-
-
+	// PluginType对应的插件表是 QHash<pluginId,  QObject*>
+	QVector<QVariantHash> pluginsMap;
+	// 插件加载器(unique_ptr，使用std::vector，不使用QVector)
+	std::vector<LoaderPtr> pluginLoaders;
 
 	inline static PluginManagerPtr m_instance{nullptr}; // 单例
 };

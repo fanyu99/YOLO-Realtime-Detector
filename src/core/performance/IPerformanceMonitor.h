@@ -4,7 +4,7 @@
 #include "PerformanceTypes.h"
 
 // 性能监控接口
-// isEnabled / recordStage / recordFrameResult / isStageEnabled	随便调用
+// loadEnabled / recordStage / recordFrameResult / isStageEnabled	随便调用
 // 配置更新、flushSnapshot、snapshotReady信号 仅在监测器所属线程调用
 class IPerformanceMonitor {
 public:

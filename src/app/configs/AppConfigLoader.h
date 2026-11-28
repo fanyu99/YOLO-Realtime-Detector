@@ -11,6 +11,7 @@
 #include <QJsonArray>
 #include <QJsonValue>
 #include "AppConfig.h"
+#include "PluginConfig.h"
 
 /*
 格式：
@@ -34,7 +35,10 @@
 	"performance": {
 		"monitor_level": "detailed",
 		"report_interval_ms": 500
-	}
+	},
+	"plugins": [
+		{ "type": "FrameSource", "pluginId": "Hik", "enabled": true, "exists": true }
+	]
 }
 */
 
@@ -82,11 +86,14 @@ public:
 		else if (!displayValue.isUndefined() && !displayValue.isNull())
 			warn("app", "display", QStringLiteral("应为对象，该节已按默认值处理"), warnings);
 
+		const QVector<PluginConfig> pluginConfigs = loadPluginConfigs(root.value("plugins"), warnings);
+
 		for (const QString& key : root.keys()) {
-			if (key != "detector" && key != "performance" && key != "display")
+			if (key != "detector" && key != "performance" && key != "display" && key != "plugins")
 				warn("app", key, QStringLiteral("未知键，已忽略"), warnings);
 		}
 		auto* cfg = new AppConfig(detectorConfig, performanceConfig, displayPolicy, parent);
+		cfg->pluginConfigs = pluginConfigs;
 		cfg->warnings = warnings;
 		return cfg;
 	}
@@ -164,6 +171,18 @@ private:
 			return std::nullopt;
 		}
 		return v.toArray();
+	}
+
+	static std::optional<bool> readBool(const QJsonObject& obj, const QString& key,
+		const QString& section, QStringList& warnings) {
+		const QJsonValue v = obj.value(key);
+		if (v.isUndefined() || v.isNull())
+			return std::nullopt;
+		if (!v.isBool()) {
+			warn(section, key, QStringLiteral("应为布尔值，已回退默认值"), warnings);
+			return std::nullopt;
+		}
+		return v.toBool();
 	}
 	// 检测器配置
 	static DetectorConfig loadDetectorConfig(const QJsonObject& obj, const QDir& baseDir,
@@ -298,5 +317,67 @@ private:
 
 		checkUnknownKeys(obj, section, { "view_mode" }, warnings);
 		return policy;
+	}
+
+	// 插件配置：每一项是 {type, pluginId, enabled, exists}
+	static QVector<PluginConfig> loadPluginConfigs(const QJsonValue& value, QStringList& warnings) {
+		const QString section = QStringLiteral("plugins");
+		QVector<PluginConfig> configs;
+		if (value.isUndefined() || value.isNull())
+			return configs;
+		if (!value.isArray()) {
+			warn("app", "plugins", QStringLiteral("应为数组，已按空列表处理"), warnings);
+			return configs;
+		}
+
+		const QJsonArray array = value.toArray();
+		for (int i = 0; i < array.size(); ++i) {
+			const QString itemSection = QStringLiteral("plugins[%1]").arg(i);
+			if (!array.at(i).isObject()) {
+				warn(section, QStringLiteral("[%1]").arg(i), QStringLiteral("应为对象，已跳过该项"), warnings);
+				continue;
+			}
+			const QJsonObject obj = array.at(i).toObject();
+
+			std::optional<PluginType> type;
+			if (auto text = readString(obj, "type", itemSection, warnings))
+				type = pluginTypeFromString(*text);
+			if (!type) {
+				warn(itemSection, "type", QStringLiteral("应为 FrameSource 或 MemoryMonitor，已跳过该项"), warnings);
+				continue;
+			}
+
+			const auto id = readString(obj, "pluginId", itemSection, warnings);
+			const QString pluginId = id ? id->trimmed() : QString();
+			if (pluginId.isEmpty()) {
+				warn(itemSection, "pluginId", QStringLiteral("不能为空，已跳过该项"), warnings);
+				continue;
+			}
+
+			bool duplicate = false;
+			for (const PluginConfig& existing : configs) {
+				if (existing.type == *type && existing.pluginId == pluginId) {
+					duplicate = true;
+					break;
+				}
+			}
+			if (duplicate) {
+				warn(itemSection, "pluginId",
+					QStringLiteral("重复的(type, pluginId) -> %1，已跳过该项").arg(pluginId), warnings);
+				continue;
+			}
+
+			PluginConfig cfg;
+			cfg.type = *type;
+			cfg.pluginId = pluginId;
+			if (auto enabled = readBool(obj, "enabled", itemSection, warnings))
+				cfg.enabled = *enabled;
+			if (auto exists = readBool(obj, "exists", itemSection, warnings))
+				cfg.exists = *exists;
+
+			checkUnknownKeys(obj, itemSection, { "type", "pluginId", "enabled", "exists" }, warnings);
+			configs.append(cfg);
+		}
+		return configs;
 	}
 };

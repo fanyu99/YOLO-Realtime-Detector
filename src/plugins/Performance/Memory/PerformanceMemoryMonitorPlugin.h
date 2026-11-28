@@ -5,7 +5,7 @@
 class PerformanceMemoryMonitorPlugin final : public QObject, public MemoryMonitorPluginInterface {
 	Q_OBJECT
 		Q_PLUGIN_METADATA ( IID MemoryMonitorPluginInterface_IID )
-		Q_INTERFACES ( MemoryMonitorPluginInterface )
+		Q_INTERFACES ( PluginInterface MemoryMonitorPluginInterface )
 public:
 	PerformanceMemoryMonitorPlugin ();
 	~PerformanceMemoryMonitorPlugin () override = default;

@@ -34,7 +34,7 @@ qt_add_library(DetectionRuntime STATIC
     components/DetectionResultSaver.cpp
     # configs/
     configs/AppConfig.h
-    configs/AppConfigLoader.h    
+    configs/AppConfigLoader.h
     configs/AppConfigWriter.h
     configs/AppConfigWriter.cpp
     # 性能监控

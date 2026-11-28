@@ -97,7 +97,16 @@ int main ( int argc, char* argv[] )
 
 	Logger::instance ();	  // 创建日志实例
 
-	// 扫描插件路径并加载插件到PluginManager
+	// 加载应用配置：插件管理器需要按 plugins 配置选择加载
+	const QString exeConfigPath =
+		QCoreApplication::applicationDirPath () + QStringLiteral ( "/settings/app.json" );
+	const QString configPath = QFileInfo::exists ( exeConfigPath )
+		? exeConfigPath
+		: QStringLiteral ( "settings/app.json" );
+	AppConfigWriter::initialize ( configPath	);	// 初始化配置写入器
+	AppConfig* appConfig = AppConfigLoader::loadAppConfig ( configPath, &app );
+
+	// 扫描插件路径并按配置加载插件到PluginManager
 	QStringList pluginPaths;
 	QDirIterator pluginIt ( QCoreApplication::applicationDirPath () + QStringLiteral ( "/plugins" ),
 		QDir::Files, QDirIterator::Subdirectories );
@@ -106,16 +115,9 @@ int main ( int argc, char* argv[] )
 		if (QLibrary::isLibrary ( path ))
 			pluginPaths.append ( path );
 	}
-	PluginManager::initialize ( pluginPaths );
-
-	// 加载应用配置
-	const QString exeConfigPath =
-		QCoreApplication::applicationDirPath () + QStringLiteral ( "/settings/app.json" );
-	const QString configPath = QFileInfo::exists ( exeConfigPath )
-		? exeConfigPath
-		: QStringLiteral ( "settings/app.json" );
-	AppConfigWriter::initialize ( configPath	);	// 初始化配置写入器
-	AppConfig* appConfig = AppConfigLoader::loadAppConfig ( configPath, &app );
+	const QVector<PluginConfig> pluginConfigs =
+		appConfig ? appConfig->pluginConfigs : QVector<PluginConfig> ();
+	PluginManager::initialize ( pluginPaths, pluginConfigs );
 
 	std::unique_ptr<AppHelper> appHelper = std::make_unique<AppHelper> ();
 	// 依据系统主题应用调色板，并跟随系统主题变化实时切换

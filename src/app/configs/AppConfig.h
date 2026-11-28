@@ -5,6 +5,8 @@
 #include "DetectionTypes.h"
 #include "DisplayPolicy.h"
 #include "PerformanceTypes.h"
+#include "PluginConfig.h"
+#include <QVector>
 /*
 格式：
 {
@@ -27,7 +29,10 @@
     "performance": {
         "monitor_level": "detailed",
         "report_interval_ms": 500
-    }
+    },
+    "plugins": [
+        { "type": "FrameSource", "pluginId": "Hik", "enabled": true, "exists": true }
+    ]
 }
 
 */
@@ -70,6 +75,7 @@ public:
 	DetectorConfig detectorConfig{};
 	PerformanceConfig performanceConfig{};
 	DisplayPolicy displayPolicy{};	// 显示策略
+	QVector<PluginConfig> pluginConfigs;	// 插件配置列表
 	QStringList warnings;	// 警告信息
 signals:
 	void preferredViewModeChanged();

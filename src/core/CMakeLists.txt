@@ -39,6 +39,8 @@ set(YOLO_CORE_SOURCES
     base/DisplayPolicy.h
     base/DisplaySaveStatus.h
     base/PerformanceTypes.h
+    base/PluginConfig.h
+    base/PluginInterface.h
     base/TimeBases.h
 
     # inference/

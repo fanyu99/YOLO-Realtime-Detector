@@ -7,6 +7,7 @@
 #include "DetectionTypes.h"
 #include "DisplayPolicy.h"
 #include "PerformanceTypes.h"
+#include "PluginConfig.h"
 
 
 
@@ -33,7 +34,10 @@
 	"performance": {
 		"monitor_level": "detailed",
 		"report_interval_ms": 500
-	}
+	},
+	"plugins": [
+		{ "type": "FrameSource", "pluginId": "Hik", "enabled": true, "exists": true }
+	]
 }
 */
 
@@ -56,6 +60,8 @@ public:
 	bool writePerformanceConfig ( const PerformanceConfig& config );
 	// 只写入 display 节：其它节按文件中的原样保留
 	bool writeDisplayConfig ( const DisplayPolicy& policy );
+	// 只写入 plugins 节：其它节按文件中的原样保留
+	bool writePluginConfigs ( const QVector<PluginConfig>& plugins );
 	void setConfigFilePath ( const QUrl& path);
 	// 最近一次写入失败的原因(成功时为空)
 	QString errorMessage () const;

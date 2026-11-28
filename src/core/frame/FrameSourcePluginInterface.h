@@ -1,5 +1,6 @@
 #pragma once
 #include "FrameSource.h"
+#include "PluginInterface.h"
 #include <QObject>
 #include <QStringView>
 #include <QVector>
@@ -8,11 +9,9 @@
 using FrameSourcePluginCallback = std::function<FrameSourcePtr ( const FrameSourceDeviceInfo& )>;
 
 // 帧源插件接口
-class FrameSourcePluginInterface {
+class FrameSourcePluginInterface : public PluginInterface {
 public:
 	virtual ~FrameSourcePluginInterface () = default;
-	// 插件标识
-	virtual QString pluginId () const = 0;
 	// 枚举当前在线设备
 	virtual QVector<FrameSourceDeviceInfo> enumerateDevices () const = 0;
 	// 创建帧源
