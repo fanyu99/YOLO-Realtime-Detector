@@ -2,6 +2,14 @@
 
 本文档记录各模块的职责、线程模型与关键设计取舍。英文 README 的架构小节是这里的摘要版。
 
+## 项目架构图
+
+下图展示当前项目的模块划分与主要关系。点击图片可查看原始分辨率版本。
+
+[![YOLO 项目架构图](assets/project-architecture.png)](assets/project-architecture.png)
+
+项目使用 QML 作为界面层，由应用层管理任务、会话、配置和插件，再通过核心层完成取帧与 CPU/GPU 推理。README 中也展示了这张图：[中文](../README.zh-CN.md#项目架构) | [English](../README.md#architecture)。
+
 
 ---
 后续整体推理架构更改：
@@ -73,6 +81,7 @@ DetectionTask
 ---
 
 当前完成：
+- 完善了Pluginmanager相关的插件加载机制与存取机制，添加插件配置到app.json中，添加到配置体系中
 - 添加了性能监控中的windows端的内存监控器插件，还未接入到PerformanceApp、PluginLoader中，等待接入
 - 添加性能面板的总体平均数据总结显示，例如平均处理帧率、平均推理帧率、平均推理时长等
 - 总体统计与日志汇报：平均处理帧率、平均推理帧率、平均推理时长的汇总；

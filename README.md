@@ -30,6 +30,8 @@ The current build scripts target Windows x64 and include Windows library and DLL
 
 ## Current functionality
 
+- A shared Qt plugin system with `PluginInterface`, `PluginManager`, a Hikvision frame-source plugin, and a performance plugin with Windows/Linux memory monitors.
+- Persistent application configuration for detector, performance, display, and plugin settings, loaded at startup and editable through QML dialogs.
 - Single-image, video, camera, Hikvision camera, and mixed image/video batch detection. A Job groups user-visible progress; the worker executes its individual Tasks.
 - CPU and GPU detection flows. The CPU path uses BGR frames; the GPU path accepts decoded CUDA/NV12 frames and CPU BGR images uploaded by the session.
 - FFmpeg software decoding and a CUDA hardware-decoding path. Hikvision acquisition stays inside its own frame source, including device enumeration and trigger settings.
@@ -55,22 +57,11 @@ The current build scripts target Windows x64 and include Windows library and DLL
 
 ## Architecture
 
-The project has a QML interface, an application layer, and a core layer. QML submits user actions and displays properties. The application layer handles jobs, tasks, session lifetime, result delivery, and monitoring. The core layer provides frame sources, frame handles, factories, and detection flows without depending on QML.
+The project has a QML interface, an application layer, a core layer, and dynamically loaded plugins. QML submits user actions and displays results. The application layer handles jobs, tasks, sessions, configuration, plugin loading, and monitoring. The core layer provides frame sources, frame handles, factories, and detection flows without depending on QML.
 
-The diagram below renders directly in the GitHub README. The matching [HTML architecture document](docs/architecture.html) contains the manually laid out overview and a separate performance-monitoring diagram. Download the HTML file and open it in a browser to view that version; the repository file link opens the HTML source on GitHub. No GitHub Pages deployment is required for the diagram below.
+The diagram shows the current project structure. Click it to open the full-resolution image. See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for module responsibilities, threading, and design notes.
 
-```mermaid
-flowchart TB
-    UI["QML: main.qml and dialogs"] --> APP["DetectionApp"]
-    APP --> MAN["DetectionManager: Job state"]
-    MAN --> WORK["DetectionWorker: Task queue"]
-    WORK --> SESSION["DetectionSession: factories and Flow"]
-    SESSION --> SOURCE["FrameSource: image / FFmpeg / Hikvision"]
-    SESSION --> FLOW["DetectionFlow: CPU / GPU"]
-    SOURCE -->|FrameHandle| FLOW
-    FLOW --> RESULT["Renderer / ImageProvider / ResultSaver"]
-    RESULT -.->|QImage and progress| APP
-```
+[![YOLO project architecture](docs/assets/project-architecture.png)](docs/assets/project-architecture.png)
 
 ### Current execution model
 
@@ -98,7 +89,7 @@ GPU image: CPU BGR frame -> Session upload -> BGR CUDA kernel -> GpuDetector -> 
 Display/save: CPU image -> DetectionRenderer -> QImage / annotated output files
 ```
 
-GPU inference does not make the current display path GPU-only. Display and saving still use CPU drawing and QImage conversion. Direct GPU display with a Qt Overlay remains planned.
+GPU inference does not make every display path GPU-only. Realtime preview uses the Qt Overlay path, with GPU interop when available; offline review and saving still require rendered CPU image data and QImage conversion.
 
 ## Performance monitoring
 
@@ -113,7 +104,7 @@ The monitor accumulates records under a lock and generates snapshots. `Performan
 | Detailed | Basic plus read-frame, preprocessing, inference, postprocessing, drawing, and saving |
 | Full | Detailed plus the upload stage |
 
-The startup report interval is 300 ms. Changing between enabled levels or changing the interval applies at runtime and resets the statistics window. Switching between Off and an enabled level is rejected with a restart-required warning; the startup configuration currently comes from `PerformanceConfig` in `src/main.cpp`, so there is no persistent switch yet. Memory/GPU sampling flags exist in the configuration model, but a complete memory sampler and CUDA-event timing are not implemented.
+The startup report interval is 300 ms. Changing between enabled levels or changing the interval applies at runtime and resets the statistics window. Switching between Off and an enabled level is rejected with a restart-required warning. Memory monitoring is provided by the performance plugin; CUDA-event timing remains separate from the host-scope stage timings.
 
 ## Directory structure
 
@@ -124,22 +115,26 @@ The startup report interval is 300 ms. Changing between enabled levels or changi
 ├── src/
 │   ├── main.cpp
 │   ├── app/
-│   │   ├── runtime/       # DetectionApp, Manager, Worker, Session, PerformanceApp
-│   │   └── components/    # Renderer, ImageProvider, ResultSaver, Logger, PerformanceMonitor
-│   └── core/
-│       ├── base/         # DetectionTypes, DecodeTypes, Box, errors
-│       ├── frame/        # FrameSource, FrameHandle, FFmpeg, image, Hikvision
-│       ├── factories/    # CPU/GPU source and flow factories
-│       ├── inference/    # CPU/GPU flows, detectors, preprocessors, postprocessor
-│       ├── cuda/         # CudaDevice, preprocessing kernels
-│       └── performance/  # Monitor interface, null implementation, timer, types
-├── qml/                  # main, dialogs, PerformanceView, LogView, Theme
-├── examples/             # Sample image and ONNX model, deployed beside the executable
-├── models/               # Local model directory
-├── tests/                # Qt Test sources, tracked in git
+│   │   ├── configs/       # Application configuration loading and writing
+│   │   ├── runtime/       # DetectionApp, Manager, Worker, Session, PluginManager
+│   │   └── components/    # Rendering, saving, logging, performance monitoring
+│   ├── core/
+│   │   ├── base/          # Shared types, errors, plugin interfaces
+│   │   ├── frame/         # Frame sources, handles, frame-source plugin interface
+│   │   ├── factories/     # CPU/GPU source and detection-flow factories
+│   │   ├── inference/     # CPU/GPU flows and preprocessing/postprocessing
+│   │   ├── cuda/          # CUDA device and preprocessing kernels
+│   │   └── performance/   # Monitor interfaces and timers
+│   └── plugins/
+│       ├── Hik/           # Hikvision camera frame-source plugin
+│       └── Performance/   # Performance plugin and Windows/Linux memory monitors
+├── qml/                  # Main window, dialogs, performance and log views
+├── examples/             # Optional sample image/model, copied beside the executable
+├── tests/                # Qt Test sources
 └── docs/
     ├── ARCHITECTURE.md
-    └── architecture.html
+    └── assets/
+        └── project-architecture.png
 ```
 
 ## Build
@@ -207,7 +202,7 @@ cmake --build out/build/release --parallel
 
 ### Runtime deployment
 
-The build copies the runtime DLLs of OpenCV, ONNX Runtime, CUDA/cuDNN and MVS next to the executable, and copies `examples/` when that directory exists. The CUDA and MVS steps also probe the standard vendor locations (`CUDA_PATH`, `CUDNN_PATH`, `C:\Program Files\...\MVS\Runtime`) and warn instead of failing when they find nothing. Confirm the deployed runtime files are complete before moving the application to another machine.
+The Release executable is written to `out/build/release/YOLO.exe`; the Debug executable is written to `out/build/debug/YOLO.exe`. OpenCV and ONNX Runtime DLLs, plus CUDA/cuDNN and MVS runtimes when enabled and found, are copied beside the executable. The Hikvision and performance plugins are deployed under `plugins/framesource/` and `plugins/performance/`. If `examples/` exists, it is copied beside the executable as well. The application reads and persists settings in `settings/app.json` beside the executable. CUDA and MVS deployment probe standard vendor locations (`CUDA_PATH`, `CUDNN_PATH`, `C:\Program Files\...\MVS\Runtime`) and warn when none is found. Check runtime dependencies and hardware requirements before distributing the build directory.
 
 ### Tests
 
@@ -225,7 +220,7 @@ Test sources live in `tests/` and are tracked in git. Keep large test videos and
 4. Open `性能监控` for the non-modal statistics/log window. Use Detailed or Full to inspect the available stage samples.
 5. Enable `保存推理结果` and choose an output directory if annotated output is needed.
 
-Detector configuration includes model path, class-name order, confidence and IoU/NMS thresholds, input width/height, intra-op thread count, CUDA device ID, and CPU/GPU preference. A fixed model input size can override the configured dimensions and produce a warning. The unified on-disk configuration reader and its QML editor are planned.
+Detector configuration includes model path, class-name order, confidence and IoU/NMS thresholds, input width/height, intra-op thread count, CUDA device ID, and CPU/GPU preference. Settings are stored in the shared configuration file and can be edited through the QML configuration dialog. A fixed model input size can override the configured dimensions and produce a warning.
 
 ## Model contract and output
 
@@ -237,9 +232,8 @@ Annotated images and videos are written below `<selected directory>/detection_re
 
 ## Planned updates
 
-- Add a shared configuration file and `ConfigHelper`. Load detector and monitoring settings at startup, and provide a QML editor instead of relying on compiled-in defaults.
 - Change Worker execution from a Task queue to a Job queue. Manage Session creation/reuse around compatible Jobs and keep Manager state consistent with Worker ownership.
-- Complete GPU display with CPU NMS boxes and a Qt Overlay; reduce full-frame transfers and CPU drawing where the display integration allows it.
+- Further reduce full-frame transfers and CPU drawing in the GPU display path where the display integration allows it.
 - Validate GPU images, mixed image/video batches, invalid input, stride/color handling, and CPU/GPU preprocessing consistency before extending image decoding.
 - Continue the video-performance work described in [issue #1](https://github.com/fanyu99/YOLO-Realtime-Detector/issues/1): separate acquisition, inference, and UI delivery with a bounded queue after measuring the current bottlenecks. Keep job dropping/recreation and an extra postprocessing thread as design work rather than current functionality.
 - Extend monitoring beyond the current stage snapshots. [Issue #14](https://github.com/fanyu99/YOLO-Realtime-Detector/issues/14) records the monitoring direction; the interface, injection, timers, and non-modal panel are already present in this source revision.

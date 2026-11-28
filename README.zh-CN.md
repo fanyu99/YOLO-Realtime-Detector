@@ -29,6 +29,14 @@
 - [许可证](#许可证)
 
 ## 当前完成
+- 创建了统一的基于QT的插件系统，使用统一的抽象接口PluginInterface作为所有插件的基类：
+    1. 创建了FrameSourcePluginInterface，作为所有帧源插件的基类,然后创建了HikFrameSourcePlugin海康相机插件类；
+    1. 创建了MemoryMonitorPluginInterface，作为内存监控插件的基类，创建了MemoryMonitorPlugin内存监控插件类，
+    其中，分为WinMemoryMonitor和LinuxMemoryMonitor两个子类，共同继承MemoryMonitor这个抽象类；
+    1. 创建了统一的插件管理类PluginManager，负责加载和管理所有的插件，内部保存有QPluginLoader用来加载插件
+    1. 将插件的配置添加到了统一的配置体系中，然后完善了ConfigWriter写入以及ConfigLoader加载配置的逻辑；
+- 添加了性能监控中的内存监控模块，添加了QML端的内存扇形图，用来显示内存使用情况；
+- 添加了两种系统中的内存监控器，用来获取内存占用快照信息；
 - 使用异步操作（QtConcurrent+QFuture）获取设备枚举结果，避免枚举设备功能的UI阻塞。
 - 新增统一配置文件和 `ConfigHelper`。启动时读取检测和监控配置，再通过 QML 对话框修改，替换当前写在代码里的默认值。
 - 完善 GPU 显示，在 GPU 图像上叠加 CPU NMS 检测框和 Qt Overlay，减少完整图像传回 CPU 以及 CPU 绘制。
@@ -58,22 +66,11 @@
 
 ## 项目架构
 
-整体分为界面层、应用层和核心层。QML 负责提交操作和显示结果；应用层负责 Job/Task 管理、Session 生命周期、结果回传和性能监控；核心层负责帧源、帧句柄、工厂以及 CPU/GPU 推理流程，不依赖 QML。
+当前架构由 QML 界面、应用层、核心层和插件层组成。下图展示了当前主要模块及其关系。点击图片可查看原始分辨率版本。
 
-下面的架构图可以直接在 GitHub 的 README 页面浏览。[HTML 架构文档](docs/architecture.html) 提供手工排版的系统总览和单独的性能监控图。GitHub 中点击 HTML 文件链接会进入源码页面，下载后用浏览器打开即可查看 HTML 版本；下面的图不需要部署 GitHub Pages。
+[![YOLO 项目架构图](docs/assets/project-architecture.png)](docs/assets/project-architecture.png)
 
-```mermaid
-flowchart TB
-    UI["QML: main.qml and dialogs"] --> APP["DetectionApp"]
-    APP --> MAN["DetectionManager: Job state"]
-    MAN --> WORK["DetectionWorker: Task queue"]
-    WORK --> SESSION["DetectionSession: factories and Flow"]
-    SESSION --> SOURCE["FrameSource: image / FFmpeg / Hikvision"]
-    SESSION --> FLOW["DetectionFlow: CPU / GPU"]
-    SOURCE -->|FrameHandle| FLOW
-    FLOW --> RESULT["Renderer / ImageProvider / ResultSaver"]
-    RESULT -.->|QImage and progress| APP
-```
+更详细的模块职责、线程模型与设计取舍见[架构说明](docs/ARCHITECTURE.md)。
 
 ### 当前执行模型
 
@@ -93,15 +90,26 @@ Worker 在线程内创建并持有 Session。Session 根据 CPU/GPU 模式选择
 | `PerformanceApp` | 管理监测器生命周期，向 QML 提供配置和统计快照 |
 
 ### CPU/GPU 流程与显示
-
+#### 流程：
 ```text
 CPU：CPU BGR 帧 -> CpuPreprocessor -> CpuDetector -> CPU 后处理/NMS
 GPU 视频：CUDA/NV12 帧 -> CudaPreprocessor -> GpuDetector -> CPU 后处理/NMS
 GPU 图片：CPU BGR 帧 -> Session 上传显存 -> BGR CUDA kernel -> GpuDetector -> CPU 后处理/NMS
-显示/保存：CPU 图像 -> DetectionRenderer -> QImage / 带检测框的结果文件
 ```
+#### 显示：
+分为两种模式：
+1. 实时预览模式(Realtime)
+1. 离线预览模式(Offline)
+具体的模式如下表：
 
-当前 GPU 推理流程已经接通，但显示和保存仍然使用 CPU 绘制和 QImage 转换。直接使用 GPU 图像进行显示、叠加 Qt Overlay 仍然属于后续计划。
+| 用户选的 ViewMode | 生效 FlowMode | 保存    | 实际后端          | 是否下载                |
+| ------------- | ----------- | ----- | ------------- | ------------------- |
+| Realtime      | GPU，互操作可用   | 关     | Overlay（零拷贝）  | 否，直接使用 GPU 像素       |
+| Realtime      | GPU，互操作可用   | **开** | Overlay（零拷贝）  | 是，保存需要渲染            |
+| Realtime      | GPU，互操作失败   | 任意    | Overlay（上传）   | 是，需要下载到 CPU 使用      |
+| Realtime      | CPU         | 任意    | Overlay（上传）   | 否，直接使用 CPU 数据进行     |
+| Offline       | 任意          | 任意    | ImageProvider | 是，需要渲染检测框和转为 QImage |
+
 
 ## 性能监控
 
@@ -129,22 +137,26 @@ GPU 图片：CPU BGR 帧 -> Session 上传显存 -> BGR CUDA kernel -> GpuDetect
 ├── src/
 │   ├── main.cpp
 │   ├── app/
-│   │   ├── runtime/       # DetectionApp, Manager, Worker, Session, PerformanceApp
-│   │   └── components/    # Renderer, ImageProvider, ResultSaver, Logger, PerformanceMonitor
-│   └── core/
-│       ├── base/         # DetectionTypes, DecodeTypes, Box, errors
-│       ├── frame/        # FrameSource, FrameHandle, FFmpeg, image, Hikvision
-│       ├── factories/    # CPU/GPU source and flow factories
-│       ├── inference/    # CPU/GPU flows, detectors, preprocessors, postprocessor
-│       ├── cuda/         # CudaDevice, preprocessing kernels
-│       └── performance/  # Monitor interface, null implementation, timer, types
-├── qml/                  # main, dialogs, PerformanceView, LogView, Theme
-├── examples/             # Sample image and ONNX model, deployed beside the executable
-├── models/               # Local model directory
-├── tests/                # Qt Test 测试源码，纳入 git 追踪
+│   │   ├── configs/       # 应用配置读写
+│   │   ├── runtime/       # DetectionApp、Manager、Worker、Session、PluginManager
+│   │   └── components/    # 结果渲染、保存、日志、性能监控
+│   ├── core/
+│   │   ├── base/          # 公共类型、错误、插件接口
+│   │   ├── frame/         # 帧源、帧句柄与帧源插件接口
+│   │   ├── factories/     # CPU/GPU 帧源和推理流程工厂
+│   │   ├── inference/     # CPU/GPU 推理流程及前后处理
+│   │   ├── cuda/          # CUDA 设备和预处理 kernel
+│   │   └── performance/   # 性能监控接口与计时器
+│   └── plugins/
+│       ├── Hik/           # 海康相机帧源插件
+│       └── Performance/   # 性能插件与 Windows/Linux 内存监控器
+├── qml/                  # 主界面、配置/设备对话框、性能与日志视图
+├── examples/             # 可选示例图片和模型，构建时复制到程序目录
+├── tests/                # Qt Test 测试
 └── docs/
-    ├── ARCHITECTURE.md
-    └── architecture.html
+    ├── ARCHITECTURE.md   # 架构说明
+    └── assets/
+        └── project-architecture.png
 ```
 
 ## 编译构建
@@ -212,7 +224,7 @@ cmake --build out/build/release --parallel
 
 ### 运行库部署
 
-构建会把 OpenCV、ONNX Runtime、CUDA/cuDNN、MVS 的运行库复制到程序目录，并在 `examples/` 存在时一并复制。CUDA 与 MVS 这两步还会探测厂商的标准安装位置（`CUDA_PATH`、`CUDNN_PATH`、`C:\Program Files\...\MVS\Runtime`），探测不到只警告不失败。把程序移到其他电脑之前，先确认部署的运行库齐全。
+Release 构建的主程序位于 `out/build/release/YOLO.exe`，Debug 构建位于 `out/build/debug/YOLO.exe`。运行所需的 OpenCV、ONNX Runtime 以及启用时的 CUDA/cuDNN、MVS 运行库会按配置复制到可执行文件旁；海康和性能插件分别部署在 `plugins/framesource/` 与 `plugins/performance/` 子目录。仓库存在 `examples/` 时，示例资源也会复制到程序目录。应用配置保存在程序目录的 `settings/app.json`。CUDA 与 MVS 运行库部署会探测厂商安装位置（`CUDA_PATH`、`CUDNN_PATH`、`C:\Program Files\...\MVS\Runtime`），未找到时会给出警告。分发构建目录前，请确认目标机器具备所需运行库和硬件条件。
 
 ### 测试
 
@@ -230,7 +242,7 @@ ctest --test-dir out/build/release --output-on-failure
 4. 点击 `性能监控` 打开非模态的统计与日志窗口。需要观察阶段耗时时切换到 Detailed 或 Full。
 5. 需要保存结果时，启用 `保存推理结果` 并选择输出目录。
 
-检测配置包括模型路径、按训练顺序排列的类别名、置信度阈值、IoU/NMS 阈值、输入宽高、推理线程数、CUDA 设备编号以及 CPU/GPU 偏好。模型的固定输入尺寸可能覆盖手动配置并产生提示。统一配置文件、读取类和 QML 配置编辑器还在计划中。
+检测配置包括模型路径、按训练顺序排列的类别名、置信度阈值、IoU/NMS 阈值、输入宽高、推理线程数、CUDA 设备编号以及 CPU/GPU 偏好。设置保存在统一配置文件中，并可通过 QML 配置界面修改。模型的固定输入尺寸可能覆盖手动配置并产生提示。
 
 ## 模型与输出
 
@@ -249,7 +261,7 @@ ctest --test-dir out/build/release --output-on-failure
 | 找不到 `MvCameraControl` 或启动缺 DLL | 设置 `MVCAM_COMMON_RUNENV`（或 `-DMVS_SDK_ROOT=`）；检查部署的运行库与 PATH。缺 DLL 说明海康层已经编入，即配置时 SDK 是存在的 |
 | GPU 模式回退 | 检查编译支持、CUDA/cuDNN/ORT 运行库兼容性、GPU 架构和 fallback 日志 |
 | 没有阶段统计 | Basic 只采集端到端数据，切换 Detailed/Full 并运行检测 |
-| 无法切换监控开关 | 启动时决定监测器类型，切换需要重启；当前配置仍在源码中 |
+| 无法切换监控开关 | Off 与启用状态之间的切换需要重启；相关设置通过统一配置文件保存 |
 | 示例检测没有结果 | 检查程序旁 `examples/` 下是否存在图片和模型 |
 | 框位置或类别不正确 | 检查模型检测头、输入尺寸、类别顺序以及预处理警告 |
 
