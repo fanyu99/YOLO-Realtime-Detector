@@ -331,6 +331,12 @@ endif()
 if(TARGET hik_framesource_plugin)
     add_dependencies(${PROJECT_NAME} hik_framesource_plugin)
 endif()
+if(TARGET deploy_memory_qml)
+    add_dependencies(${PROJECT_NAME} deploy_memory_qml)
+endif()
+if(TARGET performance_memorymonitor_plugin)
+    add_dependencies(${PROJECT_NAME} performance_memorymonitor_plugin)
+endif()
 
 # QML 模块（URI = yolo）。
 #

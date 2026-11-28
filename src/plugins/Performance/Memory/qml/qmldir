@@ -1,0 +1,2 @@
+module PerformanceMemoryMonitor
+MemoryPanel 1.0 MemoryPanel.qml

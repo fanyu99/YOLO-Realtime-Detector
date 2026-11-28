@@ -4,25 +4,27 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import PerformanceMemoryMonitor
 // 性能窗口
-//  左侧：性能面板
-//  右侧：日志
+//  上层：横幅
+//  中层：配置+总体+上下文   阶段计时  内存占用
+//  下层：日志
 Window {
     id: performanceView
     visible: false
     modality: Qt.NonModal
     title: "性能监控页"
-    width: 1000
-    height: 800
-    minimumWidth: 500
-    minimumHeight: 400
+    width: 1200
+    height: 820
+    minimumWidth: 960
+    minimumHeight: 620
     color: performanceView.theme.window
 
     property var theme: null		// 由外部注入的主题对象(AppTheme.qml)
     property var perf: null			// PerformanceApp
     property bool logVisible: true
 
-    //  展示快照：停止时显示运行的汇总 
+    //  展示快照：停止时显示运行的汇总
     readonly property bool perfEnabled: !!performanceView.perf && performanceView.perf.levelIndex > 0
     readonly property bool isSummary: performanceView.perf ? !performanceView.perf.isRunning : false
     readonly property var displaySnapshot: performanceView.perf
@@ -32,6 +34,12 @@ Window {
     readonly property var snapContext: performanceView.displaySnapshot ? performanceView.displaySnapshot.context : null
     readonly property var snapStages: performanceView.displaySnapshot ? performanceView.displaySnapshot.stages : []
     readonly property bool hasData: performanceView.snapContext ? performanceView.snapContext.windowDurationMs > 0 : false
+
+    // 内存面板：插件可用且级别 >= Detailed 才有采样数据
+    readonly property bool memoryPanelVisible: performanceView.perfEnabled
+        && performanceView.perf
+        && performanceView.perf.memoryMonitorAvailable
+        && performanceView.perf.levelIndex >= 3
 
     // 性能级别选项
     readonly property var levelOptions: ["关闭(Off)", "最小(Minimum)", "基础(Basic)", "详细(Detailed)", "完整(Full)"]
@@ -106,61 +114,59 @@ Window {
             : performanceView.perf.bannerLevel === PerformanceApp.BannerError
                 ? "error"
                 : performanceView.perf.bannerLevel === PerformanceApp.BannerWarning ? "warning" : "none"
-
-    RowLayout {
+    // 主体
+    ColumnLayout {
         anchors.fill: parent
         anchors.margins: 10
         spacing: 10
 
-        //  左侧性能面板 
-        ColumnLayout {
-            Layout.preferredWidth: 560
+        //  横幅
+        StatusBanner {
+            Layout.fillWidth: true
+            visible: performanceView.bannerVisible
+            theme: performanceView.theme
+            text: performanceView.perf ? performanceView.perf.bannerText : ""
+            level: performanceView.bannerLevelText
+            autoDismissMs: performanceView.visible ? 5000 : 0
+            onDismissed: if (performanceView.perf)
+                performanceView.perf.dismissBanner()
+        }
+
+        //  中层 + 日志
+        SplitView {
+            id: mainSplit
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.maximumWidth: performanceView.logVisible ? parent.width * 0.6 : -1
-            spacing: 10
+            orientation: Qt.Vertical
 
-            //  横幅 
-            StatusBanner {
-                Layout.fillWidth: true
-                visible: performanceView.bannerVisible
-                theme: performanceView.theme
-                text: performanceView.perf ? performanceView.perf.bannerText : ""
-                level: performanceView.bannerLevelText
-                autoDismissMs: performanceView.visible ? 5000 : 0
-                onDismissed: if (performanceView.perf)
-                    performanceView.perf.dismissBanner()
-            }
+            RowLayout {
+                id: middleRow
+                SplitView.fillWidth: true
+                SplitView.fillHeight: true
+                SplitView.minimumHeight: 180
+                spacing: 10
 
-            //  2×2 
-            GridLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                columns: 2
-                columnSpacing: 10
-                rowSpacing: 10
-
-                //  左上：配置 
+                //  左列：配置 + 总体计数 + 上下文
                 SectionBox {
-                    sectionTitle: "配置"
+                    sectionTitle: "配置 · 总体计数 · 上下文"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.preferredWidth: 270
+                    Layout.preferredWidth: 320
+                    Layout.minimumWidth: 260
 
                     Flickable {
-                        id: cfgFlick
+                        id: leftFlick
                         anchors.fill: parent
                         contentWidth: width
-                        contentHeight: cfgColumn.implicitHeight
+                        contentHeight: leftColumn.implicitHeight
                         boundsBehavior: Flickable.StopAtBounds
                         clip: true
                         interactive: contentHeight > height
                         ScrollBar.vertical: ScrollBar {}
 
                         ColumnLayout {
-                            id: cfgColumn
-                            width: cfgFlick.width
-                            height: Math.max(cfgFlick.height, implicitHeight)
+                            id: leftColumn
+                            width: leftFlick.width
                             spacing: 8
 
                             // 选择级别
@@ -218,8 +224,7 @@ Window {
                             // 运行状态
                             PerformanceRect {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 100
-                                Layout.minimumHeight: 50
+                                Layout.preferredHeight: 90
                                 theme: performanceView.theme
                                 label: "运行状态"
                                 textOverride: performanceView.perf
@@ -247,169 +252,145 @@ Window {
                                 text: performanceView.logVisible ? "关闭日志" : "打开日志"
                                 onClicked: performanceView.logVisible = !performanceView.logVisible
                             }
+
+                            // ---- 总体计数 ----
+                            Label {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 4
+                                text: performanceView.isSummary ? "总体计数 · 会话汇总" : "总体计数 · 实时窗口"
+                                font.bold: true
+                                font.pixelSize: 12
+                                color: performanceView.theme.windowText
+                            }
+                            GridLayout {
+                                Layout.fillWidth: true
+                                columns: 2
+                                columnSpacing: 8
+                                rowSpacing: 8
+
+                                PerformanceRect {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 86
+                                    theme: performanceView.theme
+                                    label: "整体帧率"
+                                    value: performanceView.snapOverall ? performanceView.snapOverall.overallFPS : 0
+                                    unit: "fps"
+                                    decimals: 1
+                                }
+                                PerformanceRect {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 86
+                                    theme: performanceView.theme
+                                    label: "狭义端到端"
+                                    value: performanceView.snapOverall ? performanceView.snapOverall.narrowEndToEndMs : 0
+                                    unit: "ms"
+                                    caption: "读帧 → 推理完成"
+                                }
+                                PerformanceRect {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 86
+                                    theme: performanceView.theme
+                                    label: "广义端到端"
+                                    value: performanceView.snapOverall ? performanceView.snapOverall.broadEndToEndMs : 0
+                                    unit: "ms"
+                                    caption: "读帧 → 渲染/保存完成"
+                                }
+                                PerformanceRect {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 86
+                                    theme: performanceView.theme
+                                    label: performanceView.isSummary ? "有效统计时长" : "统计窗口"
+                                    value: performanceView.isSummary
+                                        ? (performanceView.snapOverall ? performanceView.snapOverall.validWindowDurationMs : 0)
+                                        : (performanceView.snapContext ? performanceView.snapContext.windowDurationMs : 0)
+                                    unit: "ms"
+                                    decimals: 0
+                                    caption: performanceView.isSummary
+                                        ? (performanceView.snapContext
+                                            ? "总时长 " + Number(performanceView.snapContext.windowDurationMs).toFixed(0) + " ms"
+                                            : "")
+                                        : (performanceView.snapContext ? "第 " + performanceView.snapContext.snapshotIndex + " 号快照" : "")
+                                }
+                                PerformanceRect {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 86
+                                    theme: performanceView.theme
+                                    label: "检测器预热总耗时"
+                                    value: performanceView.snapOverall ? performanceView.snapOverall.warmupMs : 0
+                                    unit: "ms"
+                                    caption: "共 " + (performanceView.snapOverall ? performanceView.snapOverall.warmupIterations : 0) + " 轮"
+                                }
+                                PerformanceRect {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 86
+                                    theme: performanceView.theme
+                                    label: "记录帧数"
+                                    value: performanceView.snapOverall ? performanceView.snapOverall.recordedFrames : 0
+                                    decimals: 0
+                                    caption: performanceView.snapOverall
+                                        ? ("成功 " + performanceView.snapOverall.successfulFrames
+                                            + " / 失败 " + performanceView.snapOverall.failedFrames)
+                                        : ""
+                                }
+                            }
+
+                            // ---- 上下文信息 ----
+                            Label {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 4
+                                text: "上下文信息"
+                                font.bold: true
+                                font.pixelSize: 12
+                                color: performanceView.theme.windowText
+                            }
+                            GridLayout {
+                                Layout.fillWidth: true
+                                columns: 2
+                                columnSpacing: 8
+                                rowSpacing: 8
+
+                                PerformanceRect {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 78
+                                    theme: performanceView.theme
+                                    label: "作业 ID"
+                                    value: performanceView.perf ? Number(performanceView.perf.jobId) : 0
+                                    decimals: 0
+                                    caption: performanceView.perf && performanceView.perf.jobId === 0 ? "空闲" : "运行中"
+                                }
+                                PerformanceRect {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 78
+                                    theme: performanceView.theme
+                                    label: "监控级别"
+                                    textOverride: performanceView.levelOptions[performanceView.perf ? performanceView.perf.levelIndex : 1]
+                                }
+                                PerformanceRect {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 78
+                                    theme: performanceView.theme
+                                    label: "用户设置模式"
+                                    textOverride: performanceView.perf ? performanceView.perf.preferredModeText : "—"
+                                }
+                                PerformanceRect {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 78
+                                    theme: performanceView.theme
+                                    label: "实际生效模式"
+                                    textOverride: performanceView.perf ? performanceView.perf.activeModeText : "—"
+                                }
+                            }
                         }
                     }
                 }
-                // 右上 总体计数
-                SectionBox {
-                    sectionTitle: performanceView.isSummary ? "总体计数 · 会话汇总" : "总体计数 · 实时窗口"
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.preferredWidth: 270
 
-                    // 监控关闭
-                    Label {
-                        anchors.centerIn: parent
-                        visible: !performanceView.perfEnabled
-                        text: "性能监控已关闭"
-                        color: performanceView.theme.muted
-                        font.pixelSize: 13
-                    }
-                    Label {
-                        anchors.centerIn: parent
-                        visible: performanceView.perfEnabled && !performanceView.hasData
-                        text: "暂无性能数据\n(启动检测后出现)"
-                        horizontalAlignment: Text.AlignHCenter
-                        color: performanceView.theme.muted
-                        font.pixelSize: 13
-                    }
-
-                    Flickable {
-                        id: overallFlick
-                        anchors.fill: parent
-                        clip: true
-                        contentWidth: width
-                        contentHeight: overallGrid.implicitHeight
-                        boundsBehavior: Flickable.StopAtBounds
-                        interactive: contentHeight > height
-
-                        GridLayout {
-                            id: overallGrid
-                            visible: performanceView.perfEnabled && performanceView.hasData
-                            width: overallFlick.width
-                            height: Math.max(overallFlick.height, implicitHeight)
-                            columns: 2
-                            columnSpacing: 8
-                            rowSpacing: 8
-
-                            PerformanceRect {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                theme: performanceView.theme
-                                label: "整体帧率"
-                                value: performanceView.snapOverall ? performanceView.snapOverall.overallFPS : 0
-                                unit: "fps"
-                                decimals: 1
-                            }
-                            PerformanceRect {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                theme: performanceView.theme
-                                label: "狭义端到端"
-                                value: performanceView.snapOverall ? performanceView.snapOverall.narrowEndToEndMs : 0
-                                unit: "ms"
-                                caption: "读帧 → 推理完成"
-                            }
-                            PerformanceRect {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                theme: performanceView.theme
-                                label: "广义端到端"
-                                value: performanceView.snapOverall ? performanceView.snapOverall.broadEndToEndMs : 0
-                                unit: "ms"
-                                caption: "读帧 → 渲染/保存完成"
-                            }
-                            PerformanceRect {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                theme: performanceView.theme
-                                label: performanceView.isSummary ? "有效统计时长" : "统计窗口"
-                                value: performanceView.isSummary
-                                    ? (performanceView.snapOverall ? performanceView.snapOverall.validWindowDurationMs : 0)
-                                    : (performanceView.snapContext ? performanceView.snapContext.windowDurationMs : 0)
-                                unit: "ms"
-                                decimals: 0
-                                caption: performanceView.isSummary
-                                    ? (performanceView.snapContext
-                                        ? "总时长 " + Number(performanceView.snapContext.windowDurationMs).toFixed(0) + " ms"
-                                        : "")
-                                    : (performanceView.snapContext ? "第 " + performanceView.snapContext.snapshotIndex + " 号快照" : "")
-                            }
-                            PerformanceRect {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                theme: performanceView.theme
-                                label: "检测器预热总耗时"
-                                value: performanceView.snapOverall ? performanceView.snapOverall.warmupMs : 0
-                                unit: "ms"
-                                caption: "共 " + (performanceView.snapOverall ? performanceView.snapOverall.warmupIterations : 0) + " 轮"
-                            }
-                            PerformanceRect {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                theme: performanceView.theme
-                                label: "记录帧数"
-                                value: performanceView.snapOverall ? performanceView.snapOverall.recordedFrames : 0
-                                decimals: 0
-                                caption: performanceView.snapOverall
-                                    ? ("成功 " + performanceView.snapOverall.successfulFrames
-                                        + " / 失败 " + performanceView.snapOverall.failedFrames)
-                                    : ""
-                            }
-                        }
-                    }
-                }
-                // 左下 上下文信息
-                SectionBox {
-                    sectionTitle: "上下文信息"
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.preferredWidth: 270
-
-                    GridLayout {
-                        anchors.fill: parent
-                        columns: 2
-                        columnSpacing: 8
-                        rowSpacing: 8
-
-                        PerformanceRect {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            theme: performanceView.theme
-                            label: "作业 ID"
-                            value: performanceView.perf ? Number(performanceView.perf.jobId) : 0
-                            decimals: 0
-                            caption: performanceView.perf && performanceView.perf.jobId === 0 ? "空闲" : "运行中"
-                        }
-                        PerformanceRect {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            theme: performanceView.theme
-                            label: "监控级别"
-                            textOverride: performanceView.levelOptions[performanceView.perf ? performanceView.perf.levelIndex : 1]
-                        }
-                        PerformanceRect {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            theme: performanceView.theme
-                            label: "用户设置模式"
-                            textOverride: performanceView.perf ? performanceView.perf.preferredModeText : "—"
-                        }
-                        PerformanceRect {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            theme: performanceView.theme
-                            label: "实际生效模式"
-                            textOverride: performanceView.perf ? performanceView.perf.activeModeText : "—"
-                        }
-                    }
-                }
-                // 阶段计时
+                //  中列：阶段计时
                 SectionBox {
                     sectionTitle: performanceView.isSummary ? "阶段指标 · 会话汇总" : "阶段指标 · 实时窗口"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.preferredWidth: 270
+                    Layout.preferredWidth: 460
+                    Layout.minimumWidth: 300
 
                     // 监控关闭
                     Label {
@@ -467,20 +448,67 @@ Window {
                         }
                     }
                 }
-            }
-        }
 
-        // ================= 右侧日志 =================
-        SectionBox {
-            id: logBox
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            visible: performanceView.logVisible
-            LogView {
-                id: logView
-                anchors.fill: parent
-                theme: performanceView.theme
-                closeEnable: false
+                //  右列：内存占用
+                SectionBox {
+                    sectionTitle: "内存占用"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 330
+                    Layout.minimumWidth: 280
+
+                    // 监控关闭
+                    Label {
+                        anchors.centerIn: parent
+                        visible: !performanceView.perfEnabled
+                        text: "性能监控已关闭"
+                        color: performanceView.theme.muted
+                        font.pixelSize: 13
+                    }
+                    // 插件未加载
+                    Label {
+                        anchors.centerIn: parent
+                        visible: performanceView.perfEnabled
+                            && performanceView.perf && !performanceView.perf.memoryMonitorAvailable
+                        text: "内存监控插件不可用"
+                        color: performanceView.theme.muted
+                        font.pixelSize: 13
+                    }
+                    // 级别不足
+                    Label {
+                        anchors.centerIn: parent
+                        visible: performanceView.perfEnabled
+                            && performanceView.perf && performanceView.perf.memoryMonitorAvailable
+                            && performanceView.perf.levelIndex < 3
+                        text: "内存采样需「详细(Detailed)」及以上级别"
+                        horizontalAlignment: Text.AlignHCenter
+                        color: performanceView.theme.muted
+                        font.pixelSize: 13
+                    }
+
+                    MemoryPanel {
+                        anchors.fill: parent
+                        visible: performanceView.memoryPanelVisible
+                        perfApp: performanceView.perf
+                        theme: performanceView.theme
+                    }
+                }
+            }
+
+            //  下层：日志
+            SectionBox {
+                id: logBox
+                SplitView.fillWidth: true
+                SplitView.preferredHeight: 160
+                SplitView.minimumHeight: 40
+                visible: performanceView.logVisible
+
+                LogView {
+                    id: logView
+                    anchors.fill: parent
+                    theme: performanceView.theme
+                    closeEnable: false
+                }
             }
         }
     }

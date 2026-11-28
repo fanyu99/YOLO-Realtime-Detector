@@ -45,7 +45,7 @@ using PluginManagerPtr = std::unique_ptr<PluginManager>;
 	}
 	// 获取插件ID列表
 	QStringList enumeratePluginIds () const {
-		return framesourcePlugins.keys ();
+		return framesourcePlugins.keys () + memoryMonitorPlugins.keys ();
 	}
 
 	// 返回帧源插件，不存在返回nullptr

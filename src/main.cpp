@@ -137,9 +137,11 @@ int main ( int argc, char* argv[] )
 	DetectionApp::initialize ( initialConfig, initialDisplayPolicy, perfApp );   // 初始化App
 	try {
 		QQmlApplicationEngine engine;
-		// 独立的HikQML页面
+		// 插件自带的QML模块：Hik 相机对话框、内存监控面板
 		engine.addImportPath ( QCoreApplication::applicationDirPath ()
 			+ QStringLiteral ( "/plugins/framesource" ) );
+		engine.addImportPath ( QCoreApplication::applicationDirPath ()
+			+ QStringLiteral ( "/plugins/performance" ) );
 #if YOLO_HAVE_HIK
 		Logger::instance ()->info ( QStringLiteral ( "[App]: 海康帧源插件已启用" ) );
 #else
