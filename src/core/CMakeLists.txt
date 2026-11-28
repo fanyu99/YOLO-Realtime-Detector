@@ -11,7 +11,7 @@
 # 模块间 include 一律裸文件名（#include "CpuDetector.h"），因此这里把
 # src 及所有分组目录加入 PUBLIC 搜索路径——源文件挪目录无需改 include。
 #
-# 海康相机帧源已移到 src/plugins/HikFrameSource：它私有依赖 MVS SDK，
+# 海康相机帧源已移到 src/plugins/Hik：它私有依赖 MVS SDK，
 # 构建与运行时都以插件为边界（SDK 探测与插件目标见该目录）。
 # -----------------------------------------------------------------------------
 

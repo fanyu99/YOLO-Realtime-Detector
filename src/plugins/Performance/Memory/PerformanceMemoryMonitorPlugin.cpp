@@ -1,7 +1,18 @@
 #include "PerformanceMemoryMonitorPlugin.h"
-#if WIN32
+#if defined(Q_OS_WIN)
 #include "WinMemoryMonitor.h"
+#elif defined(Q_OS_LINUX)
+#include "LinuxMemoryMonitor.h"
+#endif
 
+PerformanceMemoryMonitorPlugin::PerformanceMemoryMonitorPlugin ()
+#if defined(Q_OS_WIN)
+	: m_monitor ( std::make_unique<WinMemoryMonitor> () )
+#elif defined(Q_OS_LINUX)
+	: m_monitor ( std::make_unique<LinuxMemoryMonitor> () )
+#endif
+{
+}
 
 QString PerformanceMemoryMonitorPlugin::pluginId () const {
 	return "MemoryMonitor";

@@ -1,6 +1,6 @@
 # 插件目录
 
-# 1. HikFrameSource插件
+# 1. Hik 相机帧源插件
 add_subdirectory(Hik)
 
 # 2.Performance插件

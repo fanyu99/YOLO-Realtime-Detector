@@ -202,7 +202,7 @@ if(OpenCV_VERSION VERSION_LESS 4.0)
         "OpenCV ${OpenCV_VERSION} 过旧：本项目最低需要 4.0（当前包目录 ${OpenCV_DIR}）。")
 endif()
 find_package(Qt6 REQUIRED COMPONENTS Core Test)
-# 海康 MVS SDK 的探测与插件目标在 src/plugins/HikFrameSource/CMakeLists.txt
+# 海康 MVS SDK 的探测与插件目标在 src/plugins/Hik/CMakeLists.txt
 
 # --------------------------------------------------------------------------
 # ONNX Runtime
@@ -300,7 +300,7 @@ set(PROJECT_SOURCES
 # -----------------------------------------------------------------------------
 # 模块库：定义在 src/core/CMakeLists.txt 与 src/app/CMakeLists.txt 中
 #   yolo_core        核心层（base + inference + frame，不含海康）
-#   hik_framesource_plugin  海康相机帧源插件（src/plugins/HikFrameSource，私有依赖 MVS SDK）
+#   hik_framesource_plugin  海康相机帧源插件（src/plugins/Hik，私有依赖 MVS SDK）
 #   DetectionRuntime 应用层运行库（runtime + components）
 # -----------------------------------------------------------------------------
 add_subdirectory(src)
@@ -323,6 +323,14 @@ endif()
 # 可执行程序
 # -----------------------------------------------------------------------------
 qt_add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
+
+# 保证插件模块能够被加载
+if(TARGET deploy_hik_qml)
+    add_dependencies(${PROJECT_NAME} deploy_hik_qml)
+endif()
+if(TARGET hik_framesource_plugin)
+    add_dependencies(${PROJECT_NAME} hik_framesource_plugin)
+endif()
 
 # QML 模块（URI = yolo）。
 #

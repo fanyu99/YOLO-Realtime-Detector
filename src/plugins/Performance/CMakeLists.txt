@@ -1,10 +1,19 @@
 # 1. 内存插件
 # 内存监控源路径
-set(MemoryMonitorSources 
+set(MemoryMonitorSources
 	Memory/PerformanceMemoryMonitorPlugin.h
 	Memory/PerformanceMemoryMonitorPlugin.cpp
 	Memory/MemoryMonitor.h
 )
+if(WIN32)
+	list(APPEND MemoryMonitorSources
+        Memory/WinMemoryMonitor.h
+        Memory/WinMemoryMonitor.cpp)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	list(APPEND MemoryMonitorSources
+		Memory/LinuxMemoryMonitor.h
+		Memory/LinuxMemoryMonitor.cpp)
+endif()
 qt_add_plugin(performance_memorymonitor_plugin
 	CLASS_NAME PerformanceMemoryMonitorPlugin
 	${MemoryMonitorSources}
@@ -21,11 +30,8 @@ if(NOT YOLO_ENABLE_PERFORMANCE_MEMORY)
 	return()
 endif()
 if(WIN32)
-	list(APPEND MemoryMonitorSources 
-        Memory/WinMemoryMonitor.h
-        Memory/WinMemoryMonitor.cpp)
-    target_link_libraries(performance_memorymonitor_plugin 
-	PRIVATE psapi dxgi 
+    target_link_libraries(performance_memorymonitor_plugin
+	PRIVATE psapi dxgi
 	)
 endif()
 target_link_libraries(performance_memorymonitor_plugin

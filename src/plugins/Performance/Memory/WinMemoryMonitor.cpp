@@ -26,7 +26,7 @@ namespace {
 
 
 // 内存
-quint64 WinMemoryMonitor::getTotalMemory () const override
+quint64 WinMemoryMonitor::getTotalMemory () const
 {
     MEMORYSTATUSEX st{};
     st.dwLength = sizeof ( st );
@@ -35,7 +35,7 @@ quint64 WinMemoryMonitor::getTotalMemory () const override
     return st.ullTotalPhys;
 }
 
-quint64 WinMemoryMonitor::getAvailableMemory () const   override
+quint64 WinMemoryMonitor::getAvailableMemory () const
 {
     MEMORYSTATUSEX st{};
     st.dwLength = sizeof ( st );
@@ -46,7 +46,7 @@ quint64 WinMemoryMonitor::getAvailableMemory () const   override
 
 
 
-quint64 WinMemoryMonitor::getProcessMemory () const     override
+quint64 WinMemoryMonitor::getProcessMemory () const
 {
     PROCESS_MEMORY_COUNTERS_EX pmc{};
     if (!GetProcessMemoryInfo ( GetCurrentProcess (),
@@ -94,7 +94,7 @@ bool WinMemoryMonitor::ensureGpu () const
     return m_adapter != nullptr;
 }
 
-quint64 WinMemoryMonitor::getTotalGpuMomery () const   override
+quint64 WinMemoryMonitor::getTotalGpuMemory () const
 {
     if (!ensureGpu ())
         return 0;
@@ -107,7 +107,7 @@ quint64 WinMemoryMonitor::getTotalGpuMomery () const   override
         : desc.SharedSystemMemory;
 }
 
-quint64 WinMemoryMonitor::getAvailableGpuMomery () const  override
+quint64 WinMemoryMonitor::getAvailableGpuMemory () const
 {
     if (!ensureGpu ())
         return 0;
@@ -116,7 +116,7 @@ quint64 WinMemoryMonitor::getAvailableGpuMomery () const  override
     return info.Budget > info.CurrentUsage ? info.Budget - info.CurrentUsage : 0;
 }
 
-quint64 WinMemoryMonitor::getProcessGpuMemory () const override
+quint64 WinMemoryMonitor::getProcessGpuMemory () const
 {
     if (!ensureGpu ())
         return 0;

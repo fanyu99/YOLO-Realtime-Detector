@@ -4,9 +4,11 @@
 #include <memory>
 class PerformanceMemoryMonitorPlugin final : public QObject, public MemoryMonitorPluginInterface {
 	Q_OBJECT
-		Q_PLUGIN_METADATA ( IID "com.yoloqt.MemoryMonitorPluginInterface" )
+		Q_PLUGIN_METADATA ( IID MemoryMonitorPluginInterface_IID )
 		Q_INTERFACES ( MemoryMonitorPluginInterface )
 public:
+	PerformanceMemoryMonitorPlugin ();
+	~PerformanceMemoryMonitorPlugin () override = default;
 	QString pluginId () const override;
 	quint64 getTotalMemory ()const override;
 	quint64 getTotalGpuMomery ()const override;
