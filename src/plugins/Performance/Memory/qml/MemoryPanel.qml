@@ -19,7 +19,7 @@ Item {
     readonly property bool summarizing: panel.perfApp ? !panel.perfApp.isRunning : false
 
     // 总量整圆与占用扇形的配色
-    readonly property color totalCircleColor: "#2E7D32"   // 总内存/总显存：深绿整圆
+    readonly property color totalCircleColor: "#2E7D32"   // 总内存/总显存颜色
     readonly property color fillHealthyColor: "#34d55f"
     readonly property color fillWarningColor: "#F59E0B"
     readonly property color fillDangerColor: "#EF4444"
@@ -109,7 +109,7 @@ Item {
                                 : "")
                         : "内存监控插件不可用"
                     delay: 400
-                    timeout: 5000
+                    timeout: 99999
                 }
 
                 MouseArea {
@@ -197,7 +197,7 @@ Item {
                                 : "")
                         : "内存监控插件不可用"
                     delay: 400
-                    timeout: 5000
+                    timeout: 99999
                 }
 
                 MouseArea {

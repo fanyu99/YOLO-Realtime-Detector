@@ -451,6 +451,7 @@ Window {
 
                 //  右列：内存占用
                 SectionBox {
+                visible: performanceView.memoryPanelVisible
                     sectionTitle: "内存占用"
                     Layout.fillWidth: true
                     Layout.fillHeight: true

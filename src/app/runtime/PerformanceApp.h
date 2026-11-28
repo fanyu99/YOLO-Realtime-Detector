@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QtQmlIntegration/QtQmlIntegration>
 #include <QString>
+#include <QTimer>
 #include "IPerformanceMonitor.h"
 #include "PerformanceTypes.h"
 #include "AppError.h"
@@ -37,7 +38,7 @@ class PerformanceApp : public QObject {
 		Q_PROPERTY ( BannerLevel bannerLevel READ bannerLevel NOTIFY bannerChanged )
 
 		// 内存快照
-		Q_PROPERTY ( MemorySnapshot memorySnapshot READ memorySnapshot NOTIFY memorySnapshotReady )	// 最近一次内存采样
+		Q_PROPERTY ( MemorySnapshot memorySnapshot READ memorySnapshot NOTIFY memorySnapshotChanged )	// 最近一次内存采样
 		Q_PROPERTY ( MemoryOverallStatistics overallMemorySnapshot READ overallMemorySnapshot NOTIFY overallSnapshotChanged )	// 本次运行累计的内存汇总
 		Q_PROPERTY ( bool memoryMonitorAvailable READ memoryMonitorAvailable CONSTANT )	// 内存监控插件是否加载
 
@@ -117,7 +118,7 @@ signals:
 	void contextChanged ();	// 运行上下文刷新(jobId / 模式)
 	void bannerChanged ();	// 横幅刷新
 	void errorOccurred ( const AppError& error );	// 性能监控错误进行提醒
-	void memorySnapshotReady ( const MemorySnapshot& snapshot );	// 内存监控快照
+	void memorySnapshotChanged ();	// 内存监控快照提醒
 
 public slots:
 	// 接收监测器快照，通知 QML

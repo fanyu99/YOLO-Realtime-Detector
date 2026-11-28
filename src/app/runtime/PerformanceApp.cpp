@@ -37,8 +37,7 @@ PerformanceApp::PerformanceApp ( const PerformanceConfig& config, QObject* paren
 	auto* concrete = new PerformanceMonitor ( this );
 	m_monitor.reset ( concrete );
 	// 借用内存监控插件（如果未加载，nullptr）
-	m_memoryMonitor = PluginManager::instance ()->getMemoryMonitorPlugin (
-		QString::fromLatin1 ( kPerformanceMemoryMonitorPluginId ) );
+	m_memoryMonitor = PluginManager::instance ()->getMemoryMonitorPlugin (QString::fromLatin1 ( kPerformanceMemoryMonitorPluginId ) );
 	connect ( concrete, &PerformanceMonitor::snapshotReady,
 		this, &PerformanceApp::onSnapshotReady );
 	connect ( this, &PerformanceApp::errorOccurred,
@@ -117,17 +116,15 @@ void PerformanceApp::onSnapshotReady ( const PerformanceSnapshot& snapshot ) {
 	m_snapshot = snapshot;
 	m_overallSnapshot += snapshot;
 	++m_snapshotCount;
-
-	// 同步生成快照
 	const bool memoryEnabled = calcCollectSettings ( m_config.m_level ).enableMemoryRecord;
 	if (memoryEnabled && m_memoryMonitor) {
 		if (const auto memory = m_memoryMonitor->getMemorySnapshot ()) {
 			MemorySnapshot sample = *memory;
-			sample.weightMs = snapshot.m_context.windowDurationMs > 0.0
-				? snapshot.m_context.windowDurationMs : 1.0;
+			sample.weightMs = m_snapshot.m_context.windowDurationMs > 0.0
+				? m_snapshot.m_context.windowDurationMs : 1.0;
 			m_memorySnapshot = sample;
 			m_overallMemorySnapshot += sample;
-			emit memorySnapshotReady ( m_memorySnapshot );
+			emit memorySnapshotChanged ();
 		}
 		else if (!m_memoryErrorReported) {
 			m_memoryErrorReported = true;
@@ -154,12 +151,15 @@ void PerformanceApp::onRunningChanged () {
 	// 如果开始运行，清空之前的快照和汇总快照
 	if (m_isRunning) {
 		m_snapshot = {};
-		m_overallSnapshot = {};
-		m_memorySnapshot = {};
-		m_overallMemorySnapshot = {};
 		m_snapshotCount = 0;
 		emit statsChanged ();
-		emit memorySnapshotReady (m_memorySnapshot);
+		if (m_memoryMonitor)
+		{
+			m_memorySnapshot = {};
+			m_overallMemorySnapshot = {};
+			emit memorySnapshotChanged ();
+		}
 	}
+		
 	emit overallSnapshotChanged ();
 }
